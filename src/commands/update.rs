@@ -1,21 +1,206 @@
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
+use colored::Colorize;
+use spore::{Tool, discover};
+use std::process::Command;
 
-pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
-    if check {
-        println!("Checking for updates...");
-        // TODO: check GitHub releases for each tool
+fn get_installed_version(tool: &str) -> Result<String> {
+    let output = Command::new(tool)
+        .arg("--version")
+        .output()
+        .with_context(|| format!("Failed to get version for {}", tool))?;
+
+    if !output.status.success() {
+        return Err(anyhow!("Failed to get version for {}", tool));
+    }
+
+    let version_output = String::from_utf8_lossy(&output.stdout);
+    let version = version_output
+        .split_whitespace()
+        .last()
+        .unwrap_or("unknown");
+
+    Ok(version.to_string())
+}
+
+fn fetch_latest_version(tool: &str) -> Result<String> {
+    let url = format!(
+        "https://api.github.com/repos/basidiocarp/{}/releases/latest",
+        tool
+    );
+
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .get(&url)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .with_context(|| format!("Failed to fetch release info for {}", tool))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "GitHub API error for {}: {}",
+            tool,
+            response.status()
+        ));
+    }
+
+    let data: serde_json::Value = response.json()?;
+    let version = data
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("Could not parse version from GitHub release"))?
+        .to_string();
+
+    Ok(version)
+}
+
+struct UpdateInfo {
+    installed: String,
+    latest: String,
+    update_available: bool,
+}
+
+fn check_tool_update(tool: &str) -> Result<UpdateInfo> {
+    let installed = get_installed_version(tool)?;
+    let latest = fetch_latest_version(tool)?;
+
+    let update_available = installed != latest;
+
+    Ok(UpdateInfo {
+        installed,
+        latest,
+        update_available,
+    })
+}
+
+fn update_tool(tool: &str) -> Result<()> {
+    println!("  {} Checking for updates...", "⏳".yellow());
+
+    let update_info = check_tool_update(tool)?;
+
+    if !update_info.update_available {
+        println!(
+            "  {} {} is up to date ({})",
+            "✓".green(),
+            tool,
+            update_info.installed
+        );
         return Ok(());
     }
 
-    if all {
-        println!("Updating all installed tools...");
-    } else if tools.is_empty() {
-        println!("Specify tools to update or use --all");
+    println!(
+        "  {} {} {} → {} available",
+        "↑".cyan(),
+        tool,
+        update_info.installed,
+        update_info.latest
+    );
+
+    println!("  {} Downloading and installing...", "⏳".yellow());
+
+    let output = Command::new("stipe")
+        .arg("install")
+        .arg(tool)
+        .output()
+        .with_context(|| format!("Failed to install {} update", tool))?;
+
+    if output.status.success() {
+        println!(
+            "  {} {} updated to {}",
+            "✓".green(),
+            tool,
+            update_info.latest
+        );
+        Ok(())
     } else {
-        for tool in tools {
-            println!("Updating {tool}...");
+        Err(anyhow!("Failed to update {}", tool))
+    }
+}
+
+pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
+    println!();
+    println!("{}", "Basidiocarp Ecosystem Update".bold());
+    println!("{}", "─".repeat(75));
+    println!();
+
+    let tools_to_check: Vec<&str> = if all {
+        let mut all_tools = vec![];
+
+        if discover(Tool::Mycelium).is_some() {
+            all_tools.push("mycelium");
+        }
+        if discover(Tool::Hyphae).is_some() {
+            all_tools.push("hyphae");
+        }
+        if discover(Tool::Rhizome).is_some() {
+            all_tools.push("rhizome");
+        }
+
+        if all_tools.is_empty() {
+            println!("No installed tools found. Run 'stipe install --all' first.");
+            println!();
+            return Ok(());
+        }
+
+        all_tools
+    } else if tools.is_empty() {
+        println!("Specify tools to update:");
+        println!("  {} stipe update mycelium", "→".dimmed());
+        println!("  {} stipe update hyphae rhizome", "→".dimmed());
+        println!("  {} stipe update --all", "→".dimmed());
+        println!();
+        println!("Check without installing:");
+        println!("  {} stipe update --check --all", "→".dimmed());
+        println!();
+        return Ok(());
+    } else {
+        tools.iter().map(|s| s.as_str()).collect()
+    };
+
+    for tool in &tools_to_check {
+        match check_tool_update(tool) {
+            Ok(info) => {
+                if check {
+                    if info.update_available {
+                        println!(
+                            "  {} {} {} → {}",
+                            "↑".cyan(),
+                            tool,
+                            info.installed,
+                            info.latest
+                        );
+                    } else {
+                        println!(
+                            "  {} {} is up to date ({})",
+                            "✓".green(),
+                            tool,
+                            info.installed
+                        );
+                    }
+                } else if info.update_available {
+                    if let Err(e) = update_tool(tool) {
+                        eprintln!("  {} Failed to update {}: {}", "!".red(), tool, e);
+                    }
+                } else {
+                    println!(
+                        "  {} {} is up to date ({})",
+                        "✓".green(),
+                        tool,
+                        info.installed
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "  {} Failed to check {} for updates: {}",
+                    "!".red(),
+                    tool,
+                    e
+                );
+            }
         }
     }
-    // TODO: implement update logic
+
+    println!();
+
     Ok(())
 }
