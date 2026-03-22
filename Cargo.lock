@@ -1363,7 +1363,6 @@ dependencies = [
 [[package]]
 name = "spore"
 version = "0.3.1"
-source = "git+https://github.com/basidiocarp/spore?tag=v0.3.1#ea1900f83b132ffda8665cf4a048fd64fcd9fb41"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1371,6 +1370,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "toml",
  "tracing",
  "tracing-subscriber",

@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use spore::{Tool, discover, editors};

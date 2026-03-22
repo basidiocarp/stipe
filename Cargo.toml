@@ -23,7 +23,7 @@ flate2 = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.3.1" }
+spore = { path = "../spore" }
 tar = "0.4"
 which = "7"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
