@@ -10,14 +10,19 @@ fn get_installed_version(tool: &str) -> Result<String> {
         .with_context(|| format!("Failed to get version for {}", tool))?;
 
     if !output.status.success() {
-        return Err(anyhow!("Failed to get version for {}", tool));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "Failed to get version for {}: {}",
+            tool,
+            stderr.trim()
+        ));
     }
 
     let version_output = String::from_utf8_lossy(&output.stdout);
     let version = version_output
         .split_whitespace()
         .last()
-        .unwrap_or("unknown");
+        .ok_or_else(|| anyhow!("Empty version output from {}", tool))?;
 
     Ok(version.to_string())
 }
@@ -72,7 +77,7 @@ fn check_tool_update(tool: &str) -> Result<UpdateInfo> {
     })
 }
 
-fn update_tool(tool: &str) -> Result<()> {
+fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
     println!("  {} Checking for updates...", "⏳".yellow());
 
     let update_info = check_tool_update(tool)?;
@@ -97,23 +102,21 @@ fn update_tool(tool: &str) -> Result<()> {
 
     println!("  {} Downloading and installing...", "⏳".yellow());
 
-    let output = Command::new("stipe")
-        .arg("install")
-        .arg(tool)
-        .output()
-        .with_context(|| format!("Failed to install {} update", tool))?;
+    let prefix = dirs::home_dir()
+        .ok_or_else(|| anyhow!("Could not determine home directory"))?
+        .join(".local")
+        .join("bin");
 
-    if output.status.success() {
-        println!(
-            "  {} {} updated to {}",
-            "✓".green(),
-            tool,
-            update_info.latest
-        );
-        Ok(())
-    } else {
-        Err(anyhow!("Failed to update {}", tool))
-    }
+    super::install::install_tool(tool, &prefix, true, client)?;
+
+    println!(
+        "  {} {} updated to {}",
+        "✓".green(),
+        tool,
+        update_info.latest
+    );
+
+    Ok(())
 }
 
 pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
@@ -156,6 +159,8 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
         tools.iter().map(|s| s.as_str()).collect()
     };
 
+    let client = reqwest::blocking::Client::new();
+
     for tool in &tools_to_check {
         match check_tool_update(tool) {
             Ok(info) => {
@@ -177,7 +182,7 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
                         );
                     }
                 } else if info.update_available {
-                    if let Err(e) = update_tool(tool) {
+                    if let Err(e) = update_tool(tool, &client) {
                         eprintln!("  {} Failed to update {}: {}", "!".red(), tool, e);
                     }
                 } else {

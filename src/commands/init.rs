@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use spore::{Tool, discover, editors};
@@ -23,16 +23,15 @@ fn register_mcp_for_editor(
     editor: spore::editors::Editor,
     hyphae_info: &Option<spore::ToolInfo>,
     rhizome_info: &Option<spore::ToolInfo>,
-) {
+) -> anyhow::Result<()> {
     if hyphae_info.is_some() {
         match which::which("hyphae") {
             Ok(binary_path) => {
-                match editors::register_mcp_server(
-                    editor,
-                    "hyphae",
-                    binary_path.to_str().unwrap_or("hyphae"),
-                    &["serve"],
-                ) {
+                let binary_str = binary_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("hyphae path contains invalid UTF-8"))?;
+
+                match editors::register_mcp_server(editor, "hyphae", binary_str, &["serve"]) {
                     Ok(()) => {
                         println!("  {} {}: hyphae MCP registered", "✓".green(), editor.name());
                     }
@@ -59,10 +58,14 @@ fn register_mcp_for_editor(
     if rhizome_info.is_some() {
         match which::which("rhizome") {
             Ok(binary_path) => {
+                let binary_str = binary_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("rhizome path contains invalid UTF-8"))?;
+
                 match editors::register_mcp_server(
                     editor,
                     "rhizome",
-                    binary_path.to_str().unwrap_or("rhizome"),
+                    binary_str,
                     &["serve", "--expanded"],
                 ) {
                     Ok(()) => {
@@ -91,6 +94,8 @@ fn register_mcp_for_editor(
             }
         }
     }
+
+    Ok(())
 }
 
 pub fn run(_client: Option<&str>) -> Result<()> {
@@ -159,7 +164,7 @@ pub fn run(_client: Option<&str>) -> Result<()> {
 
     for &idx in &selections {
         let editor = detected_editors[idx];
-        register_mcp_for_editor(editor, &hyphae_info, &rhizome_info);
+        register_mcp_for_editor(editor, &hyphae_info, &rhizome_info)?;
     }
 
     println!();

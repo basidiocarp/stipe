@@ -30,10 +30,10 @@ fn check_tool(tool: Tool) -> HealthCheck {
                         message: format!("v{} installed and working", info.version),
                     }
                 }
-                Err(_) => HealthCheck {
+                Err(e) => HealthCheck {
                     name: tool_name,
                     passed: false,
-                    message: "Binary found but failed to run".to_string(),
+                    message: format!("Binary found but failed to run: {e}"),
                 },
             }
         }

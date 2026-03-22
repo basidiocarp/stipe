@@ -6,48 +6,48 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug, Clone)]
+const TOOLS: &[(&str, &str)] = &[
+    ("mycelium", "token compression proxy"),
+    ("hyphae", "agent memory system"),
+    ("rhizome", "code intelligence server"),
+    ("cortina", "hook runner & session tracking"),
+];
+
+#[derive(Debug)]
 struct GitHubRelease {
     name: String,
     version: String,
     assets: Vec<ReleaseAsset>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct ReleaseAsset {
     name: String,
     download_url: String,
 }
 
-fn get_platform_key() -> String {
-    let os = if cfg!(target_os = "macos") {
-        "apple-darwin"
-    } else if cfg!(target_os = "linux") {
-        "unknown-linux-musl"
-    } else if cfg!(target_os = "windows") {
-        "pc-windows-msvc"
+fn platform_key() -> &'static str {
+    if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        "aarch64-apple-darwin"
+    } else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
+        "x86_64-apple-darwin"
+    } else if cfg!(all(target_arch = "aarch64", target_os = "linux")) {
+        "aarch64-unknown-linux-musl"
+    } else if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        "x86_64-unknown-linux-musl"
+    } else if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
+        "x86_64-pc-windows-msvc"
     } else {
         "unknown"
-    };
-
-    let arch = if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else if cfg!(target_arch = "x86_64") {
-        "x86_64"
-    } else {
-        "unknown"
-    };
-
-    format!("{}-{}", arch, os)
+    }
 }
 
-fn fetch_latest_release(tool: &str) -> Result<GitHubRelease> {
+fn fetch_latest_release(tool: &str, client: &reqwest::blocking::Client) -> Result<GitHubRelease> {
     let url = format!(
         "https://api.github.com/repos/basidiocarp/{}/releases/latest",
         tool
     );
 
-    let client = reqwest::blocking::Client::new();
     let response = client
         .get(&url)
         .header("Accept", "application/vnd.github.v3+json")
@@ -67,7 +67,7 @@ fn fetch_latest_release(tool: &str) -> Result<GitHubRelease> {
     let version = data
         .get("tag_name")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
+        .ok_or_else(|| anyhow!("GitHub release missing 'tag_name' field"))?
         .to_string();
 
     let assets: Vec<ReleaseAsset> = data
@@ -94,12 +94,14 @@ fn fetch_latest_release(tool: &str) -> Result<GitHubRelease> {
     })
 }
 
-fn find_matching_asset(release: &GitHubRelease, platform_key: &str) -> Result<ReleaseAsset> {
+fn find_matching_asset<'a>(
+    release: &'a GitHubRelease,
+    platform_key: &str,
+) -> Result<&'a ReleaseAsset> {
     release
         .assets
         .iter()
         .find(|asset| asset.name.contains(platform_key) && asset.name.ends_with(".tar.gz"))
-        .cloned()
         .ok_or_else(|| {
             anyhow!(
                 "No tar.gz asset found for {} on platform {}",
@@ -109,8 +111,11 @@ fn find_matching_asset(release: &GitHubRelease, platform_key: &str) -> Result<Re
         })
 }
 
-fn download_binary(asset: &ReleaseAsset, progress: &ProgressBar) -> Result<Vec<u8>> {
-    let client = reqwest::blocking::Client::new();
+fn download_binary(
+    asset: &ReleaseAsset,
+    progress: &ProgressBar,
+    client: &reqwest::blocking::Client,
+) -> Result<Vec<u8>> {
     let response = client
         .get(&asset.download_url)
         .send()
@@ -147,15 +152,18 @@ fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
         let mut entry = entry_result?;
         let path = entry.path()?.to_path_buf();
 
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map_or(false, |n| {
-                n == "mycelium" || n == "hyphae" || n == "rhizome" || n == "cortina" || n == "stipe"
-            })
-        {
-            entry.unpack_in(dest_dir)?;
-            binary_path = Some(dest_dir.join(path.file_name().unwrap()));
+        if let Some(file_name) = path.file_name() {
+            if let Some(name_str) = file_name.to_str() {
+                if name_str == "mycelium"
+                    || name_str == "hyphae"
+                    || name_str == "rhizome"
+                    || name_str == "cortina"
+                    || name_str == "stipe"
+                {
+                    entry.unpack_in(dest_dir)?;
+                    binary_path = Some(dest_dir.join(file_name));
+                }
+            }
         }
     }
 
@@ -176,12 +184,17 @@ fn verify_binary(path: &Path) -> Result<String> {
     Ok(version)
 }
 
-fn install_tool(tool: &str, prefix: &Path, force: bool) -> Result<()> {
+pub fn install_tool(
+    tool: &str,
+    prefix: &Path,
+    force: bool,
+    client: &reqwest::blocking::Client,
+) -> Result<()> {
     println!("  {} Fetching release information...", "⏳".yellow());
 
-    let release = fetch_latest_release(tool)?;
-    let platform_key = get_platform_key();
-    let asset = find_matching_asset(&release, &platform_key)?;
+    let release = fetch_latest_release(tool, client)?;
+    let platform_key = platform_key();
+    let asset = find_matching_asset(&release, platform_key)?;
 
     println!("  {} Found {}: {}", "✓".green(), tool, release.version);
 
@@ -205,7 +218,7 @@ fn install_tool(tool: &str, prefix: &Path, force: bool) -> Result<()> {
             .unwrap()
             .progress_chars("=>-"),
     );
-    let data = download_binary(&asset, &progress)?;
+    let data = download_binary(&asset, &progress, client)?;
 
     println!("  {} Extracting...", "⏳".yellow());
     let temp_dir = std::env::temp_dir().join(format!("stipe-{}", tool));
@@ -251,15 +264,8 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
     println!("{}", "─".repeat(75));
     println!();
 
-    let available_tools = vec![
-        ("mycelium", "token compression proxy"),
-        ("hyphae", "agent memory system"),
-        ("rhizome", "code intelligence server"),
-        ("cortina", "hook runner & session tracking"),
-    ];
-
     let tools_to_install: Vec<&str> = if all {
-        available_tools.iter().map(|(name, _)| *name).collect()
+        TOOLS.iter().map(|(name, _)| *name).collect()
     } else if !tools.is_empty() {
         tools.iter().map(|s| s.as_str()).collect()
     } else {
@@ -270,7 +276,7 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
         );
         println!();
 
-        let tool_items: Vec<(String, bool)> = available_tools
+        let tool_items: Vec<(String, bool)> = TOOLS
             .iter()
             .map(|(name, desc)| (format!("{:<15} — {}", name, desc), true))
             .collect();
@@ -286,16 +292,15 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
             return Ok(());
         }
 
-        selections
-            .iter()
-            .map(|&idx| available_tools[idx].0)
-            .collect()
+        selections.iter().map(|&idx| TOOLS[idx].0).collect()
     };
 
     println!();
 
+    let client = reqwest::blocking::Client::new();
+
     for tool in tools_to_install {
-        match install_tool(tool, &prefix, false) {
+        match install_tool(tool, &prefix, false, &client) {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("  {} Failed to install {}: {}", "!".red(), tool, e);
