@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
+use dialoguer::{MultiSelect, theme::ColorfulTheme};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -107,7 +109,7 @@ fn find_matching_asset(release: &GitHubRelease, platform_key: &str) -> Result<Re
         })
 }
 
-fn download_binary(asset: &ReleaseAsset) -> Result<Vec<u8>> {
+fn download_binary(asset: &ReleaseAsset, progress: &ProgressBar) -> Result<Vec<u8>> {
     let client = reqwest::blocking::Client::new();
     let response = client
         .get(&asset.download_url)
@@ -122,10 +124,13 @@ fn download_binary(asset: &ReleaseAsset) -> Result<Vec<u8>> {
         ));
     }
 
-    response
-        .bytes()
-        .context("Failed to read response body")
-        .map(|b| b.to_vec())
+    let total_size = response.content_length().unwrap_or(0);
+    progress.set_length(total_size);
+
+    let bytes = response.bytes().context("Failed to read response body")?;
+
+    progress.finish();
+    Ok(bytes.to_vec())
 }
 
 fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
@@ -193,7 +198,14 @@ fn install_tool(tool: &str, prefix: &Path, force: bool) -> Result<()> {
     }
 
     println!("  {} Downloading {}...", "⏳".yellow(), asset.name);
-    let data = download_binary(&asset)?;
+    let progress = ProgressBar::new(0);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("{bar:30.cyan/blue} {bytes}/{total_bytes}")
+            .unwrap()
+            .progress_chars("=>-"),
+    );
+    let data = download_binary(&asset, &progress)?;
 
     println!("  {} Extracting...", "⏳".yellow());
     let temp_dir = std::env::temp_dir().join(format!("stipe-{}", tool));
@@ -239,18 +251,48 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
     println!("{}", "─".repeat(75));
     println!();
 
+    let available_tools = vec![
+        ("mycelium", "token compression proxy"),
+        ("hyphae", "agent memory system"),
+        ("rhizome", "code intelligence server"),
+        ("cortina", "hook runner & session tracking"),
+    ];
+
     let tools_to_install: Vec<&str> = if all {
-        vec!["mycelium", "hyphae", "rhizome"]
-    } else if tools.is_empty() {
-        println!("Specify tools to install:");
-        println!("  {} stipe install mycelium", "→".dimmed());
-        println!("  {} stipe install hyphae rhizome", "→".dimmed());
-        println!("  {} stipe install --all", "→".dimmed());
-        println!();
-        return Ok(());
-    } else {
+        available_tools.iter().map(|(name, _)| *name).collect()
+    } else if !tools.is_empty() {
         tools.iter().map(|s| s.as_str()).collect()
+    } else {
+        let theme = ColorfulTheme::default();
+        println!(
+            "{}",
+            "Select tools to install (all selected by default):".bold()
+        );
+        println!();
+
+        let tool_items: Vec<(String, bool)> = available_tools
+            .iter()
+            .map(|(name, desc)| (format!("{:<15} — {}", name, desc), true))
+            .collect();
+
+        let selections = MultiSelect::with_theme(&theme)
+            .items_checked(&tool_items)
+            .interact()?;
+
+        if selections.is_empty() {
+            println!();
+            println!("{}", "No tools selected. Exiting.".yellow());
+            println!();
+            return Ok(());
+        }
+
+        selections
+            .iter()
+            .map(|&idx| available_tools[idx].0)
+            .collect()
     };
+
+    println!();
 
     for tool in tools_to_install {
         match install_tool(tool, &prefix, false) {

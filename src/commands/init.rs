@@ -1,61 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use spore::{Tool, discover};
-use std::process::Command;
-
-fn claude_is_available() -> bool {
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
-}
-
-fn mcp_exists(name: &str) -> bool {
-    Command::new("claude")
-        .args(["mcp", "get", name])
-        .output()
-        .is_ok_and(|o| o.status.success())
-}
-
-fn register_mcp(name: &str, args: &[&str]) -> Result<Option<&'static str>> {
-    if mcp_exists(name) {
-        return Ok(Some("already registered"));
-    }
-
-    let mut cmd = Command::new("claude");
-    cmd.arg("mcp")
-        .arg("add")
-        .arg("--scope")
-        .arg("user")
-        .arg(name);
-    cmd.arg("--");
-    for arg in args {
-        cmd.arg(arg);
-    }
-
-    let output = cmd.output()?;
-    if output.status.success() {
-        Ok(Some("registered"))
-    } else {
-        Ok(None)
-    }
-}
-
-fn init_hyphae_db() -> Result<()> {
-    if let Some(data_dir) = dirs::data_dir() {
-        let hyphae_dir = data_dir.join("hyphae");
-        let db_path = hyphae_dir.join("hyphae.db");
-
-        if !db_path.exists() {
-            std::fs::create_dir_all(&hyphae_dir)
-                .with_context(|| format!("Failed to create directory: {}", hyphae_dir.display()))?;
-
-            Command::new("hyphae").arg("stats").output().ok();
-        }
-    }
-
-    Ok(())
-}
+use dialoguer::{MultiSelect, theme::ColorfulTheme};
+use spore::{Tool, discover, editors};
 
 fn print_tool_status(name: &str, version: Option<&str>) {
     match version {
@@ -69,6 +15,80 @@ fn print_tool_status(name: &str, version: Option<&str>) {
                 "—",
                 "✗ not installed".red()
             );
+        }
+    }
+}
+
+fn register_mcp_for_editor(
+    editor: spore::editors::Editor,
+    hyphae_info: &Option<spore::ToolInfo>,
+    rhizome_info: &Option<spore::ToolInfo>,
+) {
+    if hyphae_info.is_some() {
+        match which::which("hyphae") {
+            Ok(binary_path) => {
+                match editors::register_mcp_server(
+                    editor,
+                    "hyphae",
+                    binary_path.to_str().unwrap_or("hyphae"),
+                    &["serve"],
+                ) {
+                    Ok(()) => {
+                        println!("  {} {}: hyphae MCP registered", "✓".green(), editor.name());
+                    }
+                    Err(e) => {
+                        println!(
+                            "  {} {}: failed to register hyphae MCP — {}",
+                            "!".yellow(),
+                            editor.name(),
+                            e
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                println!(
+                    "  {} {}: hyphae binary not found in PATH",
+                    "!".yellow(),
+                    editor.name()
+                );
+            }
+        }
+    }
+
+    if rhizome_info.is_some() {
+        match which::which("rhizome") {
+            Ok(binary_path) => {
+                match editors::register_mcp_server(
+                    editor,
+                    "rhizome",
+                    binary_path.to_str().unwrap_or("rhizome"),
+                    &["serve", "--expanded"],
+                ) {
+                    Ok(()) => {
+                        println!(
+                            "  {} {}: rhizome MCP registered",
+                            "✓".green(),
+                            editor.name()
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "  {} {}: failed to register rhizome MCP — {}",
+                            "!".yellow(),
+                            editor.name(),
+                            e
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                println!(
+                    "  {} {}: rhizome binary not found in PATH",
+                    "!".yellow(),
+                    editor.name()
+                );
+            }
         }
     }
 }
@@ -95,80 +115,62 @@ pub fn run(_client: Option<&str>) -> Result<()> {
 
     println!();
 
-    if claude_is_available() {
-        println!("{}", "Configuring Claude Code...".bold());
-        println!();
+    let detected_editors = editors::detect();
 
-        let mut configured = Vec::new();
-
-        if hyphae_info.is_some() {
-            match register_mcp("hyphae", &["hyphae", "serve"]) {
-                Ok(Some(status)) => {
-                    let msg = if status == "already registered" {
-                        "hyphae MCP (already registered)"
-                    } else {
-                        "hyphae MCP"
-                    };
-                    configured.push(msg);
-                    println!("  {} {}", "✓".green(), msg);
-                }
-                Ok(None) => {
-                    println!("  {} Failed to register hyphae MCP", "!".yellow());
-                }
-                Err(e) => {
-                    println!("  {} hyphae MCP registration error: {}", "!".yellow(), e);
-                }
-            }
-        }
-
-        if let Ok(()) = init_hyphae_db() {
-            configured.push("hyphae database initialized");
-            println!("  {} hyphae database initialized", "✓".green());
-        }
-
-        if rhizome_info.is_some() {
-            match register_mcp("rhizome", &["rhizome", "serve", "--expanded"]) {
-                Ok(Some(status)) => {
-                    let msg = if status == "already registered" {
-                        "rhizome MCP (already registered)"
-                    } else {
-                        "rhizome MCP"
-                    };
-                    configured.push(msg);
-                    println!("  {} {}", "✓".green(), msg);
-                }
-                Ok(None) => {
-                    println!("  {} Failed to register rhizome MCP", "!".yellow());
-                }
-                Err(e) => {
-                    println!("  {} rhizome MCP registration error: {}", "!".yellow(), e);
-                }
-            }
-        }
-
-        println!();
-    } else {
+    if detected_editors.is_empty() {
         println!(
-            "  {} {} not found in PATH — skipping Claude Code configuration.",
-            "!".yellow(),
-            "claude".bold()
+            "  {} No supported editors found. Supported editors: Claude Code, VS Code, Cursor, Zed, Windsurf",
+            "!".yellow()
         );
         println!();
+        println!("{}", "Configuration complete.".green());
+        println!();
+        return Ok(());
     }
+
+    println!("{}", "Configuring editors...".bold());
+    println!();
+
+    let theme = ColorfulTheme::default();
+    let editor_items: Vec<(String, bool)> = detected_editors
+        .iter()
+        .map(|editor| {
+            let name = format!("{:<15} — MCP server host", editor.name());
+            (name, true)
+        })
+        .collect();
+
+    let selections = if detected_editors.len() > 1 {
+        MultiSelect::with_theme(&theme)
+            .items_checked(&editor_items)
+            .interact()?
+    } else {
+        vec![0]
+    };
+
+    if selections.is_empty() {
+        println!();
+        println!("{}", "No editors selected. Exiting.".yellow());
+        println!();
+        return Ok(());
+    }
+
+    println!();
+
+    for &idx in &selections {
+        let editor = detected_editors[idx];
+        register_mcp_for_editor(editor, &hyphae_info, &rhizome_info);
+    }
+
+    println!();
 
     let mut missing: Vec<(&str, &str)> = Vec::new();
 
     if hyphae_info.is_none() {
-        missing.push((
-            "hyphae",
-            "cargo install --git https://github.com/basidiocarp/hyphae hyphae-cli --no-default-features",
-        ));
+        missing.push(("hyphae", "cargo install --path hyphae/crates/hyphae-cli"));
     }
     if rhizome_info.is_none() {
-        missing.push((
-            "rhizome",
-            "cargo install --git https://github.com/basidiocarp/rhizome rhizome-cli",
-        ));
+        missing.push(("rhizome", "cargo install --path rhizome/crates/rhizome-cli"));
     }
 
     if !missing.is_empty() {
