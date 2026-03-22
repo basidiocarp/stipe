@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.3] - 2026-03-22
+
+### Fixed
+
+- **Tarball extraction safety**: Replaced `.unwrap()` on `file_name()` with `if let` (prevents panic on malformed archives).
+- **Version error handling**: Propagates errors instead of using `"unknown"` sentinel that broke update comparison logic.
+- **Direct install call**: `stipe update` calls `install_tool` directly instead of spawning a subprocess (eliminates PATH hazard and re-install skip).
+- **Uninstall implemented**: Was a no-op stub, now removes binaries from `~/.local/bin/`.
+- **Doctor error detail**: Health check failures include the actual error message instead of generic text.
+- **Init error propagation**: `register_mcp_for_editor` returns `Result<()>`, non-UTF-8 path errors surface properly.
+- **Version stderr**: Update command includes stderr in error messages for diagnostics.
+
+### Changed
+
+- **Platform key**: Returns `&'static str` (compile-time constant) instead of heap-allocated `String`.
+- **Asset lookup**: Returns `&ReleaseAsset` reference instead of cloning.
+- **TOOLS constant**: Centralized tool metadata replaces scattered string literals.
+- **Shared HTTP client**: Single `reqwest::Client` created once and passed to all network functions.
+- **Spore v0.4.0**: Updated for `SporeError` migration.
+
 ## [0.1.1] - 2026-03-22
 
 ### Added
