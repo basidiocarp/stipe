@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod banner;
 mod commands;
+mod ecosystem;
 
 #[derive(Parser)]
 #[command(name = "stipe", version, about = "Basidiocarp ecosystem manager")]
