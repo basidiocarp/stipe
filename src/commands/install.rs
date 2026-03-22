@@ -325,7 +325,10 @@ mod tests {
     #[test]
     fn test_platform_key_known() {
         let key = platform_key();
-        assert_ne!(key, "unknown", "platform_key should return a known platform");
+        assert_ne!(
+            key, "unknown",
+            "platform_key should return a known platform"
+        );
         // Verify it's a supported platform
         assert!(
             matches!(
@@ -360,10 +363,7 @@ mod tests {
 
         let asset = find_matching_asset(&release, "aarch64-apple-darwin");
         assert!(asset.is_ok());
-        assert_eq!(
-            asset.unwrap().name,
-            "mycelium-aarch64-apple-darwin.tar.gz"
-        );
+        assert_eq!(asset.unwrap().name, "mycelium-aarch64-apple-darwin.tar.gz");
     }
 
     #[test]
@@ -379,11 +379,13 @@ mod tests {
 
         let asset = find_matching_asset(&release, "x86_64-pc-windows-msvc");
         assert!(asset.is_err());
-        assert!(asset
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("No tar.gz asset found"));
+        assert!(
+            asset
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("No tar.gz asset found")
+        );
     }
 
     #[test]
@@ -432,7 +434,10 @@ mod tests {
 
         assert!(result.is_ok(), "Extraction should succeed");
         let extracted_path = result.unwrap();
-        assert_eq!(extracted_path.file_name().unwrap().to_str().unwrap(), "mycelium");
+        assert_eq!(
+            extracted_path.file_name().unwrap().to_str().unwrap(),
+            "mycelium"
+        );
         assert!(extracted_path.exists(), "Binary should be extracted");
 
         // Cleanup
@@ -465,12 +470,17 @@ mod tests {
         let tarball_data = fs::read(&tarball_path).unwrap();
         let result = extract_tarball(&tarball_data, &extract_dir);
 
-        assert!(result.is_err(), "Should fail when no recognized binary found");
-        assert!(result
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("No binary found"));
+        assert!(
+            result.is_err(),
+            "Should fail when no recognized binary found"
+        );
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("No binary found")
+        );
 
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
