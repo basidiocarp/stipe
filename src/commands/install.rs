@@ -246,7 +246,7 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
         .join(".local")
         .join("bin");
 
-    println!();
+    crate::banner::print_banner();
     println!("{}", "Basidiocarp Ecosystem Installer".bold());
     println!("{}", "─".repeat(75));
     println!();

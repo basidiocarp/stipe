@@ -120,7 +120,8 @@ pub fn run() -> Result<()> {
     println!();
 
     if all_passed {
-        println!("{}", "All critical checks passed!".green());
+        crate::banner::print_banner();
+        println!("{}", "All checks passed.".green());
     } else {
         println!(
             "{}",

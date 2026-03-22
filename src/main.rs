@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod banner;
 mod commands;
 
 #[derive(Parser)]
