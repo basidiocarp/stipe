@@ -47,25 +47,28 @@ fn check_tool(tool: Tool) -> HealthCheck {
 
 fn check_hyphae_db() -> HealthCheck {
     if let Some(data_dir) = dirs::data_dir() {
-        let db_path = data_dir.join("hyphae").join("hyphae.db");
-        if db_path.exists() {
-            HealthCheck {
-                name: "hyphae database".to_string(),
-                passed: true,
-                message: "Database initialized".to_string(),
-            }
-        } else {
-            HealthCheck {
-                name: "hyphae database".to_string(),
-                passed: false,
-                message: "Database not found (run 'stipe init' to initialize)".to_string(),
-            }
-        }
+        check_hyphae_db_at_path(&data_dir.join("hyphae").join("hyphae.db"))
     } else {
         HealthCheck {
             name: "hyphae database".to_string(),
             passed: false,
             message: "Cannot determine data directory".to_string(),
+        }
+    }
+}
+
+fn check_hyphae_db_at_path(db_path: &std::path::Path) -> HealthCheck {
+    if db_path.exists() {
+        HealthCheck {
+            name: "hyphae database".to_string(),
+            passed: true,
+            message: "Database initialized".to_string(),
+        }
+    } else {
+        HealthCheck {
+            name: "hyphae database".to_string(),
+            passed: false,
+            message: "Database not found (run 'stipe init' to initialize)".to_string(),
         }
     }
 }
@@ -132,4 +135,56 @@ pub fn run() -> Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_check_hyphae_db_exists() {
+        let temp_dir = std::env::temp_dir().join("stipe-test-hyphae-exists");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let db_path = temp_dir.join("hyphae.db");
+        fs::write(&db_path, "").unwrap();
+
+        let check = check_hyphae_db_at_path(&db_path);
+        assert!(check.passed, "Should pass when database exists");
+        assert_eq!(check.name, "hyphae database");
+        assert!(check.message.contains("initialized"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_check_hyphae_db_missing() {
+        let temp_dir = std::env::temp_dir().join("stipe-test-hyphae-missing");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let db_path = temp_dir.join("nonexistent.db");
+
+        let check = check_hyphae_db_at_path(&db_path);
+        assert!(!check.passed, "Should fail when database does not exist");
+        assert_eq!(check.name, "hyphae database");
+        assert!(check.message.contains("not found"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_health_check_struct() {
+        let check = HealthCheck {
+            name: "test".to_string(),
+            passed: true,
+            message: "Test passed".to_string(),
+        };
+
+        assert_eq!(check.name, "test");
+        assert!(check.passed);
+        assert_eq!(check.message, "Test passed");
+    }
 }

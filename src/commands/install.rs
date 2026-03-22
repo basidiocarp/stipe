@@ -317,3 +317,162 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_key_known() {
+        let key = platform_key();
+        assert_ne!(key, "unknown", "platform_key should return a known platform");
+        // Verify it's a supported platform
+        assert!(
+            matches!(
+                key,
+                "aarch64-apple-darwin"
+                    | "x86_64-apple-darwin"
+                    | "aarch64-unknown-linux-musl"
+                    | "x86_64-unknown-linux-musl"
+                    | "x86_64-pc-windows-msvc"
+            ),
+            "platform_key returned unexpected value: {}",
+            key
+        );
+    }
+
+    #[test]
+    fn test_find_matching_asset_success() {
+        let release = GitHubRelease {
+            name: "mycelium".to_string(),
+            version: "v0.1.0".to_string(),
+            assets: vec![
+                ReleaseAsset {
+                    name: "mycelium-aarch64-apple-darwin.tar.gz".to_string(),
+                    download_url: "https://example.com/1".to_string(),
+                },
+                ReleaseAsset {
+                    name: "mycelium-x86_64-linux-musl.tar.gz".to_string(),
+                    download_url: "https://example.com/2".to_string(),
+                },
+            ],
+        };
+
+        let asset = find_matching_asset(&release, "aarch64-apple-darwin");
+        assert!(asset.is_ok());
+        assert_eq!(
+            asset.unwrap().name,
+            "mycelium-aarch64-apple-darwin.tar.gz"
+        );
+    }
+
+    #[test]
+    fn test_find_matching_asset_missing_platform() {
+        let release = GitHubRelease {
+            name: "mycelium".to_string(),
+            version: "v0.1.0".to_string(),
+            assets: vec![ReleaseAsset {
+                name: "mycelium-aarch64-apple-darwin.tar.gz".to_string(),
+                download_url: "https://example.com/1".to_string(),
+            }],
+        };
+
+        let asset = find_matching_asset(&release, "x86_64-pc-windows-msvc");
+        assert!(asset.is_err());
+        assert!(asset
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("No tar.gz asset found"));
+    }
+
+    #[test]
+    fn test_find_matching_asset_requires_tar_gz() {
+        let release = GitHubRelease {
+            name: "mycelium".to_string(),
+            version: "v0.1.0".to_string(),
+            assets: vec![ReleaseAsset {
+                name: "mycelium-aarch64-apple-darwin.zip".to_string(),
+                download_url: "https://example.com/1".to_string(),
+            }],
+        };
+
+        let asset = find_matching_asset(&release, "aarch64-apple-darwin");
+        assert!(asset.is_err(), "Should reject non-tar.gz files");
+    }
+
+    #[test]
+    fn test_extract_tarball_with_binary() {
+        // Create a temporary tarball with a known binary
+        let temp_dir = std::env::temp_dir().join("stipe-test-extract");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Build a small tarball with "mycelium" file
+        let tarball_path = temp_dir.join("test.tar.gz");
+        {
+            let tar_file = fs::File::create(&tarball_path).unwrap();
+            let gz = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
+            let mut tar = tar::Builder::new(gz);
+
+            // Create a simple entry
+            let mut header = tar::Header::new_gnu();
+            header.set_size(5);
+            header.set_cksum();
+
+            tar.append_data(&mut header, "mycelium", &b"hello"[..])
+                .unwrap();
+            tar.finish().unwrap();
+        }
+
+        // Extract and verify
+        let extract_dir = temp_dir.join("extract");
+        let tarball_data = fs::read(&tarball_path).unwrap();
+        let result = extract_tarball(&tarball_data, &extract_dir);
+
+        assert!(result.is_ok(), "Extraction should succeed");
+        let extracted_path = result.unwrap();
+        assert_eq!(extracted_path.file_name().unwrap().to_str().unwrap(), "mycelium");
+        assert!(extracted_path.exists(), "Binary should be extracted");
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_extract_tarball_missing_binary() {
+        let temp_dir = std::env::temp_dir().join("stipe-test-extract-fail");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Build tarball without recognized binary
+        let tarball_path = temp_dir.join("test.tar.gz");
+        {
+            let tar_file = fs::File::create(&tarball_path).unwrap();
+            let gz = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
+            let mut tar = tar::Builder::new(gz);
+
+            let mut header = tar::Header::new_gnu();
+            header.set_size(5);
+            header.set_cksum();
+
+            tar.append_data(&mut header, "unknown-binary", &b"hello"[..])
+                .unwrap();
+            tar.finish().unwrap();
+        }
+
+        let extract_dir = temp_dir.join("extract");
+        let tarball_data = fs::read(&tarball_path).unwrap();
+        let result = extract_tarball(&tarball_data, &extract_dir);
+
+        assert!(result.is_err(), "Should fail when no recognized binary found");
+        assert!(result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("No binary found"));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+}
