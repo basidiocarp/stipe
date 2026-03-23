@@ -3,17 +3,22 @@ use anyhow::{Result, anyhow};
 use colored::Colorize;
 use serde::Serialize;
 use spore::{Tool, discover};
+use std::fs;
+use std::path::PathBuf;
 
+use super::install::InstallProfile;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::ecosystem::clients::{self, McpClient};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct InitSnapshot {
     target_client: Option<String>,
+    target_is_codex: bool,
     detected_clients: Vec<String>,
     hyphae_installed: bool,
     rhizome_installed: bool,
     hyphae_db_exists: bool,
+    codex_notify_configured: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -41,13 +46,16 @@ struct InitPlan {
 }
 
 fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
-    if let Some(target) = client
-        && McpClient::from_flag(target).is_none()
-    {
-        return Err(anyhow!(
-            "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot"
-        ));
+    let target_client = client.map(ToOwned::to_owned);
+
+    if let Some(target) = client {
+        if McpClient::from_flag(target).is_none() {
+            return Err(anyhow!(
+                "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot"
+            ));
+        }
     }
+    let target_is_codex = client.and_then(McpClient::from_flag) == Some(McpClient::CodexCli);
 
     let detected_clients = clients::detect_clients()
         .into_iter()
@@ -61,13 +69,88 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
 
+    let codex_notify_configured = codex_notify_configured();
+
     Ok(InitSnapshot {
-        target_client: client.map(ToOwned::to_owned),
+        target_client,
+        target_is_codex,
         detected_clients,
         hyphae_installed,
         rhizome_installed,
         hyphae_db_exists,
+        codex_notify_configured,
     })
+}
+
+fn codex_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
+}
+
+fn codex_notify_configured() -> bool {
+    let Some(config_path) = codex_config_path() else {
+        return false;
+    };
+
+    let Ok(content) = fs::read_to_string(config_path) else {
+        return false;
+    };
+
+    let Ok(parsed) = content.parse::<toml::Value>() else {
+        return false;
+    };
+
+    parsed
+        .get("notify")
+        .and_then(toml::Value::as_array)
+        .is_some_and(|values| {
+            values.len() == 2
+                && values[0].as_str() == Some("hyphae")
+                && values[1].as_str() == Some("codex-notify")
+        })
+}
+
+fn codex_notify_detail(configured: bool) -> String {
+    if configured {
+        "Codex already points at Hyphae via notify = [\"hyphae\", \"codex-notify\"].".to_string()
+    } else {
+        "Run `hyphae init` so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"]."
+            .to_string()
+    }
+}
+
+fn preferred_install_profile(snapshot: &InitSnapshot) -> InstallProfile {
+    if snapshot.target_is_codex
+        || snapshot
+            .detected_clients
+            .iter()
+            .any(|client| client == "Codex CLI")
+    {
+        InstallProfile::Codex
+    } else {
+        InstallProfile::ClaudeCode
+    }
+}
+
+fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
+    match profile {
+        InstallProfile::Codex => RepairAction::stipe(
+            "install-codex",
+            "Install the Codex profile",
+            "Install the core local agent stack and Codex setup path before wiring MCP clients.",
+            &["install", "--profile", "codex"],
+            RepairTier::Primary,
+        ),
+        InstallProfile::Minimal
+        | InstallProfile::ClaudeCode
+        | InstallProfile::Cursor
+        | InstallProfile::FullStack => RepairAction::stipe(
+            "install-claude-code",
+            "Install the Claude Code profile",
+            "Install the core local agent stack before wiring MCP clients.",
+            &["install", "--profile", "claude-code"],
+            RepairTier::Primary,
+        ),
+    }
 }
 
 fn render_preview(snapshot: &InitSnapshot) -> Vec<String> {
@@ -162,6 +245,23 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
         },
     });
 
+    if snapshot.target_is_codex
+        || snapshot
+            .detected_clients
+            .iter()
+            .any(|client| client == "Codex CLI")
+    {
+        steps.push(InitStep {
+            status: if snapshot.codex_notify_configured {
+                InitStepStatus::AlreadyOk
+            } else {
+                InitStepStatus::Planned
+            },
+            title: "configure the Codex notify adapter".to_string(),
+            detail: codex_notify_detail(snapshot.codex_notify_configured),
+        });
+    }
+
     steps.push(InitStep {
         status: InitStepStatus::Planned,
         title: "patch CLAUDE.md with ecosystem instructions".to_string(),
@@ -174,15 +274,10 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
 
 fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
     let mut actions = Vec::new();
+    let install_profile = preferred_install_profile(snapshot);
 
     if !snapshot.hyphae_installed || !snapshot.rhizome_installed {
-        actions.push(RepairAction::stipe(
-            "install-claude-code",
-            "Install the Claude Code profile",
-            "Install the core local agent stack before wiring MCP clients.",
-            &["install", "--profile", "claude-code"],
-            RepairTier::Primary,
-        ));
+        actions.push(install_profile_repair_action(install_profile));
     }
 
     if !snapshot.hyphae_db_exists
@@ -192,10 +287,27 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         actions.push(RepairAction::stipe(
             "init",
             "Initialize the ecosystem",
-            "Apply MCP registrations, hook wiring, and Hyphae bootstrap work.",
+            "Apply MCP registrations, Codex adapter guidance, and Hyphae bootstrap work.",
             &["init"],
             RepairTier::Primary,
         ));
+    }
+
+    if snapshot.target_is_codex
+        || snapshot
+            .detected_clients
+            .iter()
+            .any(|client| client == "Codex CLI")
+    {
+        if !snapshot.codex_notify_configured {
+            actions.push(RepairAction::manual(
+                "Configure the Codex notify adapter".to_string(),
+                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
+                "hyphae init".to_string(),
+                vec!["init".to_string()],
+                RepairTier::Primary,
+            ));
+        }
     }
 
     if !snapshot.hyphae_installed {
@@ -247,10 +359,12 @@ mod tests {
     fn test_render_preview_mentions_target_client_and_actions() {
         let snapshot = InitSnapshot {
             target_client: Some("cursor".to_string()),
+            target_is_codex: false,
             detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
             hyphae_installed: true,
             rhizome_installed: false,
             hyphae_db_exists: false,
+            codex_notify_configured: false,
         };
 
         let lines = render_preview(&snapshot);
@@ -276,10 +390,12 @@ mod tests {
     fn test_render_preview_lists_detected_clients_when_unfiltered() {
         let snapshot = InitSnapshot {
             target_client: None,
+            target_is_codex: false,
             detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
             hyphae_installed: false,
             rhizome_installed: false,
             hyphae_db_exists: true,
+            codex_notify_configured: false,
         };
 
         let lines = render_preview(&snapshot);
@@ -299,10 +415,12 @@ mod tests {
     fn test_build_plan_contains_repair_actions() {
         let snapshot = InitSnapshot {
             target_client: None,
+            target_is_codex: false,
             detected_clients: vec!["Cursor".to_string()],
             hyphae_installed: false,
             rhizome_installed: true,
             hyphae_db_exists: false,
+            codex_notify_configured: false,
         };
 
         let plan = build_plan(&snapshot, true);
@@ -315,5 +433,53 @@ mod tests {
         assert!(commands.contains(&"stipe install --profile claude-code"));
         assert!(commands.contains(&"stipe init"));
         assert!(commands.contains(&"cargo install hyphae"));
+    }
+
+    #[test]
+    fn test_render_preview_mentions_codex_notify_adapter() {
+        let snapshot = InitSnapshot {
+            target_client: Some("codex".to_string()),
+            target_is_codex: true,
+            detected_clients: vec!["Codex CLI".to_string()],
+            hyphae_installed: true,
+            rhizome_installed: true,
+            hyphae_db_exists: true,
+            codex_notify_configured: false,
+        };
+
+        let lines = render_preview(&snapshot);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("configure the Codex notify adapter"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("notify = [\"hyphae\", \"codex-notify\"]"))
+        );
+    }
+
+    #[test]
+    fn test_build_plan_prefers_codex_profile_for_codex_targets() {
+        let snapshot = InitSnapshot {
+            target_client: Some("codex".to_string()),
+            target_is_codex: true,
+            detected_clients: vec!["Codex CLI".to_string()],
+            hyphae_installed: false,
+            rhizome_installed: false,
+            hyphae_db_exists: false,
+            codex_notify_configured: false,
+        };
+
+        let plan = build_plan(&snapshot, true);
+        let commands = plan
+            .repair_actions
+            .iter()
+            .map(|action| action.command.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(commands.contains(&"stipe install --profile codex"));
+        assert!(commands.contains(&"hyphae init"));
     }
 }

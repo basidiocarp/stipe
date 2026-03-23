@@ -30,6 +30,7 @@ Install profiles:
 
 - `minimal` installs `mycelium`
 - `claude-code` installs `mycelium`, `hyphae`, `rhizome`, and `cortina`
+- `codex` installs `mycelium`, `hyphae`, and `rhizome`
 - `cursor` installs `mycelium`, `hyphae`, and `rhizome`
 - `full-stack` installs all ecosystem tools
 
@@ -48,13 +49,14 @@ stipe uninstall [--all] [--dry-run] [tools...]                      Remove tools
 
 1. Discovers installed tools via spore
 2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Installs Cortina hooks (PreToolUse, PostToolUse, Stop)
-4. Creates the Hyphae database if missing
-5. Patches CLAUDE.md with ecosystem instructions
+3. Configures Codex users to run `hyphae init` so `~/.codex/config.toml` includes `notify = ["hyphae", "codex-notify"]`
+4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) for Claude Code
+5. Creates the Hyphae database if missing
+6. Patches CLAUDE.md with ecosystem instructions
 
-Supports Claude Code, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
+Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
-`stipe doctor` now also checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations.
+`stipe doctor` now also checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify adapter coverage.
 
 ## Why a Separate Tool
 

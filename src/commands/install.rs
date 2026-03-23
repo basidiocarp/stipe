@@ -18,6 +18,7 @@ const TOOLS: &[(&str, &str)] = &[
 pub enum InstallProfile {
     Minimal,
     ClaudeCode,
+    Codex,
     Cursor,
     FullStack,
 }
@@ -27,6 +28,7 @@ impl InstallProfile {
         match self {
             Self::Minimal => "minimal",
             Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
             Self::Cursor => "cursor",
             Self::FullStack => "full-stack",
         }
@@ -36,6 +38,7 @@ impl InstallProfile {
         match self {
             Self::Minimal => &["mycelium"],
             Self::ClaudeCode | Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
+            Self::Codex => &["mycelium", "hyphae", "rhizome"],
             Self::Cursor => &["mycelium", "hyphae", "rhizome"],
         }
     }
@@ -465,6 +468,10 @@ mod tests {
         assert_eq!(
             InstallProfile::ClaudeCode.tools(),
             &["mycelium", "hyphae", "rhizome", "cortina"]
+        );
+        assert_eq!(
+            InstallProfile::Codex.tools(),
+            &["mycelium", "hyphae", "rhizome"]
         );
         assert_eq!(
             InstallProfile::Cursor.tools(),

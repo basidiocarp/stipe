@@ -26,6 +26,23 @@ fn discover_cap() -> Option<String> {
     Some(version)
 }
 
+/// Detect the Codex CLI version, if available.
+pub fn discover_codex_version() -> Option<String> {
+    let output = Command::new("codex").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().last())
+        .filter(|v| v.contains('.'))
+        .unwrap_or("unknown")
+        .to_string();
+    Some(version)
+}
+
 /// Check if `claude` binary is in PATH.
 fn claude_is_available() -> bool {
     Command::new("claude")
@@ -98,6 +115,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // 1. Discover tools
     // ─────────────────────────────────────────────────────────────────────
     let cap_version = discover_cap();
+    let codex_version = discover_codex_version();
 
     // ─────────────────────────────────────────────────────────────────────
     // 2. Print ecosystem status
@@ -120,6 +138,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     let rhizome_info = discover(Tool::Rhizome);
     print_tool_status("rhizome", rhizome_info.as_ref().map(|i| i.version.as_str()));
 
+    print_tool_status("codex", codex_version.as_deref());
     print_tool_status("cap", cap_version.as_deref());
 
     println!();
@@ -144,18 +163,6 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
                 Ok(None) => eprintln!("  {} Failed to register hyphae MCP", "!".yellow()),
                 Err(e) => eprintln!("  {} hyphae MCP registration error: {}", "!".yellow(), e),
             }
-        }
-
-        // Initialize hyphae database if it doesn't exist
-        if let Some(data_dir) = hyphae_info
-            .as_ref()
-            .and(dirs::data_dir())
-            .map(|d| d.join("hyphae"))
-            .filter(|d| !d.join("hyphae.db").exists())
-        {
-            let _ = std::fs::create_dir_all(&data_dir);
-            let _ = Command::new("hyphae").arg("stats").output();
-            configured.push("hyphae database initialized");
         }
 
         // Register rhizome MCP if installed
@@ -188,9 +195,44 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 3b. Configure additional MCP clients
+    // 3b. Configure Codex CLI (if available)
     // ─────────────────────────────────────────────────────────────────────
-    configure_detected_clients(client, &hyphae_info, &rhizome_info, verbose);
+    let requested_client = client.and_then(McpClient::from_flag);
+    if requested_client == Some(McpClient::CodexCli) {
+        if codex_version.is_some() {
+            configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
+        } else {
+            println!(
+                "  {} {} not found in PATH — skipping Codex CLI configuration.",
+                "!".yellow(),
+                "codex".bold()
+            );
+            println!("    Install Codex first, then re-run: stipe init");
+        }
+    } else {
+        if codex_version.is_some() && client.is_none() {
+            configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // 3c. Initialize the Hyphae database if needed
+        // ─────────────────────────────────────────────────────────────────────
+        if let Some(data_dir) = hyphae_info
+            .as_ref()
+            .and(dirs::data_dir())
+            .map(|d| d.join("hyphae"))
+            .filter(|d| !d.join("hyphae.db").exists())
+        {
+            let _ = std::fs::create_dir_all(&data_dir);
+            let _ = Command::new("hyphae").arg("stats").output();
+            println!("  {} Hyphae database initialized", "\u{2713}".green());
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // 3d. Configure additional MCP clients
+        // ─────────────────────────────────────────────────────────────────────
+        configure_detected_clients(client, &hyphae_info, &rhizome_info, verbose);
+    }
 
     // ─────────────────────────────────────────────────────────────────────
     // 4. Print missing tool instructions
@@ -280,7 +322,56 @@ fn build_server_configs() -> Vec<ServerConfig> {
     servers
 }
 
-/// Configure detected MCP clients (other than Claude Code, which is handled separately).
+fn configure_codex_cli(
+    hyphae_info: &Option<spore::ToolInfo>,
+    rhizome_info: &Option<spore::ToolInfo>,
+    verbose: u8,
+) {
+    let mut servers = Vec::new();
+    if hyphae_info.is_some() {
+        servers.push(ServerConfig {
+            name: "hyphae".to_string(),
+            command: "hyphae".to_string(),
+            args: vec!["serve".to_string()],
+        });
+    }
+    if rhizome_info.is_some() {
+        servers.push(ServerConfig {
+            name: "rhizome".to_string(),
+            command: "rhizome".to_string(),
+            args: vec!["serve".to_string(), "--expanded".to_string()],
+        });
+    }
+
+    if servers.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("{}", "Configuring Codex CLI...".bold());
+    println!();
+
+    match clients::register_servers(McpClient::CodexCli, &servers, verbose) {
+        Ok(true) => {
+            println!();
+            println!(
+                "  {} MCP servers registered for Codex CLI:",
+                "\u{2713}".green()
+            );
+            for server in &servers {
+                println!("    - {}", server.name);
+            }
+        }
+        Ok(false) => {
+            eprintln!("  {} Codex CLI registration returned false", "!".yellow());
+        }
+        Err(e) => {
+            eprintln!("  {} Codex CLI registration failed: {}", "!".yellow(), e);
+        }
+    }
+}
+
+/// Configure detected MCP clients (other than Claude Code and Codex CLI, which are handled separately).
 #[allow(clippy::ref_option)]
 fn configure_detected_clients(
     client_filter: Option<&str>,
@@ -320,10 +411,10 @@ fn configure_detected_clients(
             return;
         }
     } else {
-        // No filter: detect all installed, skip Claude Code (already handled above)
+        // No filter: detect all installed, skip Claude Code and Codex CLI (handled above)
         clients::detect_clients()
             .into_iter()
-            .filter(|c| *c != McpClient::ClaudeCode)
+            .filter(|c| *c != McpClient::ClaudeCode && *c != McpClient::CodexCli)
             .collect()
     };
 
@@ -387,12 +478,18 @@ mod tests {
     fn test_print_tool_status_missing_does_not_panic() {
         print_tool_status("cap", None);
         print_tool_status("rhizome", None);
+        print_tool_status("codex", None);
     }
 
     #[test]
     fn test_discover_cap_does_not_panic() {
         // Cap likely not installed in test env — just verify no panic
         let _result = discover_cap();
+    }
+
+    #[test]
+    fn test_discover_codex_version_does_not_panic() {
+        let _result = discover_codex_version();
     }
 
     #[test]

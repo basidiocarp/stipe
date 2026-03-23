@@ -4,10 +4,12 @@ use serde::Serialize;
 use serde_json::Value;
 use spore::{Tool, discover};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::install::InstallProfile;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
+use crate::ecosystem::clients::{self, McpClient};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct HealthCheck {
@@ -26,7 +28,60 @@ struct DoctorReport {
     repair_actions: Vec<RepairAction>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigFormat {
+    Json,
+    Toml,
+}
+
+fn codex_cli_installed() -> bool {
+    Command::new("codex")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+fn codex_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
+}
+
+fn install_profile_action(profile: InstallProfile) -> RepairAction {
+    match profile {
+        InstallProfile::Codex => RepairAction::stipe(
+            "install-codex",
+            "Install the Codex profile",
+            "Install the core local agent stack and Codex setup path before wiring MCP clients.",
+            &["install", "--profile", "codex"],
+            RepairTier::Primary,
+        ),
+        InstallProfile::Minimal
+        | InstallProfile::ClaudeCode
+        | InstallProfile::Cursor
+        | InstallProfile::FullStack => RepairAction::stipe(
+            "install-claude-code",
+            "Install the Claude Code profile",
+            "Install the core local agent stack before wiring MCP clients.",
+            &["install", "--profile", "claude-code"],
+            RepairTier::Primary,
+        ),
+    }
+}
+
+fn preferred_install_profile() -> InstallProfile {
+    if codex_environment_present() {
+        InstallProfile::Codex
+    } else {
+        InstallProfile::ClaudeCode
+    }
+}
+
+fn codex_environment_present() -> bool {
+    codex_cli_installed() || clients::detect_clients().contains(&McpClient::CodexCli)
+}
+
 fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
+    let install_profile = preferred_install_profile();
+
     match tool {
         Tool::Mycelium => vec![RepairAction::stipe(
             "install-minimal",
@@ -36,13 +91,7 @@ fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
             RepairTier::Primary,
         )],
         Tool::Hyphae | Tool::Rhizome => vec![
-            RepairAction::stipe(
-                "install-claude-code",
-                "Install the Claude Code profile",
-                "Restore the core local agent stack and MCP servers.",
-                &["install", "--profile", "claude-code"],
-                RepairTier::Primary,
-            ),
+            install_profile_action(install_profile),
             RepairAction::stipe(
                 "install-full-stack",
                 "Install the full stack",
@@ -96,6 +145,21 @@ fn check_tool(tool: Tool) -> HealthCheck {
             message: "Not installed".to_string(),
             repair_actions: missing_tool_actions(tool),
         },
+    }
+}
+
+fn check_codex_available() -> HealthCheck {
+    let passed = codex_cli_installed();
+
+    HealthCheck {
+        name: "codex cli".to_string(),
+        passed,
+        message: if passed {
+            "Available".to_string()
+        } else {
+            "Not found in PATH (optional)".to_string()
+        },
+        repair_actions: Vec::new(),
     }
 }
 
@@ -155,32 +219,134 @@ fn installed_mcp_servers() -> Vec<&'static str> {
     servers
 }
 
-fn config_mentions_servers(content: &str, required_servers: &[&str]) -> bool {
-    let parsed: Value = match serde_json::from_str(content) {
-        Ok(value) => value,
-        Err(_) => return false,
+fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(config_path) else {
+        return false;
     };
 
-    let rendered = parsed.to_string();
-    required_servers
-        .iter()
-        .all(|server| rendered.contains(&format!("\"{server}\"")))
+    let Ok(parsed) = toml::from_str::<toml::Value>(&content) else {
+        return false;
+    };
+
+    parsed
+        .get("notify")
+        .and_then(toml::Value::as_array)
+        .is_some_and(|values| {
+            values.len() == 2
+                && values[0].as_str() == Some("hyphae")
+                && values[1].as_str() == Some("codex-notify")
+        })
 }
 
-fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf)> {
+fn check_codex_notify_adapter() -> HealthCheck {
+    let Some(config_path) = codex_config_path() else {
+        return HealthCheck {
+            name: "codex adapter".to_string(),
+            passed: false,
+            message: "Cannot determine Codex config path".to_string(),
+            repair_actions: vec![RepairAction::manual(
+                "Configure the Codex notify adapter".to_string(),
+                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
+                "hyphae init".to_string(),
+                vec!["init".to_string()],
+                RepairTier::Primary,
+            )],
+        };
+    };
+
+    if codex_notify_adapter_configured_at_path(&config_path) {
+        HealthCheck {
+            name: "codex adapter".to_string(),
+            passed: true,
+            message: "Codex notify adapter configured".to_string(),
+            repair_actions: Vec::new(),
+        }
+    } else {
+        HealthCheck {
+            name: "codex adapter".to_string(),
+            passed: false,
+            message: if config_path.exists() {
+                "Codex notify adapter missing from ~/.codex/config.toml (run 'hyphae init')"
+                    .to_string()
+            } else {
+                "Codex config not found (run 'hyphae init')".to_string()
+            },
+            repair_actions: vec![RepairAction::manual(
+                "Configure the Codex notify adapter".to_string(),
+                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
+                "hyphae init".to_string(),
+                vec!["init".to_string()],
+                RepairTier::Primary,
+            )],
+        }
+    }
+}
+
+fn config_mentions_servers(content: &str, required_servers: &[&str], format: ConfigFormat) -> bool {
+    match format {
+        ConfigFormat::Json => {
+            let parsed: Value = match serde_json::from_str(content) {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
+
+            let Some(mcp_servers) = parsed.get("mcpServers").and_then(Value::as_object) else {
+                return false;
+            };
+
+            required_servers
+                .iter()
+                .all(|server| mcp_servers.contains_key(*server))
+        }
+        ConfigFormat::Toml => {
+            let parsed: toml::Value = match toml::from_str(content) {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
+
+            let Some(mcp_servers) = parsed.get("mcp_servers").and_then(toml::Value::as_table)
+            else {
+                return false;
+            };
+
+            required_servers
+                .iter()
+                .all(|server| mcp_servers.contains_key(*server))
+        }
+    }
+}
+
+fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
 
     let mut paths = vec![
-        ("Claude Code", home.join(".claude.json")),
-        ("Cursor", home.join(".cursor").join("mcp.json")),
-        ("Windsurf", home.join(".windsurf").join("mcp.json")),
-        ("Continue", home.join(".continue").join("config.json")),
+        ("Claude Code", home.join(".claude.json"), ConfigFormat::Json),
+        (
+            "Cursor",
+            home.join(".cursor").join("mcp.json"),
+            ConfigFormat::Json,
+        ),
+        (
+            "Windsurf",
+            home.join(".windsurf").join("mcp.json"),
+            ConfigFormat::Json,
+        ),
+        (
+            "Continue",
+            home.join(".continue").join("config.json"),
+            ConfigFormat::Json,
+        ),
+        (
+            "Codex CLI",
+            home.join(".codex").join("config.toml"),
+            ConfigFormat::Toml,
+        ),
     ];
 
     if let Some(cline_path) = vscode_cline_settings_path() {
-        paths.push(("Cline", cline_path));
+        paths.push(("Cline", cline_path, ConfigFormat::Json));
     }
 
     #[cfg(target_os = "macos")]
@@ -191,6 +357,7 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf)> {
                 .join("Application Support")
                 .join("Claude")
                 .join("claude_desktop_config.json"),
+            ConfigFormat::Json,
         ));
     }
 
@@ -200,6 +367,7 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf)> {
             paths.push((
                 "Claude Desktop",
                 config_dir.join("Claude").join("claude_desktop_config.json"),
+                ConfigFormat::Json,
             ));
         }
     }
@@ -254,14 +422,14 @@ fn check_mcp_config_drift() -> HealthCheck {
     let mut found_any = false;
     let mut matching_clients = Vec::new();
 
-    for (client_name, path) in configs {
+    for (client_name, path, format) in configs {
         if !path.exists() {
             continue;
         }
 
         found_any = true;
         match fs::read_to_string(&path) {
-            Ok(content) if config_mentions_servers(&content, &required_servers) => {
+            Ok(content) if config_mentions_servers(&content, &required_servers, format) => {
                 matching_clients.push(client_name.to_string());
             }
             Ok(_) | Err(_) => {}
@@ -306,8 +474,10 @@ fn build_report() -> DoctorReport {
         check_tool(Tool::Mycelium),
         check_tool(Tool::Hyphae),
         check_tool(Tool::Rhizome),
+        check_codex_available(),
         check_hyphae_db(),
         check_mcp_config_drift(),
+        check_codex_notify_adapter(),
         check_claude_available(),
     ];
 
@@ -363,7 +533,7 @@ pub fn run(json: bool) -> Result<()> {
     } else {
         println!(
             "{}",
-            "Some checks failed. Use 'stipe init' to repair config drift or 'stipe install --profile full-stack' to restore missing tools.".yellow()
+            "Some checks failed. Use 'stipe init' to repair config drift, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore the core Codex stack.".yellow()
         );
         if !report.repair_actions.is_empty() {
             println!();
@@ -440,8 +610,57 @@ mod tests {
         let content =
             r#"{"mcpServers":{"hyphae":{"command":"hyphae"},"rhizome":{"command":"rhizome"}}}"#;
 
-        assert!(config_mentions_servers(content, &["hyphae", "rhizome"]));
-        assert!(!config_mentions_servers(content, &["hyphae", "cortina"]));
+        assert!(config_mentions_servers(
+            content,
+            &["hyphae", "rhizome"],
+            ConfigFormat::Json
+        ));
+        assert!(!config_mentions_servers(
+            content,
+            &["hyphae", "cortina"],
+            ConfigFormat::Json
+        ));
+    }
+
+    #[test]
+    fn test_config_mentions_servers_detects_codex_toml() {
+        let content = r#"
+            [mcp_servers.hyphae]
+            command = "hyphae"
+            args = ["serve"]
+
+            [mcp_servers.rhizome]
+            command = "rhizome"
+            args = ["serve", "--expanded"]
+        "#;
+
+        assert!(config_mentions_servers(
+            content,
+            &["hyphae", "rhizome"],
+            ConfigFormat::Toml
+        ));
+        assert!(!config_mentions_servers(
+            content,
+            &["hyphae", "cortina"],
+            ConfigFormat::Toml
+        ));
+    }
+
+    #[test]
+    fn test_codex_notify_adapter_configured_at_path_detects_notify_entry() {
+        let temp_dir = std::env::temp_dir().join("stipe-test-codex-notify");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let config_path = temp_dir.join("config.toml");
+        fs::write(&config_path, r#"notify = ["hyphae", "codex-notify"]"#).unwrap();
+
+        assert!(codex_notify_adapter_configured_at_path(&config_path));
+
+        fs::write(&config_path, r#"notify = ["hyphae", "something-else"]"#).unwrap();
+        assert!(!codex_notify_adapter_configured_at_path(&config_path));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
