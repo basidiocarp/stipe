@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] - 2026-03-22
+
+### Added
+
+- **Install profiles**: `minimal`, `claude-code`, `cursor`, and `full-stack` provide faster setup for common environments.
+- **Dry-run support**: `stipe install`, `stipe init`, and `stipe uninstall` can now print the planned work before making changes.
+- **Config drift checks**: `stipe doctor` now checks supported MCP client config files for missing Hyphae and Rhizome registrations.
+
+### Changed
+
+- **Onboarding guidance**: Documentation and health-check output now steer users toward profile-based installs and `stipe init` for repair.
+
 ## [0.1.3] - 2026-03-22
 
 ### Fixed

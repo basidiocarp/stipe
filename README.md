@@ -10,21 +10,28 @@ Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
-stipe install --all
+stipe install --profile full-stack
 stipe init
 ```
 
-The bootstrap installs only Stipe. `install --all` pulls Mycelium, Hyphae, Rhizome, and Cortina from GitHub releases. `init` detects your editor and configures everything.
+The bootstrap installs only Stipe. `install --profile full-stack` pulls Mycelium, Hyphae, Rhizome, and Cortina from GitHub releases. `init` detects your editor and configures everything.
+
+Install profiles:
+
+- `minimal` installs `mycelium`
+- `claude-code` installs `mycelium`, `hyphae`, `rhizome`, and `cortina`
+- `cursor` installs `mycelium`, `hyphae`, and `rhizome`
+- `full-stack` installs all ecosystem tools
 
 ## Commands
 
 ```
-stipe install [--all] [tools...]     Download tools from GitHub releases
-stipe init [--client <name>]         Register MCP servers, install hooks, init databases
-stipe doctor                         Health check across the full stack
-stipe update [--all] [--check]       Update tools to latest versions
-stipe status                         Show installed tools and versions
-stipe uninstall [--all] [tools...]   Remove tools and configuration
+stipe install [--all] [--profile <name>] [--dry-run] [tools...]     Download tools from GitHub releases
+stipe init [--client <name>] [--dry-run]                            Register MCP servers, install hooks, init databases
+stipe doctor                                                        Health check across the full stack
+stipe update [--all] [--check]                                      Update tools to latest versions
+stipe status                                                        Show installed tools and versions
+stipe uninstall [--all] [--dry-run] [tools...]                      Remove tools and configuration
 ```
 
 ## What `init` Does
@@ -36,6 +43,8 @@ stipe uninstall [--all] [tools...]   Remove tools and configuration
 5. Patches CLAUDE.md with ecosystem instructions
 
 Supports Claude Code, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
+
+`stipe doctor` now also checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations.
 
 ## Why a Separate Tool
 

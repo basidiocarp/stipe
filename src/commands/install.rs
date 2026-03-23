@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use clap::ValueEnum;
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -13,6 +14,34 @@ const TOOLS: &[(&str, &str)] = &[
     ("cortina", "hook runner & session tracking"),
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InstallProfile {
+    Minimal,
+    ClaudeCode,
+    Cursor,
+    FullStack,
+}
+
+impl InstallProfile {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::ClaudeCode => "claude-code",
+            Self::Cursor => "cursor",
+            Self::FullStack => "full-stack",
+        }
+    }
+
+    fn tools(self) -> &'static [&'static str] {
+        match self {
+            Self::Minimal => &["mycelium"],
+            Self::ClaudeCode => &["mycelium", "hyphae", "rhizome", "cortina"],
+            Self::Cursor => &["mycelium", "hyphae", "rhizome"],
+            Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
+        }
+    }
+}
+
 #[derive(Debug)]
 struct GitHubRelease {
     name: String,
@@ -24,6 +53,84 @@ struct GitHubRelease {
 struct ReleaseAsset {
     name: String,
     download_url: String,
+}
+
+fn unique_tools(base: Vec<String>, extras: &[String]) -> Vec<String> {
+    let mut ordered = base;
+    for tool in extras {
+        if !ordered.iter().any(|existing| existing == tool) {
+            ordered.push(tool.clone());
+        }
+    }
+    ordered
+}
+
+fn resolve_requested_tools(
+    all: bool,
+    profile: Option<InstallProfile>,
+    tools: &[String],
+) -> Option<Vec<String>> {
+    if all {
+        let known = TOOLS.iter().map(|(name, _)| (*name).to_string()).collect();
+        return Some(unique_tools(known, tools));
+    }
+
+    if let Some(profile) = profile {
+        let selected = profile
+            .tools()
+            .iter()
+            .map(|tool| (*tool).to_string())
+            .collect();
+        return Some(unique_tools(selected, tools));
+    }
+
+    if !tools.is_empty() {
+        return Some(tools.to_vec());
+    }
+
+    None
+}
+
+fn format_install_preview(prefix: &Path, tools: &[String], mode_label: &str) -> Vec<String> {
+    let mut lines = vec![format!("Mode: {mode_label}")];
+
+    for tool in tools {
+        let install_path = prefix.join(tool);
+        if install_path.exists() {
+            lines.push(format!(
+                "{tool}: would be skipped because {} already exists",
+                install_path.display()
+            ));
+        } else {
+            lines.push(format!(
+                "{tool}: would be downloaded and installed to {}",
+                install_path.display()
+            ));
+        }
+    }
+
+    lines
+}
+
+fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {
+    println!("{}", "Dry run: no changes will be made.".yellow());
+    println!();
+
+    if tools.is_empty() {
+        println!(
+            "{}",
+            "Interactive selection would be shown with all tools preselected.".bold()
+        );
+        println!();
+        for (tool, description) in TOOLS {
+            println!("  {:<15} {}", tool, description);
+        }
+        return;
+    }
+
+    for line in format_install_preview(prefix, tools, mode_label) {
+        println!("  {line}");
+    }
 }
 
 fn platform_key() -> &'static str {
@@ -253,7 +360,12 @@ pub fn install_tool(
     Ok(())
 }
 
-pub fn run(all: bool, tools: &[String]) -> Result<()> {
+pub fn run(
+    all: bool,
+    profile: Option<InstallProfile>,
+    dry_run: bool,
+    tools: &[String],
+) -> Result<()> {
     let prefix = dirs::home_dir()
         .ok_or_else(|| anyhow!("Could not determine home directory"))?
         .join(".local")
@@ -264,10 +376,36 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
     println!("{}", "─".repeat(75));
     println!();
 
-    let tools_to_install: Vec<&str> = if all {
-        TOOLS.iter().map(|(name, _)| *name).collect()
-    } else if !tools.is_empty() {
-        tools.iter().map(|s| s.as_str()).collect()
+    let tools_to_install = resolve_requested_tools(all, profile, tools);
+
+    if dry_run {
+        if let Some(profile) = profile {
+            println!("Selected profile: {}", profile.label().bold());
+            println!();
+        }
+
+        match tools_to_install {
+            Some(ref requested) => {
+                let label = if all {
+                    "all".to_string()
+                } else if let Some(profile) = profile {
+                    format!("profile {}", profile.label())
+                } else {
+                    "explicit tools".to_string()
+                };
+                print_install_preview(&prefix, requested, &label);
+            }
+            None => {
+                print_install_preview(&prefix, &[], "interactive selection");
+            }
+        }
+
+        println!();
+        return Ok(());
+    }
+
+    let tools_to_install: Vec<String> = if let Some(tools) = tools_to_install {
+        tools
     } else {
         let theme = ColorfulTheme::default();
         println!(
@@ -292,14 +430,17 @@ pub fn run(all: bool, tools: &[String]) -> Result<()> {
             return Ok(());
         }
 
-        selections.iter().map(|&idx| TOOLS[idx].0).collect()
+        selections
+            .iter()
+            .map(|&idx| TOOLS[idx].0.to_string())
+            .collect()
     };
 
     println!();
 
     let client = reqwest::blocking::Client::new();
 
-    for tool in tools_to_install {
+    for tool in &tools_to_install {
         match install_tool(tool, &prefix, false, &client) {
             Ok(()) => {}
             Err(e) => {
@@ -323,13 +464,96 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_profile_tools_cover_expected_sets() {
+        assert_eq!(InstallProfile::Minimal.tools(), &["mycelium"]);
+        assert_eq!(
+            InstallProfile::ClaudeCode.tools(),
+            &["mycelium", "hyphae", "rhizome", "cortina"]
+        );
+        assert_eq!(
+            InstallProfile::Cursor.tools(),
+            &["mycelium", "hyphae", "rhizome"]
+        );
+        assert_eq!(
+            InstallProfile::FullStack.tools(),
+            &["mycelium", "hyphae", "rhizome", "cortina"]
+        );
+    }
+
+    #[test]
+    fn test_resolve_requested_tools_uses_profile_and_dedupes_extras() {
+        let resolved = resolve_requested_tools(
+            false,
+            Some(InstallProfile::Cursor),
+            &["rhizome".to_string(), "cortina".to_string()],
+        )
+        .expect("profile should resolve");
+
+        assert_eq!(
+            resolved,
+            vec![
+                "mycelium".to_string(),
+                "hyphae".to_string(),
+                "rhizome".to_string(),
+                "cortina".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_resolve_requested_tools_handles_all_mode() {
+        let resolved = resolve_requested_tools(true, Some(InstallProfile::Minimal), &[]).unwrap();
+
+        assert_eq!(
+            resolved,
+            vec![
+                "mycelium".to_string(),
+                "hyphae".to_string(),
+                "rhizome".to_string(),
+                "cortina".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_format_install_preview_reports_existing_and_missing_tools() {
+        let temp_dir = std::env::temp_dir().join("stipe-install-preview");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("mycelium"), "").unwrap();
+
+        let lines = format_install_preview(
+            &temp_dir,
+            &["mycelium".to_string(), "hyphae".to_string()],
+            "profile minimal",
+        );
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Mode: profile minimal"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("mycelium") && line.contains("already exists"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("hyphae") && line.contains("would be downloaded"))
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn test_platform_key_known() {
         let key = platform_key();
         assert_ne!(
             key, "unknown",
             "platform_key should return a known platform"
         );
-        // Verify it's a supported platform
         assert!(
             matches!(
                 key,
@@ -405,19 +629,16 @@ mod tests {
 
     #[test]
     fn test_extract_tarball_with_binary() {
-        // Create a temporary tarball with a known binary
         let temp_dir = std::env::temp_dir().join("stipe-test-extract");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
-        // Build a small tarball with "mycelium" file
         let tarball_path = temp_dir.join("test.tar.gz");
         {
             let tar_file = fs::File::create(&tarball_path).unwrap();
             let gz = flate2::write::GzEncoder::new(tar_file, flate2::Compression::default());
             let mut tar = tar::Builder::new(gz);
 
-            // Create a simple entry
             let mut header = tar::Header::new_gnu();
             header.set_size(5);
             header.set_cksum();
@@ -427,7 +648,6 @@ mod tests {
             tar.finish().unwrap();
         }
 
-        // Extract and verify
         let extract_dir = temp_dir.join("extract");
         let tarball_data = fs::read(&tarball_path).unwrap();
         let result = extract_tarball(&tarball_data, &extract_dir);
@@ -440,7 +660,6 @@ mod tests {
         );
         assert!(extracted_path.exists(), "Binary should be extracted");
 
-        // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
@@ -450,7 +669,6 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
-        // Build tarball without recognized binary
         let tarball_path = temp_dir.join("test.tar.gz");
         {
             let tar_file = fs::File::create(&tarball_path).unwrap();
@@ -482,7 +700,6 @@ mod tests {
                 .contains("No binary found")
         );
 
-        // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
     }
 }

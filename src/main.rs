@@ -16,9 +16,17 @@ struct Cli {
 enum Commands {
     /// Install ecosystem tools (mycelium, hyphae, rhizome, cortina)
     Install {
+        /// Install a predefined profile
+        #[arg(long, value_enum)]
+        profile: Option<commands::install::InstallProfile>,
+
         /// Install all tools
         #[arg(long)]
         all: bool,
+
+        /// Show what would change without mutating the machine
+        #[arg(long)]
+        dry_run: bool,
 
         /// Specific tools to install
         tools: Vec<String>,
@@ -43,6 +51,10 @@ enum Commands {
         /// Target a specific MCP client
         #[arg(long)]
         client: Option<String>,
+
+        /// Show what would change without mutating the machine
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Check ecosystem health
@@ -53,6 +65,10 @@ enum Commands {
         /// Remove all tools and configuration
         #[arg(long)]
         all: bool,
+
+        /// Show what would change without mutating the machine
+        #[arg(long)]
+        dry_run: bool,
 
         /// Specific tools to remove
         tools: Vec<String>,
@@ -66,11 +82,20 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Install { all, tools } => commands::install::run(all, &tools),
+        Commands::Install {
+            profile,
+            all,
+            dry_run,
+            tools,
+        } => commands::install::run(all, profile, dry_run, &tools),
         Commands::Update { all, check, tools } => commands::update::run(all, check, &tools),
-        Commands::Init { client } => commands::init::run(client.as_deref()),
+        Commands::Init { client, dry_run } => commands::init::run(client.as_deref(), dry_run),
         Commands::Doctor => commands::doctor::run(),
-        Commands::Uninstall { all, tools } => commands::uninstall::run(all, &tools),
+        Commands::Uninstall {
+            all,
+            dry_run,
+            tools,
+        } => commands::uninstall::run(all, dry_run, &tools),
         Commands::Status => commands::status::run(),
     }
 }
