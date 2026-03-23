@@ -45,7 +45,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         && McpClient::from_flag(target).is_none()
     {
         return Err(anyhow!(
-            "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop"
+            "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot"
         ));
     }
 

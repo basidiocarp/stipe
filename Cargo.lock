@@ -1401,6 +1401,7 @@ dependencies = [
  "serde_json",
  "spore",
  "tar",
+ "toml",
  "which",
 ]
 

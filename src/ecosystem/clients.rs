@@ -20,6 +20,9 @@ pub enum McpClient {
     Cline,
     Continue,
     ClaudeDesktop,
+    CodexCli,
+    GeminiCli,
+    CopilotCli,
 }
 
 impl McpClient {
@@ -32,6 +35,9 @@ impl McpClient {
             Self::Cline => "Cline",
             Self::Continue => "Continue",
             Self::ClaudeDesktop => "Claude Desktop",
+            Self::CodexCli => "Codex CLI",
+            Self::GeminiCli => "Gemini CLI",
+            Self::CopilotCli => "Copilot CLI",
         }
     }
 
@@ -45,6 +51,9 @@ impl McpClient {
             Self::Cline => "cline",
             Self::Continue => "continue",
             Self::ClaudeDesktop => "claude-desktop",
+            Self::CodexCli => "codex",
+            Self::GeminiCli => "gemini",
+            Self::CopilotCli => "copilot",
         }
     }
 
@@ -57,6 +66,9 @@ impl McpClient {
             "cline" => Some(Self::Cline),
             "continue" => Some(Self::Continue),
             "claude-desktop" => Some(Self::ClaudeDesktop),
+            "codex" | "codex-cli" => Some(Self::CodexCli),
+            "gemini" | "gemini-cli" => Some(Self::GeminiCli),
+            "copilot" | "copilot-cli" => Some(Self::CopilotCli),
             _ => None,
         }
     }
@@ -82,10 +94,12 @@ impl McpClient {
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    // Linux: ~/.config/Claude/claude_desktop_config.json
                     dirs::config_dir().map(|d| d.join("Claude").join("claude_desktop_config.json"))
                 }
             }
+            Self::CodexCli => Some(home.join(".codex").join("config.toml")),
+            Self::GeminiCli => Some(home.join(".gemini").join("settings.json")),
+            Self::CopilotCli => Some(home.join(".copilot").join("mcp-config.json")),
         }
     }
 }
@@ -97,13 +111,16 @@ impl fmt::Display for McpClient {
 }
 
 /// All known clients in detection order.
-const ALL_CLIENTS: [McpClient; 6] = [
+const ALL_CLIENTS: [McpClient; 9] = [
     McpClient::ClaudeCode,
     McpClient::Cursor,
     McpClient::Windsurf,
     McpClient::Cline,
     McpClient::Continue,
     McpClient::ClaudeDesktop,
+    McpClient::CodexCli,
+    McpClient::GeminiCli,
+    McpClient::CopilotCli,
 ];
 
 /// Detect which MCP clients are installed on this system.
@@ -160,6 +177,10 @@ pub fn register_servers(client: McpClient, servers: &[ServerConfig], verbose: u8
             print_cline_snippet(servers);
             Ok(true)
         }
+        McpClient::GeminiCli | McpClient::CopilotCli => {
+            register_json_mcp_config(client, servers, verbose)
+        }
+        McpClient::CodexCli => register_codex_toml(servers, verbose),
     }
 }
 
@@ -404,6 +425,79 @@ fn print_cline_snippet(servers: &[ServerConfig]) {
         serde_json::to_string_pretty(&snippet).unwrap_or_default()
     );
     println!();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Codex CLI (TOML config)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn register_codex_toml(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+    let config_path = McpClient::CodexCli
+        .config_path()
+        .context("no Codex CLI config path")?;
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut root: toml::Value = if config_path.exists() {
+        let backup = config_path.with_extension("toml.bak");
+        fs::copy(&config_path, &backup)?;
+        if verbose > 0 {
+            eprintln!(
+                "  Backed up {} → {}",
+                config_path.display(),
+                backup.display()
+            );
+        }
+        let content = fs::read_to_string(&config_path)?;
+        content
+            .parse()
+            .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()))
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+
+    let root_table = root
+        .as_table_mut()
+        .context("Codex config root is not a TOML table")?;
+    let mcp_servers = root_table
+        .entry("mcp_servers")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+
+    if let Some(table) = mcp_servers.as_table_mut() {
+        for server in servers {
+            let mut entry = toml::map::Map::new();
+            entry.insert(
+                "command".to_string(),
+                toml::Value::String(server.command.clone()),
+            );
+            entry.insert(
+                "args".to_string(),
+                toml::Value::Array(
+                    server
+                        .args
+                        .iter()
+                        .map(|a| toml::Value::String(a.clone()))
+                        .collect(),
+                ),
+            );
+            table.insert(server.name.clone(), toml::Value::Table(entry));
+        }
+    }
+
+    let toml_str = toml::to_string_pretty(&root)?;
+    fs::write(&config_path, toml_str)?;
+
+    if verbose > 0 {
+        eprintln!(
+            "  Wrote {} server(s) to {}",
+            servers.len(),
+            config_path.display()
+        );
+    }
+
+    Ok(true)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
