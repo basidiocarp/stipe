@@ -8,6 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::host_policy;
+
 const TOOLS: &[(&str, &str)] = &[
     ("mycelium", "token compression proxy"),
     ("hyphae", "agent memory system"),
@@ -25,13 +27,13 @@ pub enum InstallProfile {
 }
 
 impl InstallProfile {
-    fn label(self) -> &'static str {
+    fn mode_label(self) -> &'static str {
         match self {
-            Self::Minimal => "minimal",
-            Self::ClaudeCode => "claude-code",
-            Self::Codex => "codex",
-            Self::Cursor => "cursor",
-            Self::FullStack => "full-stack",
+            Self::Minimal => "minimal profile",
+            Self::ClaudeCode => host_policy::CLAUDE_CODE_HOST_MODE_LABEL,
+            Self::Codex => host_policy::CODEX_HOST_MODE_LABEL,
+            Self::Cursor => "Cursor profile",
+            Self::FullStack => "full-stack profile",
         }
     }
 
@@ -364,7 +366,7 @@ pub fn run(
 
     if dry_run {
         if let Some(profile) = profile {
-            println!("Selected profile: {}", profile.label().bold());
+            println!("Selected mode: {}", profile.mode_label().bold());
             println!();
         }
 
@@ -373,7 +375,7 @@ pub fn run(
                 let label = if all {
                     "all".to_string()
                 } else if let Some(profile) = profile {
-                    format!("profile {}", profile.label())
+                    profile.mode_label().to_string()
                 } else {
                     "explicit tools".to_string()
                 };
@@ -513,13 +515,13 @@ mod tests {
         let lines = format_install_preview(
             &temp_dir,
             &["mycelium".to_string(), "hyphae".to_string()],
-            "profile minimal",
+            "minimal profile",
         );
 
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Mode: profile minimal"))
+                .any(|line| line.contains("Mode: minimal profile"))
         );
         assert!(
             lines
@@ -533,6 +535,15 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_profile_mode_labels_make_codex_explicit() {
+        assert_eq!(InstallProfile::Codex.mode_label(), "Codex host mode");
+        assert_eq!(
+            InstallProfile::ClaudeCode.mode_label(),
+            "Claude Code operator mode"
+        );
     }
 
     #[test]

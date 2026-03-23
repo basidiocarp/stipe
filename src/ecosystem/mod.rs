@@ -7,6 +7,7 @@ use colored::Colorize;
 use spore::{Tool, discover};
 use std::process::Command;
 
+use crate::commands::host_policy;
 use clients::{McpClient, ServerConfig};
 
 /// Cap is not in the spore `Tool` enum — detect it separately.
@@ -195,22 +196,21 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // 3b. Configure Codex CLI (if available)
+    // 3b. Configure Codex host mode (if available)
     // ─────────────────────────────────────────────────────────────────────
-    let requested_client = client.and_then(McpClient::from_flag);
-    if requested_client == Some(McpClient::CodexCli) {
+    if host_policy::codex_target_requested(client) {
         if codex_version.is_some() {
             configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
         } else {
             println!(
-                "  {} {} not found in PATH — skipping Codex CLI configuration.",
+                "  {} {} not found in PATH — skipping Codex host mode configuration.",
                 "!".yellow(),
                 "codex".bold()
             );
             println!("    Install Codex first, then re-run: stipe init");
         }
     } else {
-        if codex_version.is_some() && client.is_none() {
+        if client.is_none() && codex_version.is_some() {
             configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
         }
 
@@ -304,29 +304,13 @@ fn print_tool_status(name: &str, version: Option<&str>) {
 
 /// Build MCP server configurations from discovered tools.
 fn build_server_configs() -> Vec<ServerConfig> {
-    let mut servers = Vec::new();
-    if discover(Tool::Hyphae).is_some() {
-        servers.push(ServerConfig {
-            name: "hyphae".to_string(),
-            command: "hyphae".to_string(),
-            args: vec!["serve".to_string()],
-        });
-    }
-    if discover(Tool::Rhizome).is_some() {
-        servers.push(ServerConfig {
-            name: "rhizome".to_string(),
-            command: "rhizome".to_string(),
-            args: vec!["serve".to_string(), "--expanded".to_string()],
-        });
-    }
-    servers
+    build_ecosystem_servers(&discover(Tool::Hyphae), &discover(Tool::Rhizome))
 }
 
-fn configure_codex_cli(
+fn build_ecosystem_servers(
     hyphae_info: &Option<spore::ToolInfo>,
     rhizome_info: &Option<spore::ToolInfo>,
-    verbose: u8,
-) {
+) -> Vec<ServerConfig> {
     let mut servers = Vec::new();
     if hyphae_info.is_some() {
         servers.push(ServerConfig {
@@ -342,20 +326,29 @@ fn configure_codex_cli(
             args: vec!["serve".to_string(), "--expanded".to_string()],
         });
     }
+    servers
+}
+
+fn configure_codex_cli(
+    hyphae_info: &Option<spore::ToolInfo>,
+    rhizome_info: &Option<spore::ToolInfo>,
+    verbose: u8,
+) {
+    let servers = build_ecosystem_servers(hyphae_info, rhizome_info);
 
     if servers.is_empty() {
         return;
     }
 
     println!();
-    println!("{}", "Configuring Codex CLI...".bold());
+    println!("{}", "Configuring Codex host mode...".bold());
     println!();
 
     match clients::register_servers(McpClient::CodexCli, &servers, verbose) {
         Ok(true) => {
             println!();
             println!(
-                "  {} MCP servers registered for Codex CLI:",
+                "  {} MCP servers registered for Codex host mode:",
                 "\u{2713}".green()
             );
             for server in &servers {
@@ -363,10 +356,17 @@ fn configure_codex_cli(
             }
         }
         Ok(false) => {
-            eprintln!("  {} Codex CLI registration returned false", "!".yellow());
+            eprintln!(
+                "  {} Codex host mode registration returned false",
+                "!".yellow()
+            );
         }
         Err(e) => {
-            eprintln!("  {} Codex CLI registration failed: {}", "!".yellow(), e);
+            eprintln!(
+                "  {} Codex host mode registration failed: {}",
+                "!".yellow(),
+                e
+            );
         }
     }
 }

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::install::InstallProfile;
+use super::host_policy;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::ecosystem::clients::{self, McpClient};
 
@@ -41,46 +41,22 @@ fn codex_cli_installed() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-fn codex_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
-}
-
-fn install_profile_action(profile: InstallProfile) -> RepairAction {
-    match profile {
-        InstallProfile::Codex => RepairAction::stipe(
-            "install-codex",
-            "Install the Codex profile",
-            "Install the core local agent stack and Codex setup path before wiring MCP clients.",
-            &["install", "--profile", "codex"],
-            RepairTier::Primary,
-        ),
-        InstallProfile::Minimal
-        | InstallProfile::ClaudeCode
-        | InstallProfile::Cursor
-        | InstallProfile::FullStack => RepairAction::stipe(
-            "install-claude-code",
-            "Install the hooks-enabled profile",
-            "Install the core local agent stack before wiring MCP clients.",
-            &["install", "--profile", "claude-code"],
-            RepairTier::Primary,
-        ),
-    }
-}
-
-fn preferred_install_profile() -> InstallProfile {
-    if codex_environment_present() {
-        InstallProfile::Codex
-    } else {
-        InstallProfile::ClaudeCode
-    }
-}
-
 fn codex_environment_present() -> bool {
     codex_cli_installed() || clients::detect_clients().contains(&McpClient::CodexCli)
 }
 
 fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
-    let install_profile = preferred_install_profile();
+    let install_profile = host_policy::preferred_install_profile(
+        if codex_environment_present() {
+            Some(host_policy::CODEX_CLIENT_FLAG)
+        } else {
+            None
+        },
+        &clients::detect_clients()
+            .into_iter()
+            .map(|client| client.name().to_string())
+            .collect::<Vec<_>>(),
+    );
 
     match tool {
         Tool::Mycelium => vec![RepairAction::stipe(
@@ -91,7 +67,7 @@ fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
             RepairTier::Primary,
         )],
         Tool::Hyphae | Tool::Rhizome => vec![
-            install_profile_action(install_profile),
+            host_policy::install_profile_repair_action(install_profile),
             RepairAction::stipe(
                 "install-full-stack",
                 "Install the full stack",
@@ -220,33 +196,18 @@ fn installed_mcp_servers() -> Vec<&'static str> {
 }
 
 fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(config_path) else {
-        return false;
-    };
-
-    let Ok(parsed) = toml::from_str::<toml::Value>(&content) else {
-        return false;
-    };
-
-    parsed
-        .get("notify")
-        .and_then(toml::Value::as_array)
-        .is_some_and(|values| {
-            values.len() == 2
-                && values[0].as_str() == Some("hyphae")
-                && values[1].as_str() == Some("codex-notify")
-        })
+    host_policy::codex_notify_configured_at_path(config_path)
 }
 
 fn check_codex_notify_adapter() -> HealthCheck {
-    let Some(config_path) = codex_config_path() else {
+    let Some(config_path) = host_policy::codex_config_path() else {
         return HealthCheck {
-            name: "codex adapter".to_string(),
+            name: "codex host mode".to_string(),
             passed: false,
             message: "Cannot determine Codex config path".to_string(),
             repair_actions: vec![RepairAction::manual(
                 "Configure the Codex notify adapter".to_string(),
-                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
+                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"] and completes Codex host mode.".to_string(),
                 "hyphae init".to_string(),
                 vec!["init".to_string()],
                 RepairTier::Primary,
@@ -256,14 +217,14 @@ fn check_codex_notify_adapter() -> HealthCheck {
 
     if codex_notify_adapter_configured_at_path(&config_path) {
         HealthCheck {
-            name: "codex adapter".to_string(),
+            name: "codex host mode".to_string(),
             passed: true,
-            message: "Codex notify adapter configured".to_string(),
+            message: "Codex host mode notify adapter configured".to_string(),
             repair_actions: Vec::new(),
         }
     } else {
         HealthCheck {
-            name: "codex adapter".to_string(),
+            name: "codex host mode".to_string(),
             passed: false,
             message: if config_path.exists() {
                 "Codex notify adapter missing from ~/.codex/config.toml (run 'hyphae init')"
@@ -271,13 +232,7 @@ fn check_codex_notify_adapter() -> HealthCheck {
             } else {
                 "Codex config not found (run 'hyphae init')".to_string()
             },
-            repair_actions: vec![RepairAction::manual(
-                "Configure the Codex notify adapter".to_string(),
-                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
-                "hyphae init".to_string(),
-                vec!["init".to_string()],
-                RepairTier::Primary,
-            )],
+            repair_actions: vec![host_policy::codex_notify_repair_action()],
         }
     }
 }
@@ -532,9 +487,9 @@ pub fn run(json: bool) -> Result<()> {
         println!("{}", "All checks passed.".green());
     } else {
         println!(
-            "{}",
-            "Some checks failed. Use 'stipe init' to repair MCP registrations, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore the core Codex stack.".yellow()
-        );
+        "{}",
+        "Some checks failed. Use 'stipe init' to repair MCP registrations, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore Codex host mode.".yellow()
+    );
         if !report.repair_actions.is_empty() {
             println!();
             println!("{}", "Recommended repair actions:".bold());
@@ -673,6 +628,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(messages.iter().any(|message| message.contains("Codex")));
+    }
+
+    #[test]
+    fn test_codex_notify_helpers_are_shared() {
+        assert_eq!(
+            host_policy::codex_notify_detail(false),
+            "Run `hyphae init` to add the Codex notify adapter to ~/.codex/config.toml and complete Codex host mode."
+        );
+        assert!(host_policy::codex_target_requested(Some("codex")));
     }
 
     #[test]

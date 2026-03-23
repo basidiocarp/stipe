@@ -24,13 +24,14 @@ To install individual tools later or on a fresh machine where you already have s
 ```bash
 stipe install --all
 stipe init
+stipe host codex
 ```
 
 Install profiles:
 
 - `minimal` installs `mycelium`
 - `claude-code` installs `mycelium`, `hyphae`, `rhizome`, and `cortina`
-- `codex` installs `mycelium`, `hyphae`, and `rhizome`
+- `codex` installs `mycelium`, `hyphae`, and `rhizome` for Codex host mode
 - `cursor` installs `mycelium`, `hyphae`, and `rhizome`
 - `full-stack` installs all ecosystem tools
 
@@ -38,6 +39,7 @@ Install profiles:
 
 ```
 stipe install [--all] [--profile <name>] [--dry-run] [tools...]     Download tools from GitHub releases
+stipe host <claude-code|codex|cursor> [--dry-run]                   Install and initialize a named host mode
 stipe init [--client <name>] [--dry-run]                            Register MCP servers, install hooks and notify adapters, init databases
 stipe doctor                                                        Health check across the full stack
 stipe update [--all] [--check]                                      Update tools to latest versions
@@ -49,7 +51,7 @@ stipe uninstall [--all] [--dry-run] [tools...]                      Remove tools
 
 1. Discovers installed tools via spore
 2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Configures Codex users to run `hyphae init` so `~/.codex/config.toml` includes the Codex notify adapter
+3. Configures Codex host mode by pointing `~/.codex/config.toml` at Hyphae's notify adapter
 4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) for Claude Code
 5. Creates the Hyphae database if missing
 6. Patches CLAUDE.md with ecosystem instructions

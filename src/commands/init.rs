@@ -3,10 +3,8 @@ use anyhow::{Result, anyhow};
 use colored::Colorize;
 use serde::Serialize;
 use spore::{Tool, discover};
-use std::fs;
-use std::path::PathBuf;
 
-use super::install::InstallProfile;
+use super::host_policy;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::ecosystem::clients::{self, McpClient};
 
@@ -55,7 +53,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
             ));
         }
     }
-    let target_is_codex = client.and_then(McpClient::from_flag) == Some(McpClient::CodexCli);
+    let target_is_codex = host_policy::codex_target_requested(client);
 
     let detected_clients = clients::detect_clients()
         .into_iter()
@@ -69,7 +67,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
 
-    let codex_notify_configured = codex_notify_configured();
+    let codex_notify_configured = host_policy::codex_notify_configured();
 
     Ok(InitSnapshot {
         target_client,
@@ -82,73 +80,14 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
     })
 }
 
-fn codex_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".codex").join("config.toml"))
-}
-
-fn codex_notify_configured() -> bool {
-    let Some(config_path) = codex_config_path() else {
-        return false;
-    };
-
-    let Ok(content) = fs::read_to_string(config_path) else {
-        return false;
-    };
-
-    let Ok(parsed) = content.parse::<toml::Value>() else {
-        return false;
-    };
-
-    parsed
-        .get("notify")
-        .and_then(toml::Value::as_array)
-        .is_some_and(|values| {
-            values.len() == 2
-                && values[0].as_str() == Some("hyphae")
-                && values[1].as_str() == Some("codex-notify")
-        })
-}
-
-fn codex_notify_detail(configured: bool) -> String {
-    if configured {
-        "Codex already points at Hyphae via its notify adapter.".to_string()
+fn selected_mode_label(snapshot: &InitSnapshot) -> String {
+    if snapshot.target_is_codex {
+        "Codex host mode".to_string()
     } else {
-        "Run `hyphae init` to add the Codex notify adapter to ~/.codex/config.toml.".to_string()
-    }
-}
-
-fn preferred_install_profile(snapshot: &InitSnapshot) -> InstallProfile {
-    if snapshot.target_is_codex
-        || snapshot
-            .detected_clients
-            .iter()
-            .any(|client| client == "Codex CLI")
-    {
-        InstallProfile::Codex
-    } else {
-        InstallProfile::ClaudeCode
-    }
-}
-
-fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
-    match profile {
-        InstallProfile::Codex => RepairAction::stipe(
-            "install-codex",
-            "Install the Codex profile",
-            "Install the core local agent stack and Codex setup path before wiring MCP clients.",
-            &["install", "--profile", "codex"],
-            RepairTier::Primary,
-        ),
-        InstallProfile::Minimal
-        | InstallProfile::ClaudeCode
-        | InstallProfile::Cursor
-        | InstallProfile::FullStack => RepairAction::stipe(
-            "install-claude-code",
-            "Install the hooks-enabled profile",
-            "Install the core local agent stack before wiring MCP clients.",
-            &["install", "--profile", "claude-code"],
-            RepairTier::Primary,
-        ),
+        snapshot
+            .target_client
+            .clone()
+            .unwrap_or_else(|| "detected MCP clients".to_string())
     }
 }
 
@@ -183,10 +122,20 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
     let mut steps = Vec::new();
 
     if let Some(client) = &snapshot.target_client {
+        let title = if snapshot.target_is_codex {
+            format!("target {}", selected_mode_label(snapshot))
+        } else {
+            format!("target {client}")
+        };
         steps.push(InitStep {
             status: InitStepStatus::Planned,
-            title: format!("target {client}"),
-            detail: "Use the selected MCP client for registration.".to_string(),
+            title,
+            detail: if snapshot.target_is_codex {
+                "Use Codex host mode for registration instead of inferring setup from detection."
+                    .to_string()
+            } else {
+                "Use the selected MCP client for registration.".to_string()
+            },
         });
     } else if snapshot.detected_clients.is_empty() {
         steps.push(InitStep {
@@ -244,12 +193,10 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
         },
     });
 
-    if snapshot.target_is_codex
-        || snapshot
-            .detected_clients
-            .iter()
-            .any(|client| client == "Codex CLI")
-    {
+    if host_policy::codex_host_mode_requested(
+        snapshot.target_client.as_deref(),
+        &snapshot.detected_clients,
+    ) {
         steps.push(InitStep {
             status: if snapshot.codex_notify_configured {
                 InitStepStatus::AlreadyOk
@@ -257,7 +204,7 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
                 InitStepStatus::Planned
             },
             title: "configure the Codex notify adapter".to_string(),
-            detail: codex_notify_detail(snapshot.codex_notify_configured),
+            detail: host_policy::codex_notify_detail(snapshot.codex_notify_configured),
         });
     }
 
@@ -272,10 +219,13 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
 
 fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
     let mut actions = Vec::new();
-    let install_profile = preferred_install_profile(snapshot);
+    let install_profile = host_policy::preferred_install_profile(
+        snapshot.target_client.as_deref(),
+        &snapshot.detected_clients,
+    );
 
     if !snapshot.hyphae_installed || !snapshot.rhizome_installed {
-        actions.push(install_profile_repair_action(install_profile));
+        actions.push(host_policy::install_profile_repair_action(install_profile));
     }
 
     if !snapshot.hyphae_db_exists
@@ -285,27 +235,18 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         actions.push(RepairAction::stipe(
             "init",
             "Initialize the ecosystem",
-            "Apply MCP registrations, Codex notify guidance, and Hyphae bootstrap work.",
+            "Apply MCP registrations, Codex host mode guidance, and Hyphae bootstrap work.",
             &["init"],
             RepairTier::Primary,
         ));
     }
 
-    if snapshot.target_is_codex
-        || snapshot
-            .detected_clients
-            .iter()
-            .any(|client| client == "Codex CLI")
-    {
+    if host_policy::codex_host_mode_requested(
+        snapshot.target_client.as_deref(),
+        &snapshot.detected_clients,
+    ) {
         if !snapshot.codex_notify_configured {
-            actions.push(RepairAction::manual(
-                "Configure the Codex notify adapter".to_string(),
-                "Run hyphae init to add the Codex notify adapter to ~/.codex/config.toml."
-                    .to_string(),
-                "hyphae init".to_string(),
-                vec!["init".to_string()],
-                RepairTier::Primary,
-            ));
+            actions.push(host_policy::codex_notify_repair_action());
         }
     }
 
@@ -450,6 +391,11 @@ mod tests {
         assert!(
             lines
                 .iter()
+                .any(|line| line.contains("target Codex host mode"))
+        );
+        assert!(
+            lines
+                .iter()
                 .any(|line| line.contains("configure the Codex notify adapter"))
         );
         assert!(
@@ -480,5 +426,63 @@ mod tests {
 
         assert!(commands.contains(&"stipe install --profile codex"));
         assert!(commands.contains(&"hyphae init"));
+    }
+
+    #[test]
+    fn test_build_plan_does_not_switch_to_codex_profile_for_non_codex_targets() {
+        let snapshot = InitSnapshot {
+            target_client: Some("cursor".to_string()),
+            target_is_codex: false,
+            detected_clients: vec!["Codex CLI".to_string(), "Cursor".to_string()],
+            hyphae_installed: false,
+            rhizome_installed: false,
+            hyphae_db_exists: false,
+            codex_notify_configured: false,
+        };
+
+        let plan = build_plan(&snapshot, true);
+        let commands = plan
+            .repair_actions
+            .iter()
+            .map(|action| action.command.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(commands.contains(&"stipe install --profile claude-code"));
+        assert!(!commands.contains(&"stipe install --profile codex"));
+    }
+
+    #[test]
+    fn test_build_plan_prefers_codex_profile_when_codex_is_detected_by_default() {
+        let snapshot = InitSnapshot {
+            target_client: None,
+            target_is_codex: false,
+            detected_clients: vec!["Codex CLI".to_string()],
+            hyphae_installed: false,
+            rhizome_installed: false,
+            hyphae_db_exists: false,
+            codex_notify_configured: false,
+        };
+
+        let plan = build_plan(&snapshot, true);
+        let commands = plan
+            .repair_actions
+            .iter()
+            .map(|action| action.command.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(commands.contains(&"stipe install --profile codex"));
+    }
+
+    #[test]
+    fn test_codex_notify_helpers_use_expected_values() {
+        assert!(host_policy::codex_target_requested(Some("codex")));
+        assert!(host_policy::codex_host_mode_requested(
+            None,
+            &["Codex CLI".to_string()]
+        ));
+        assert_eq!(
+            host_policy::codex_notify_detail(true),
+            "Codex host mode already points at Hyphae via its notify adapter."
+        );
     }
 }
