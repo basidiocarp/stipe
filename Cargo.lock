@@ -1362,8 +1362,8 @@ dependencies = [
 
 [[package]]
 name = "spore"
-version = "0.4.0"
-source = "git+https://github.com/basidiocarp/spore?tag=v0.4.0#bd4843d2797f5918c9b6927bad42f98a23e34592"
+version = "0.4.2"
+source = "git+https://github.com/basidiocarp/spore?tag=v0.4.2#80d09cbef7028fcb1613c83878bc5ebcd783f9f8"
 dependencies = [
  "anyhow",
  "chrono",
