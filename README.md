@@ -10,11 +10,21 @@ Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
-stipe install --profile full-stack
-stipe init
 ```
 
-The bootstrap installs only Stipe. `install --profile full-stack` pulls Mycelium, Hyphae, Rhizome, and Cortina from GitHub releases. `init` detects your editor and configures everything.
+The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, cortina) and configures your editor's MCP servers. After that, use stipe to manage updates and health checks:
+
+```bash
+stipe doctor       # verify everything is configured
+stipe update --all # update to latest versions
+```
+
+To install individual tools later or on a fresh machine where you already have stipe:
+
+```bash
+stipe install --all
+stipe init
+```
 
 Install profiles:
 
