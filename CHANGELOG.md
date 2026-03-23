@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0] - 2026-03-23
+
+### Added
+
+- **Codex install profile**: `stipe install --profile codex` now installs the core Codex-oriented local stack.
+- **Codex-aware repair guidance**: `stipe doctor` and `stipe init --dry-run --json` now surface Codex notify adapter setup as a first-class repair path.
+
+### Changed
+
+- **Host adapter terminology**: CLI and README guidance now distinguish MCP registration, Claude hooks, and Codex notifications more explicitly instead of routing everything through Claude-centric wording.
+
 ## [0.3.0] - 2026-03-22
 
 ### Added
