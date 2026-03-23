@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-03-22
+
+### Added
+
+- **Structured repair reports**: `stipe doctor --json` and `stipe init --dry-run --json` now emit machine-readable status, planned steps, and repair actions for tooling such as Cap.
+- **Shared repair actions**: Health checks and init planning now point at concrete repair commands instead of plain text guidance.
+
+### Changed
+
+- **CLI repair output**: Human-readable doctor output now lists recommended repair commands when checks fail.
+
 ## [0.2.0] - 2026-03-22
 
 ### Added

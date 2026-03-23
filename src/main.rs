@@ -55,10 +55,18 @@ enum Commands {
         /// Show what would change without mutating the machine
         #[arg(long)]
         dry_run: bool,
+
+        /// Emit structured JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
     },
 
     /// Check ecosystem health
-    Doctor,
+    Doctor {
+        /// Emit structured JSON instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Remove ecosystem tools and configuration
     Uninstall {
@@ -89,8 +97,12 @@ fn main() -> Result<()> {
             tools,
         } => commands::install::run(all, profile, dry_run, &tools),
         Commands::Update { all, check, tools } => commands::update::run(all, check, &tools),
-        Commands::Init { client, dry_run } => commands::init::run(client.as_deref(), dry_run),
-        Commands::Doctor => commands::doctor::run(),
+        Commands::Init {
+            client,
+            dry_run,
+            json,
+        } => commands::init::run(client.as_deref(), dry_run, json),
+        Commands::Doctor { json } => commands::doctor::run(json),
         Commands::Uninstall {
             all,
             dry_run,

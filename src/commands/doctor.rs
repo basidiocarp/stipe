@@ -1,15 +1,63 @@
 use anyhow::Result;
 use colored::Colorize;
 use serde_json::Value;
+use serde::Serialize;
 use spore::{Tool, discover};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct HealthCheck {
     name: String,
     passed: bool,
     message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    repair_actions: Vec<RepairAction>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct DoctorReport {
+    healthy: bool,
+    summary: String,
+    checks: Vec<HealthCheck>,
+    repair_actions: Vec<RepairAction>,
+}
+
+fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
+    match tool {
+        Tool::Mycelium => vec![RepairAction::stipe(
+            "install-minimal",
+            "Install the minimal profile",
+            "Restore the Mycelium CLI before attempting deeper repair work.",
+            &["install", "--profile", "minimal"],
+            RepairTier::Primary,
+        )],
+        Tool::Hyphae | Tool::Rhizome => vec![
+            RepairAction::stipe(
+                "install-claude-code",
+                "Install the Claude Code profile",
+                "Restore the core local agent stack and MCP servers.",
+                &["install", "--profile", "claude-code"],
+                RepairTier::Primary,
+            ),
+            RepairAction::stipe(
+                "install-full-stack",
+                "Install the full stack",
+                "Install every supported ecosystem tool when you want the broadest local setup.",
+                &["install", "--profile", "full-stack"],
+                RepairTier::Secondary,
+            ),
+            match tool {
+                Tool::Hyphae => cargo_install_action("hyphae"),
+                Tool::Rhizome => cargo_install_action("rhizome"),
+                Tool::Mycelium | Tool::Cap => unreachable!(),
+            },
+        ],
+        Tool::Cap => Vec::new(),
+    }
 }
 
 fn check_tool(tool: Tool) -> HealthCheck {
@@ -31,12 +79,14 @@ fn check_tool(tool: Tool) -> HealthCheck {
                         name: tool_name,
                         passed: true,
                         message: format!("v{} installed and working", info.version),
+                        repair_actions: Vec::new(),
                     }
                 }
                 Err(e) => HealthCheck {
                     name: tool_name,
                     passed: false,
                     message: format!("Binary found but failed to run: {e}"),
+                    repair_actions: missing_tool_actions(tool),
                 },
             }
         }
@@ -44,6 +94,7 @@ fn check_tool(tool: Tool) -> HealthCheck {
             name: tool_name,
             passed: false,
             message: "Not installed".to_string(),
+            repair_actions: missing_tool_actions(tool),
         },
     }
 }
@@ -56,6 +107,13 @@ fn check_hyphae_db() -> HealthCheck {
             name: "hyphae database".to_string(),
             passed: false,
             message: "Cannot determine data directory".to_string(),
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Initialize the ecosystem",
+                "Bootstrap Hyphae and MCP client state on this machine.",
+                &["init"],
+                RepairTier::Primary,
+            )],
         }
     }
 }
@@ -66,12 +124,20 @@ fn check_hyphae_db_at_path(db_path: &std::path::Path) -> HealthCheck {
             name: "hyphae database".to_string(),
             passed: true,
             message: "Database initialized".to_string(),
+            repair_actions: Vec::new(),
         }
     } else {
         HealthCheck {
             name: "hyphae database".to_string(),
             passed: false,
             message: "Database not found (run 'stipe init' to initialize)".to_string(),
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Initialize the ecosystem",
+                "Create the Hyphae database and wire the local ecosystem together.",
+                &["init"],
+                RepairTier::Primary,
+            )],
         }
     }
 }
@@ -180,6 +246,7 @@ fn check_mcp_config_drift() -> HealthCheck {
             name: "mcp config".to_string(),
             passed: true,
             message: "No MCP-backed tools installed yet".to_string(),
+            repair_actions: Vec::new(),
         };
     }
 
@@ -213,6 +280,13 @@ fn check_mcp_config_drift() -> HealthCheck {
             } else {
                 "No supported MCP client config found (run 'stipe init')".to_string()
             },
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Repair MCP registrations",
+                "Re-register Hyphae and Rhizome in supported MCP clients.",
+                &["init"],
+                RepairTier::Primary,
+            )],
         };
     }
 
@@ -223,15 +297,11 @@ fn check_mcp_config_drift() -> HealthCheck {
             "MCP registrations present in {}",
             matching_clients.join(", ")
         ),
+        repair_actions: Vec::new(),
     }
 }
 
-pub fn run() -> Result<()> {
-    println!();
-    println!("{}", "Basidiocarp Ecosystem Health Check".bold());
-    println!("{}", "─".repeat(75));
-    println!();
-
+fn build_report() -> DoctorReport {
     let checks = vec![
         check_tool(Tool::Mycelium),
         check_tool(Tool::Hyphae),
@@ -241,13 +311,41 @@ pub fn run() -> Result<()> {
         check_claude_available(),
     ];
 
-    let mut all_passed = true;
+    let healthy = checks.iter().all(|check| check.passed);
+    let failing = checks.iter().filter(|check| !check.passed).count();
+    let repair_actions = dedupe_repair_actions(
+        checks
+            .iter()
+            .flat_map(|check| check.repair_actions.clone())
+            .collect(),
+    );
 
-    for check in &checks {
-        if !check.passed {
-            all_passed = false;
-        }
+    DoctorReport {
+        healthy,
+        summary: if healthy {
+            "All checks passed.".to_string()
+        } else {
+            format!("{failing} checks need attention.")
+        },
+        checks,
+        repair_actions,
+    }
+}
 
+pub fn run(json: bool) -> Result<()> {
+    let report = build_report();
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!();
+    println!("{}", "Basidiocarp Ecosystem Health Check".bold());
+    println!("{}", "─".repeat(75));
+    println!();
+
+    for check in &report.checks {
         let status = if check.passed {
             format!("{} {}", "✓".green(), check.message.green())
         } else {
@@ -259,7 +357,7 @@ pub fn run() -> Result<()> {
 
     println!();
 
-    if all_passed {
+    if report.healthy {
         crate::banner::print_banner();
         println!("{}", "All checks passed.".green());
     } else {
@@ -267,6 +365,13 @@ pub fn run() -> Result<()> {
             "{}",
             "Some checks failed. Use 'stipe init' to repair config drift or 'stipe install --profile full-stack' to restore missing tools.".yellow()
         );
+        if !report.repair_actions.is_empty() {
+            println!();
+            println!("{}", "Recommended repair actions:".bold());
+            for action in &report.repair_actions {
+                println!("  - {}", action.command);
+            }
+        }
     }
 
     println!();
@@ -288,6 +393,7 @@ fn check_claude_available() -> HealthCheck {
         } else {
             "Not found in PATH (optional)".to_string()
         },
+        repair_actions: Vec::new(),
     }
 }
 
@@ -344,10 +450,42 @@ mod tests {
             name: "test".to_string(),
             passed: true,
             message: "Test passed".to_string(),
+            repair_actions: Vec::new(),
         };
 
         assert_eq!(check.name, "test");
         assert!(check.passed);
         assert_eq!(check.message, "Test passed");
+    }
+
+    #[test]
+    fn test_build_report_includes_repair_actions_for_failures() {
+        let report = DoctorReport {
+            healthy: false,
+            summary: "1 checks need attention.".to_string(),
+            checks: vec![HealthCheck {
+                name: "hyphae database".to_string(),
+                passed: false,
+                message: "missing".to_string(),
+                repair_actions: vec![RepairAction::stipe(
+                    "init",
+                    "Initialize the ecosystem",
+                    "Create the database.",
+                    &["init"],
+                    RepairTier::Primary,
+                )],
+            }],
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Initialize the ecosystem",
+                "Create the database.",
+                &["init"],
+                RepairTier::Primary,
+            )],
+        };
+
+        assert!(!report.healthy);
+        assert_eq!(report.repair_actions.len(), 1);
+        assert_eq!(report.repair_actions[0].command, "stipe init");
     }
 }
