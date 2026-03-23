@@ -59,7 +59,7 @@ fn install_profile_action(profile: InstallProfile) -> RepairAction {
         | InstallProfile::Cursor
         | InstallProfile::FullStack => RepairAction::stipe(
             "install-claude-code",
-            "Install the Claude Code profile",
+            "Install the hooks-enabled profile",
             "Install the core local agent stack before wiring MCP clients.",
             &["install", "--profile", "claude-code"],
             RepairTier::Primary,
@@ -533,7 +533,7 @@ pub fn run(json: bool) -> Result<()> {
     } else {
         println!(
             "{}",
-            "Some checks failed. Use 'stipe init' to repair config drift, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore the core Codex stack.".yellow()
+            "Some checks failed. Use 'stipe init' to repair MCP registrations, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore the core Codex stack.".yellow()
         );
         if !report.repair_actions.is_empty() {
             println!();
@@ -661,6 +661,18 @@ mod tests {
         assert!(!codex_notify_adapter_configured_at_path(&config_path));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_build_report_mentions_hooks_and_notify_separately() {
+        let report = build_report();
+        let messages = report
+            .checks
+            .iter()
+            .map(|check| check.message.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(messages.iter().any(|message| message.contains("Codex")));
     }
 
     #[test]

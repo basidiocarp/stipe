@@ -111,10 +111,9 @@ fn codex_notify_configured() -> bool {
 
 fn codex_notify_detail(configured: bool) -> String {
     if configured {
-        "Codex already points at Hyphae via notify = [\"hyphae\", \"codex-notify\"].".to_string()
+        "Codex already points at Hyphae via its notify adapter.".to_string()
     } else {
-        "Run `hyphae init` so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"]."
-            .to_string()
+        "Run `hyphae init` to add the Codex notify adapter to ~/.codex/config.toml.".to_string()
     }
 }
 
@@ -145,7 +144,7 @@ fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
         | InstallProfile::Cursor
         | InstallProfile::FullStack => RepairAction::stipe(
             "install-claude-code",
-            "Install the Claude Code profile",
+            "Install the hooks-enabled profile",
             "Install the core local agent stack before wiring MCP clients.",
             &["install", "--profile", "claude-code"],
             RepairTier::Primary,
@@ -264,9 +263,8 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
 
     steps.push(InitStep {
         status: InitStepStatus::Planned,
-        title: "patch CLAUDE.md with ecosystem instructions".to_string(),
-        detail: "Keep the local Claude Code instructions aligned with the installed ecosystem."
-            .to_string(),
+        title: "patch the local instruction file with ecosystem guidance".to_string(),
+        detail: "Keep the workspace instructions aligned with the installed ecosystem.".to_string(),
     });
 
     steps
@@ -287,7 +285,7 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         actions.push(RepairAction::stipe(
             "init",
             "Initialize the ecosystem",
-            "Apply MCP registrations, Codex adapter guidance, and Hyphae bootstrap work.",
+            "Apply MCP registrations, Codex notify guidance, and Hyphae bootstrap work.",
             &["init"],
             RepairTier::Primary,
         ));
@@ -302,7 +300,8 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         if !snapshot.codex_notify_configured {
             actions.push(RepairAction::manual(
                 "Configure the Codex notify adapter".to_string(),
-                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"].".to_string(),
+                "Run hyphae init to add the Codex notify adapter to ~/.codex/config.toml."
+                    .to_string(),
                 "hyphae init".to_string(),
                 vec!["init".to_string()],
                 RepairTier::Primary,
@@ -456,7 +455,7 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("notify = [\"hyphae\", \"codex-notify\"]"))
+                .any(|line| line.contains("Codex notify adapter"))
         );
     }
 

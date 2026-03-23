@@ -1,6 +1,6 @@
 # Stipe
 
-Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers MCP servers with your editor, wires up hooks, and runs health checks. One binary replaces the shell scripts and the 4,000 lines of ecosystem management that used to live in Mycelium.
+Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers MCP servers with your editor, wires up hook and notification adapters, and runs health checks. One binary replaces the shell scripts and the 4,000 lines of ecosystem management that used to live in Mycelium.
 
 Named after the mushroom's stem—the structural support connecting all parts.
 
@@ -38,7 +38,7 @@ Install profiles:
 
 ```
 stipe install [--all] [--profile <name>] [--dry-run] [tools...]     Download tools from GitHub releases
-stipe init [--client <name>] [--dry-run]                            Register MCP servers, install hooks, init databases
+stipe init [--client <name>] [--dry-run]                            Register MCP servers, install hooks and notify adapters, init databases
 stipe doctor                                                        Health check across the full stack
 stipe update [--all] [--check]                                      Update tools to latest versions
 stipe status                                                        Show installed tools and versions
@@ -49,7 +49,7 @@ stipe uninstall [--all] [--dry-run] [tools...]                      Remove tools
 
 1. Discovers installed tools via spore
 2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Configures Codex users to run `hyphae init` so `~/.codex/config.toml` includes `notify = ["hyphae", "codex-notify"]`
+3. Configures Codex users to run `hyphae init` so `~/.codex/config.toml` includes the Codex notify adapter
 4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) for Claude Code
 5. Creates the Hyphae database if missing
 6. Patches CLAUDE.md with ecosystem instructions
