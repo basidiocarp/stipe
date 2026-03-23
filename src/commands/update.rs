@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
+use reqwest::blocking::Client;
 use spore::{Tool, discover};
 use std::process::Command;
 
@@ -26,25 +27,13 @@ fn get_installed_version(tool: &str) -> Result<String> {
     Ok(version.to_string())
 }
 
-fn fetch_latest_version(tool: &str) -> Result<String> {
+fn fetch_latest_version(tool: &str, client: &Client) -> Result<String> {
     let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
-
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .get(&url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .with_context(|| format!("Failed to fetch release info for {tool}"))?;
-
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "GitHub API error for {}: {}",
-            tool,
-            response.status()
-        ));
-    }
-
-    let data: serde_json::Value = response.json()?;
+    let data = crate::commands::github::get_github_json(
+        client,
+        &url,
+        &format!("latest release for {tool}"),
+    )?;
     let version = data
         .get("tag_name")
         .and_then(|v| v.as_str())
@@ -60,9 +49,9 @@ struct UpdateInfo {
     update_available: bool,
 }
 
-fn check_tool_update(tool: &str) -> Result<UpdateInfo> {
+fn check_tool_update(tool: &str, client: &Client) -> Result<UpdateInfo> {
     let installed = get_installed_version(tool)?;
-    let latest = fetch_latest_version(tool)?;
+    let latest = fetch_latest_version(tool, client)?;
 
     let update_available = installed != latest;
 
@@ -76,7 +65,7 @@ fn check_tool_update(tool: &str) -> Result<UpdateInfo> {
 fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
     println!("  {} Checking for updates...", "⏳".yellow());
 
-    let update_info = check_tool_update(tool)?;
+    let update_info = check_tool_update(tool, client)?;
 
     if !update_info.update_available {
         println!(
@@ -156,10 +145,10 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
         tools.iter().map(String::as_str).collect()
     };
 
-    let client = reqwest::blocking::Client::new();
+    let client = crate::commands::github::github_client()?;
 
     for tool in &tools_to_check {
-        match check_tool_update(tool) {
+        match check_tool_update(tool, &client) {
             Ok(info) => {
                 if check {
                     if info.update_available {

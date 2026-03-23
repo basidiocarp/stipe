@@ -3,6 +3,7 @@ use clap::ValueEnum;
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::blocking::Client;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -151,24 +152,13 @@ fn platform_key() -> &'static str {
     }
 }
 
-fn fetch_latest_release(tool: &str, client: &reqwest::blocking::Client) -> Result<GitHubRelease> {
+fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHubRelease> {
     let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
-
-    let response = client
-        .get(&url)
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .with_context(|| format!("Failed to fetch latest release for {tool}"))?;
-
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "GitHub API error for {}: {}",
-            tool,
-            response.status()
-        ));
-    }
-
-    let data: serde_json::Value = response.json().context("Failed to parse release JSON")?;
+    let data = crate::commands::github::get_github_json(
+        client,
+        &url,
+        &format!("latest release for {tool}"),
+    )?;
 
     let version = data
         .get("tag_name")
@@ -220,7 +210,7 @@ fn find_matching_asset<'a>(
 fn download_binary(
     asset: &ReleaseAsset,
     progress: &ProgressBar,
-    client: &reqwest::blocking::Client,
+    client: &Client,
 ) -> Result<Vec<u8>> {
     let response = client
         .get(&asset.download_url)
@@ -290,12 +280,7 @@ fn verify_binary(path: &Path) -> Result<String> {
     Ok(version)
 }
 
-pub fn install_tool(
-    tool: &str,
-    prefix: &Path,
-    force: bool,
-    client: &reqwest::blocking::Client,
-) -> Result<()> {
+pub fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> Result<()> {
     println!("  {} Fetching release information...", "⏳".yellow());
 
     let release = fetch_latest_release(tool, client)?;
@@ -437,7 +422,7 @@ pub fn run(
 
     println!();
 
-    let client = reqwest::blocking::Client::new();
+    let client = crate::commands::github::github_client()?;
 
     for tool in &tools_to_install {
         match install_tool(tool, &prefix, false, &client) {

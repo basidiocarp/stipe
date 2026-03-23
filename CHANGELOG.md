@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-03-23
+
+### Fixed
+
+- **GitHub updater 403s**: `stipe install` and `stipe update` now send a proper GitHub `User-Agent`, use `GH_TOKEN` / `GITHUB_TOKEN` when available, and report rate-limit failures more clearly instead of surfacing opaque `403 Forbidden` errors.
+
 ## [0.4.0] - 2026-03-23
 
 ### Added

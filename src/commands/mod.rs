@@ -1,4 +1,5 @@
 pub mod doctor;
+pub mod github;
 pub mod init;
 pub mod install;
 pub mod repair;
