@@ -1,7 +1,7 @@
 use crate::ecosystem;
 use anyhow::{Result, anyhow};
-use serde::Serialize;
 use colored::Colorize;
+use serde::Serialize;
 use spore::{Tool, discover};
 
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
@@ -45,8 +45,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         && McpClient::from_flag(target).is_none()
     {
         return Err(anyhow!(
-            "Unknown client '{}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop",
-            target
+            "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop"
         ));
     }
 
@@ -255,11 +254,7 @@ mod tests {
         };
 
         let lines = render_preview(&snapshot);
-        assert!(
-            lines
-                .iter()
-                .any(|line| line.contains("target cursor"))
-        );
+        assert!(lines.iter().any(|line| line.contains("target cursor")));
         assert!(
             lines
                 .iter()

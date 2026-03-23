@@ -133,7 +133,7 @@ fn is_installed(client: McpClient) -> bool {
         _ => client.config_path().is_some_and(|p| {
             // For Cursor/Windsurf: check parent dir exists (app installed)
             // For Continue/ClaudeDesktop: check config file or parent dir
-            p.exists() || p.parent().is_some_and(|d| d.exists())
+            p.exists() || p.parent().is_some_and(std::path::Path::exists)
         }),
     }
 }

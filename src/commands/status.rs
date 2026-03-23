@@ -1,6 +1,7 @@
 use anyhow::Result;
 use spore::{Tool, discover};
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn run() -> Result<()> {
     println!("Basidiocarp Ecosystem Status");
     println!("{}", "─".repeat(40));

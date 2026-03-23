@@ -7,13 +7,12 @@ fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
         .arg("--version")
         .output()
-        .with_context(|| format!("Failed to get version for {}", tool))?;
+        .with_context(|| format!("Failed to get version for {tool}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!(
-            "Failed to get version for {}: {}",
-            tool,
+            "Failed to get version for {tool}: {}",
             stderr.trim()
         ));
     }
@@ -22,23 +21,20 @@ fn get_installed_version(tool: &str) -> Result<String> {
     let version = version_output
         .split_whitespace()
         .last()
-        .ok_or_else(|| anyhow!("Empty version output from {}", tool))?;
+        .ok_or_else(|| anyhow!("Empty version output from {tool}"))?;
 
     Ok(version.to_string())
 }
 
 fn fetch_latest_version(tool: &str) -> Result<String> {
-    let url = format!(
-        "https://api.github.com/repos/basidiocarp/{}/releases/latest",
-        tool
-    );
+    let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
 
     let client = reqwest::blocking::Client::new();
     let response = client
         .get(&url)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
-        .with_context(|| format!("Failed to fetch release info for {}", tool))?;
+        .with_context(|| format!("Failed to fetch release info for {tool}"))?;
 
     if !response.status().is_success() {
         return Err(anyhow!(
@@ -119,6 +115,7 @@ fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
     println!();
     println!("{}", "Basidiocarp Ecosystem Update".bold());
@@ -156,7 +153,7 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
         println!();
         return Ok(());
     } else {
-        tools.iter().map(|s| s.as_str()).collect()
+        tools.iter().map(String::as_str).collect()
     };
 
     let client = reqwest::blocking::Client::new();

@@ -27,7 +27,10 @@ impl RepairAction {
         args: &[&str],
         tier: RepairTier,
     ) -> Self {
-        let args_vec = args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+        let args_vec = args
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect::<Vec<_>>();
         Self {
             action_key: Some(action_key.to_string()),
             label: label.to_string(),

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::Colorize;
-use serde_json::Value;
 use serde::Serialize;
+use serde_json::Value;
 use spore::{Tool, discover};
 use std::fs;
 use std::path::PathBuf;
@@ -61,7 +61,7 @@ fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
 }
 
 fn check_tool(tool: Tool) -> HealthCheck {
-    let tool_name = format!("{:?}", tool).to_lowercase();
+    let tool_name = format!("{tool:?}").to_lowercase();
 
     match discover(tool) {
         Some(info) => {

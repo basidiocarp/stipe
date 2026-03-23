@@ -35,9 +35,8 @@ impl InstallProfile {
     fn tools(self) -> &'static [&'static str] {
         match self {
             Self::Minimal => &["mycelium"],
-            Self::ClaudeCode => &["mycelium", "hyphae", "rhizome", "cortina"],
+            Self::ClaudeCode | Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
             Self::Cursor => &["mycelium", "hyphae", "rhizome"],
-            Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
         }
     }
 }
@@ -123,7 +122,7 @@ fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {
         );
         println!();
         for (tool, description) in TOOLS {
-            println!("  {:<15} {}", tool, description);
+            println!("  {tool:<15} {description}");
         }
         return;
     }
@@ -150,16 +149,13 @@ fn platform_key() -> &'static str {
 }
 
 fn fetch_latest_release(tool: &str, client: &reqwest::blocking::Client) -> Result<GitHubRelease> {
-    let url = format!(
-        "https://api.github.com/repos/basidiocarp/{}/releases/latest",
-        tool
-    );
+    let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
 
     let response = client
         .get(&url)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
-        .with_context(|| format!("Failed to fetch latest release for {}", tool))?;
+        .with_context(|| format!("Failed to fetch latest release for {tool}"))?;
 
     if !response.status().is_success() {
         return Err(anyhow!(
@@ -325,10 +321,10 @@ pub fn install_tool(
             .unwrap()
             .progress_chars("=>-"),
     );
-    let data = download_binary(&asset, &progress, client)?;
+    let data = download_binary(asset, &progress, client)?;
 
     println!("  {} Extracting...", "⏳".yellow());
-    let temp_dir = std::env::temp_dir().join(format!("stipe-{}", tool));
+    let temp_dir = std::env::temp_dir().join(format!("stipe-{tool}"));
     let extracted_path = extract_tarball(&data, &temp_dir)?;
 
     println!("  {} Verifying...", "⏳".yellow());
@@ -416,7 +412,7 @@ pub fn run(
 
         let tool_items: Vec<(String, bool)> = TOOLS
             .iter()
-            .map(|(name, desc)| (format!("{:<15} — {}", name, desc), true))
+            .map(|(name, desc)| (format!("{name:<15} — {desc}"), true))
             .collect();
 
         let selections = MultiSelect::with_theme(&theme)

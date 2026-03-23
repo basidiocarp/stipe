@@ -82,6 +82,7 @@ fn register_mcp(name: &str, args: &[&str], verbose: u8) -> Result<Option<&'stati
 }
 
 /// Main entry point for ecosystem setup.
+#[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
 pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // Handle --client generic: just print JSON snippet and exit
     if client
@@ -174,7 +175,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
             println!();
             println!("  {} Configured:", "\u{2713}".green());
             for item in &configured {
-                println!("    - {}", item);
+                println!("    - {item}");
             }
         }
     } else {
@@ -235,30 +236,27 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
 
 /// Print a single tool's status line.
 fn print_tool_status(name: &str, version: Option<&str>) {
-    match version {
-        Some(v) => {
-            println!(
-                "  {:<10}v{:<8}{}",
-                name.bold(),
-                v,
-                "\u{2713} installed".green()
-            );
-        }
-        None => {
-            let hint = match name {
-                "cap" => {
-                    " (optional: git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all)"
-                }
-                _ => "",
-            };
-            println!(
-                "  {:<10}{:<8} {}{}",
-                name.bold(),
-                "\u{2014}",
-                "\u{2717} not installed".red(),
-                hint.dimmed()
-            );
-        }
+    if let Some(v) = version {
+        println!(
+            "  {:<10}v{:<8}{}",
+            name.bold(),
+            v,
+            "\u{2713} installed".green()
+        );
+    } else {
+        let hint = match name {
+            "cap" => {
+                " (optional: git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all)"
+            }
+            _ => "",
+        };
+        println!(
+            "  {:<10}{:<8} {}{}",
+            name.bold(),
+            "\u{2014}",
+            "\u{2717} not installed".red(),
+            hint.dimmed()
+        );
     }
 }
 
@@ -283,6 +281,7 @@ fn build_server_configs() -> Vec<ServerConfig> {
 }
 
 /// Configure detected MCP clients (other than Claude Code, which is handled separately).
+#[allow(clippy::ref_option)]
 fn configure_detected_clients(
     client_filter: Option<&str>,
     hyphae_info: &Option<spore::ToolInfo>,
@@ -311,16 +310,14 @@ fn configure_detected_clients(
 
     // Determine which clients to configure
     let targets: Vec<McpClient> = if let Some(name) = client_filter {
-        match McpClient::from_flag(name) {
-            Some(c) => vec![c],
-            None => {
-                eprintln!(
-                    "  {} Unknown client '{}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop",
-                    "!".yellow(),
-                    name
-                );
-                return;
-            }
+        if let Some(c) = McpClient::from_flag(name) {
+            vec![c]
+        } else {
+            eprintln!(
+                "  {} Unknown client '{name}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop",
+                "!".yellow(),
+            );
+            return;
         }
     } else {
         // No filter: detect all installed, skip Claude Code (already handled above)
