@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::bin_paths;
 use super::host_policy;
 
 const TOOLS: &[(&str, &str)] = &[
@@ -346,16 +347,17 @@ pub fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> 
     Ok(())
 }
 
+pub fn install_bin_dir() -> Result<PathBuf> {
+    bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
+}
+
 pub fn run(
     all: bool,
     profile: Option<InstallProfile>,
     dry_run: bool,
     tools: &[String],
 ) -> Result<()> {
-    let prefix = dirs::home_dir()
-        .ok_or_else(|| anyhow!("Could not determine home directory"))?
-        .join(".local")
-        .join("bin");
+    let prefix = install_bin_dir()?;
 
     crate::banner::print_banner();
     println!("{}", "Basidiocarp Ecosystem Installer".bold());

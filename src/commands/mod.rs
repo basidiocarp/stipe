@@ -1,3 +1,4 @@
+pub mod bin_paths;
 pub mod doctor;
 pub mod github;
 pub mod host;

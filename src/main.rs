@@ -61,15 +61,10 @@ enum Commands {
         json: bool,
     },
 
-    /// Set up a named host mode end to end
+    /// Inspect and configure supported hosts
     Host {
-        /// Host mode to configure
-        #[arg(value_enum)]
-        mode: commands::host::HostMode,
-
-        /// Show what would change without mutating the machine
-        #[arg(long)]
-        dry_run: bool,
+        #[command(subcommand)]
+        command: commands::host::HostCommand,
     },
 
     /// Check ecosystem health
@@ -113,7 +108,7 @@ fn main() -> Result<()> {
             dry_run,
             json,
         } => commands::init::run(client.as_deref(), dry_run, json),
-        Commands::Host { mode, dry_run } => commands::host::run(mode, dry_run),
+        Commands::Host { command } => commands::host::run(command),
         Commands::Doctor { json } => commands::doctor::run(json),
         Commands::Uninstall {
             all,

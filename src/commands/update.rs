@@ -4,6 +4,8 @@ use reqwest::blocking::Client;
 use spore::{Tool, discover};
 use std::process::Command;
 
+use super::install;
+
 fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
         .arg("--version")
@@ -87,10 +89,7 @@ fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
 
     println!("  {} Downloading and installing...", "⏳".yellow());
 
-    let prefix = dirs::home_dir()
-        .ok_or_else(|| anyhow!("Could not determine home directory"))?
-        .join(".local")
-        .join("bin");
+    let prefix = install::install_bin_dir()?;
 
     super::install::install_tool(tool, &prefix, true, client)?;
 

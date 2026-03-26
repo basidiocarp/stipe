@@ -3,6 +3,8 @@ use colored::Colorize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::bin_paths;
+
 const ALL_TOOLS: &[&str] = &["mycelium", "hyphae", "rhizome", "cortina", "stipe"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +53,10 @@ fn render_uninstall_preview(targets: &[UninstallTarget], all: bool) -> Vec<Strin
     let mut lines = Vec::new();
 
     if all {
-        lines.push("Would remove all ecosystem binaries from ~/.local/bin.".to_string());
+        lines.push(format!(
+            "Would remove all ecosystem binaries from {}.",
+            bin_paths::local_bin_dir_display()
+        ));
     }
 
     for target in targets {
@@ -88,10 +93,8 @@ fn print_preview(targets: &[UninstallTarget], all: bool) {
 }
 
 pub fn run(all: bool, dry_run: bool, tools: &[String]) -> Result<()> {
-    let bin_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow!("Could not determine home directory"))?
-        .join(".local")
-        .join("bin");
+    let bin_dir = bin_paths::local_bin_dir()
+        .ok_or_else(|| anyhow!("Could not determine local bin directory"))?;
 
     let Some(requested_tools) = resolve_uninstall_tools(all, tools) else {
         println!("Specify tools to remove or use --all");

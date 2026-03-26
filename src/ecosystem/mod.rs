@@ -371,7 +371,7 @@ fn configure_codex_cli(
     }
 }
 
-/// Configure detected MCP clients (other than Claude Code and Codex CLI, which are handled separately).
+/// Configure detected MCP clients that are not already handled by dedicated ecosystem flows.
 #[allow(clippy::ref_option)]
 fn configure_detected_clients(
     client_filter: Option<&str>,
@@ -405,16 +405,16 @@ fn configure_detected_clients(
             vec![c]
         } else {
             eprintln!(
-                "  {} Unknown client '{name}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop",
+                "  {} Unknown client '{name}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot",
                 "!".yellow(),
             );
             return;
         }
     } else {
-        // No filter: detect all installed, skip Claude Code and Codex CLI (handled above)
+        // No filter: detect all installed, skipping clients already covered above.
         clients::detect_clients()
             .into_iter()
-            .filter(|c| *c != McpClient::ClaudeCode && *c != McpClient::CodexCli)
+            .filter(|client| !client.handled_separately_in_ecosystem())
             .collect()
     };
 
@@ -428,7 +428,7 @@ fn configure_detected_clients(
     let mut client_configured = Vec::new();
 
     for target in &targets {
-        if *target == McpClient::ClaudeCode && client_filter.is_none() {
+        if client_filter.is_none() && target.handled_separately_in_ecosystem() {
             continue;
         }
 

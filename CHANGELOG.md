@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.2] - 2026-03-26
+
+### Added
+
+- **Multi-host commands**: `stipe host list`, `stipe host setup <host>`, and `stipe host doctor [host]` now expose explicit per-host setup and health flows.
+- **Shared install path resolver**: install, update, and uninstall now share one platform-aware local bin-dir resolver, including Windows-friendly fallback locations.
+
+### Changed
+
+- **Host inventory planning**: `stipe init` and `stipe doctor` now reuse shared host inventory and host-health models instead of special-casing Codex-only logic.
+- **Shared editor convergence**: `stipe` now delegates more editor detection and config mutation work to `spore`, while keeping `Claude Code`, `Cline`, and `Continue` as explicit local exceptions.
+- **Platform-aware host guidance**: host config paths and repair text now render through shared helpers instead of Unix-shaped hardcoded strings.
+
 ## [0.4.1] - 2026-03-23
 
 ### Fixed

@@ -5,6 +5,7 @@ use serde::Serialize;
 use spore::{Tool, discover};
 
 use super::host_policy;
+use super::host_policy::HostMode;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::ecosystem::clients::{self, McpClient};
 
@@ -12,6 +13,8 @@ use crate::ecosystem::clients::{self, McpClient};
 struct InitSnapshot {
     target_client: Option<String>,
     target_is_codex: bool,
+    selected_hosts: Vec<HostMode>,
+    detected_hosts: Vec<HostMode>,
     detected_clients: Vec<String>,
     hyphae_installed: bool,
     rhizome_installed: bool,
@@ -38,6 +41,8 @@ struct InitStep {
 struct InitPlan {
     dry_run: bool,
     target_client: Option<String>,
+    selected_hosts: Vec<String>,
+    detected_hosts: Vec<String>,
     detected_clients: Vec<String>,
     steps: Vec<InitStep>,
     repair_actions: Vec<RepairAction>,
@@ -54,8 +59,18 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         }
     }
     let target_is_codex = host_policy::codex_target_requested(client);
+    let detected_clients_raw = clients::detect_clients();
+    let detected_hosts = host_policy::supported_host_modes()
+        .iter()
+        .copied()
+        .filter(|mode| host_policy::host_detected_with_clients(*mode, &detected_clients_raw))
+        .collect::<Vec<_>>();
+    let selected_hosts = client
+        .and_then(host_policy::host_mode_from_client_flag)
+        .map(|mode| vec![mode])
+        .unwrap_or_else(|| detected_hosts.clone());
 
-    let detected_clients = clients::detect_clients()
+    let detected_clients = detected_clients_raw
         .into_iter()
         .filter(|client| *client != McpClient::ClaudeCode)
         .map(|client| client.name().to_string())
@@ -72,6 +87,8 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
     Ok(InitSnapshot {
         target_client,
         target_is_codex,
+        selected_hosts,
+        detected_hosts,
         detected_clients,
         hyphae_installed,
         rhizome_installed,
@@ -81,13 +98,17 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
 }
 
 fn selected_mode_label(snapshot: &InitSnapshot) -> String {
-    if snapshot.target_is_codex {
+    if !snapshot.selected_hosts.is_empty() {
+        snapshot
+            .selected_hosts
+            .iter()
+            .map(|mode| mode.label().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else if snapshot.target_is_codex {
         "Codex host mode".to_string()
     } else {
-        snapshot
-            .target_client
-            .clone()
-            .unwrap_or_else(|| "detected MCP clients".to_string())
+        "detected host inventory".to_string()
     }
 }
 
@@ -121,33 +142,46 @@ fn print_preview(snapshot: &InitSnapshot) {
 fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
     let mut steps = Vec::new();
 
-    if let Some(client) = &snapshot.target_client {
-        let title = if snapshot.target_is_codex {
-            format!("target {}", selected_mode_label(snapshot))
-        } else {
-            format!("target {client}")
-        };
+    if !snapshot.selected_hosts.is_empty() {
         steps.push(InitStep {
             status: InitStepStatus::Planned,
-            title,
-            detail: if snapshot.target_is_codex {
-                "Use Codex host mode for registration instead of inferring setup from detection."
+            title: if snapshot.target_client.is_some() {
+                format!("target {}", selected_mode_label(snapshot))
+            } else {
+                "configure detected host inventory".to_string()
+            },
+            detail: if snapshot.target_client.is_some() {
+                "Use the selected host inventory for registration instead of inferring setup from unrelated clients."
                     .to_string()
             } else {
-                "Use the selected MCP client for registration.".to_string()
+                format!("Detected host inventory: {}", selected_mode_label(snapshot))
             },
+        });
+    } else if let Some(client) = &snapshot.target_client {
+        steps.push(InitStep {
+            status: InitStepStatus::Planned,
+            title: format!("target {client}"),
+            detail: "Use the selected host inventory for registration.".to_string(),
         });
     } else if snapshot.detected_clients.is_empty() {
         steps.push(InitStep {
             status: InitStepStatus::Skipped,
-            title: "configure MCP clients".to_string(),
-            detail: "No supported MCP clients were detected on this machine.".to_string(),
+            title: "configure host inventory".to_string(),
+            detail: "No supported host inventory was detected on this machine.".to_string(),
         });
     } else {
         steps.push(InitStep {
             status: InitStepStatus::Planned,
-            title: "configure detected MCP clients".to_string(),
-            detail: format!("Detected: {}", snapshot.detected_clients.join(", ")),
+            title: "configure detected host inventory".to_string(),
+            detail: format!(
+                "Detected hosts: {}",
+                snapshot
+                    .detected_hosts
+                    .iter()
+                    .map(|mode| mode.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         });
     }
 
@@ -193,10 +227,9 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
         },
     });
 
-    if host_policy::codex_host_mode_requested(
-        snapshot.target_client.as_deref(),
-        &snapshot.detected_clients,
-    ) {
+    if snapshot.selected_hosts.contains(&HostMode::Codex)
+        || snapshot.detected_hosts.contains(&HostMode::Codex)
+    {
         steps.push(InitStep {
             status: if snapshot.codex_notify_configured {
                 InitStepStatus::AlreadyOk
@@ -218,14 +251,21 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
 }
 
 fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
-    let mut actions = Vec::new();
+    let mut actions = snapshot
+        .selected_hosts
+        .iter()
+        .copied()
+        .map(host_policy::host_setup_repair_action)
+        .collect::<Vec<_>>();
     let install_profile = host_policy::preferred_install_profile(
         snapshot.target_client.as_deref(),
         &snapshot.detected_clients,
     );
 
     if !snapshot.hyphae_installed || !snapshot.rhizome_installed {
-        actions.push(host_policy::install_profile_repair_action(install_profile));
+        if snapshot.selected_hosts.is_empty() {
+            actions.push(host_policy::install_profile_repair_action(install_profile));
+        }
     }
 
     if !snapshot.hyphae_db_exists
@@ -241,10 +281,9 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         ));
     }
 
-    if host_policy::codex_host_mode_requested(
-        snapshot.target_client.as_deref(),
-        &snapshot.detected_clients,
-    ) {
+    if snapshot.selected_hosts.contains(&HostMode::Codex)
+        || snapshot.detected_hosts.contains(&HostMode::Codex)
+    {
         if !snapshot.codex_notify_configured {
             actions.push(host_policy::codex_notify_repair_action());
         }
@@ -265,6 +304,16 @@ fn build_plan(snapshot: &InitSnapshot, dry_run: bool) -> InitPlan {
     InitPlan {
         dry_run,
         target_client: snapshot.target_client.clone(),
+        selected_hosts: snapshot
+            .selected_hosts
+            .iter()
+            .map(|mode| mode.label().to_string())
+            .collect(),
+        detected_hosts: snapshot
+            .detected_hosts
+            .iter()
+            .map(|mode| mode.label().to_string())
+            .collect(),
         detected_clients: snapshot.detected_clients.clone(),
         steps: build_steps(snapshot),
         repair_actions: build_repair_actions(snapshot),
@@ -300,6 +349,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: Some("cursor".to_string()),
             target_is_codex: false,
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
             detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
             hyphae_installed: true,
             rhizome_installed: false,
@@ -308,7 +359,7 @@ mod tests {
         };
 
         let lines = render_preview(&snapshot);
-        assert!(lines.iter().any(|line| line.contains("target cursor")));
+        assert!(lines.iter().any(|line| line.contains("target Cursor mode")));
         assert!(
             lines
                 .iter()
@@ -331,6 +382,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: None,
             target_is_codex: false,
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
             detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
             hyphae_installed: false,
             rhizome_installed: false,
@@ -342,7 +395,7 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("configure detected MCP clients"))
+                .any(|line| line.contains("configure detected host inventory"))
         );
         assert!(
             lines
@@ -356,6 +409,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: None,
             target_is_codex: false,
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
             detected_clients: vec!["Cursor".to_string()],
             hyphae_installed: false,
             rhizome_installed: true,
@@ -370,7 +425,7 @@ mod tests {
             .map(|action| action.command.as_str())
             .collect::<Vec<_>>();
 
-        assert!(commands.contains(&"stipe install --profile claude-code"));
+        assert!(commands.contains(&"stipe host setup cursor"));
         assert!(commands.contains(&"stipe init"));
         assert!(commands.contains(&"cargo install hyphae"));
     }
@@ -380,6 +435,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: Some("codex".to_string()),
             target_is_codex: true,
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
             detected_clients: vec!["Codex CLI".to_string()],
             hyphae_installed: true,
             rhizome_installed: true,
@@ -410,6 +467,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: Some("codex".to_string()),
             target_is_codex: true,
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
             detected_clients: vec!["Codex CLI".to_string()],
             hyphae_installed: false,
             rhizome_installed: false,
@@ -424,7 +483,7 @@ mod tests {
             .map(|action| action.command.as_str())
             .collect::<Vec<_>>();
 
-        assert!(commands.contains(&"stipe install --profile codex"));
+        assert!(commands.contains(&"stipe host setup codex"));
         assert!(commands.contains(&"hyphae init"));
     }
 
@@ -433,6 +492,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: Some("cursor".to_string()),
             target_is_codex: false,
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor, HostMode::Codex],
             detected_clients: vec!["Codex CLI".to_string(), "Cursor".to_string()],
             hyphae_installed: false,
             rhizome_installed: false,
@@ -447,8 +508,33 @@ mod tests {
             .map(|action| action.command.as_str())
             .collect::<Vec<_>>();
 
-        assert!(commands.contains(&"stipe install --profile claude-code"));
+        assert!(commands.contains(&"stipe host setup cursor"));
         assert!(!commands.contains(&"stipe install --profile codex"));
+    }
+
+    #[test]
+    fn test_build_plan_uses_host_setup_for_supported_target_hosts() {
+        let snapshot = InitSnapshot {
+            target_client: Some("claude-code".to_string()),
+            target_is_codex: false,
+            selected_hosts: vec![HostMode::ClaudeCode],
+            detected_hosts: vec![HostMode::ClaudeCode],
+            detected_clients: vec!["Claude Code".to_string()],
+            hyphae_installed: false,
+            rhizome_installed: false,
+            hyphae_db_exists: true,
+            codex_notify_configured: false,
+        };
+
+        let plan = build_plan(&snapshot, true);
+        let commands = plan
+            .repair_actions
+            .iter()
+            .map(|action| action.command.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(commands.contains(&"stipe host setup claude-code"));
+        assert!(!commands.contains(&"stipe install --profile claude-code"));
     }
 
     #[test]
@@ -456,6 +542,8 @@ mod tests {
         let snapshot = InitSnapshot {
             target_client: None,
             target_is_codex: false,
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
             detected_clients: vec!["Codex CLI".to_string()],
             hyphae_installed: false,
             rhizome_installed: false,
@@ -470,7 +558,41 @@ mod tests {
             .map(|action| action.command.as_str())
             .collect::<Vec<_>>();
 
-        assert!(commands.contains(&"stipe install --profile codex"));
+        assert!(commands.contains(&"stipe host setup codex"));
+        assert!(!commands.contains(&"stipe install --profile codex"));
+    }
+
+    #[test]
+    fn test_render_preview_reports_multiple_detected_hosts() {
+        let snapshot = InitSnapshot {
+            target_client: None,
+            target_is_codex: false,
+            selected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
+            detected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
+            detected_clients: vec!["Claude Code".to_string(), "Codex CLI".to_string()],
+            hyphae_installed: true,
+            rhizome_installed: true,
+            hyphae_db_exists: true,
+            codex_notify_configured: false,
+        };
+
+        let lines = render_preview(&snapshot);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("configure detected host inventory"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| { line.contains("Claude Code operator mode, Codex host mode") })
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("configure the Codex notify adapter"))
+        );
     }
 
     #[test]

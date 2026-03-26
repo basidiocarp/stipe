@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::host;
 use super::host_policy;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::ecosystem::clients::{self, McpClient};
@@ -124,21 +125,6 @@ fn check_tool(tool: Tool) -> HealthCheck {
     }
 }
 
-fn check_codex_available() -> HealthCheck {
-    let passed = codex_cli_installed();
-
-    HealthCheck {
-        name: "codex cli".to_string(),
-        passed,
-        message: if passed {
-            "Available".to_string()
-        } else {
-            "Not found in PATH (optional)".to_string()
-        },
-        repair_actions: Vec::new(),
-    }
-}
-
 fn check_hyphae_db() -> HealthCheck {
     if let Some(data_dir) = dirs::data_dir() {
         check_hyphae_db_at_path(&data_dir.join("hyphae").join("hyphae.db"))
@@ -195,48 +181,6 @@ fn installed_mcp_servers() -> Vec<&'static str> {
     servers
 }
 
-fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
-    host_policy::codex_notify_configured_at_path(config_path)
-}
-
-fn check_codex_notify_adapter() -> HealthCheck {
-    let Some(config_path) = host_policy::codex_config_path() else {
-        return HealthCheck {
-            name: "codex host mode".to_string(),
-            passed: false,
-            message: "Cannot determine Codex config path".to_string(),
-            repair_actions: vec![RepairAction::manual(
-                "Configure the Codex notify adapter".to_string(),
-                "Run hyphae init so ~/.codex/config.toml includes notify = [\"hyphae\", \"codex-notify\"] and completes Codex host mode.".to_string(),
-                "hyphae init".to_string(),
-                vec!["init".to_string()],
-                RepairTier::Primary,
-            )],
-        };
-    };
-
-    if codex_notify_adapter_configured_at_path(&config_path) {
-        HealthCheck {
-            name: "codex host mode".to_string(),
-            passed: true,
-            message: "Codex host mode notify adapter configured".to_string(),
-            repair_actions: Vec::new(),
-        }
-    } else {
-        HealthCheck {
-            name: "codex host mode".to_string(),
-            passed: false,
-            message: if config_path.exists() {
-                "Codex notify adapter missing from ~/.codex/config.toml (run 'hyphae init')"
-                    .to_string()
-            } else {
-                "Codex config not found (run 'hyphae init')".to_string()
-            },
-            repair_actions: vec![host_policy::codex_notify_repair_action()],
-        }
-    }
-}
-
 fn config_mentions_servers(content: &str, required_servers: &[&str], format: ConfigFormat) -> bool {
     match format {
         ConfigFormat::Json => {
@@ -272,17 +216,23 @@ fn config_mentions_servers(content: &str, required_servers: &[&str], format: Con
 }
 
 fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
+    let mut paths = Vec::new();
+
+    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::ClaudeCode) {
+        paths.push(("Claude Code", path, ConfigFormat::Json));
+    }
+    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::Cursor) {
+        paths.push(("Cursor", path, ConfigFormat::Json));
+    }
+    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::Codex) {
+        paths.push(("Codex CLI", path, ConfigFormat::Toml));
+    }
+
     let Some(home) = dirs::home_dir() else {
-        return Vec::new();
+        return paths;
     };
 
-    let mut paths = vec![
-        ("Claude Code", home.join(".claude.json"), ConfigFormat::Json),
-        (
-            "Cursor",
-            home.join(".cursor").join("mcp.json"),
-            ConfigFormat::Json,
-        ),
+    paths.extend([
         (
             "Windsurf",
             home.join(".windsurf").join("mcp.json"),
@@ -293,12 +243,7 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
             home.join(".continue").join("config.json"),
             ConfigFormat::Json,
         ),
-        (
-            "Codex CLI",
-            home.join(".codex").join("config.toml"),
-            ConfigFormat::Toml,
-        ),
-    ];
+    ]);
 
     if let Some(cline_path) = vscode_cline_settings_path() {
         paths.push(("Cline", cline_path, ConfigFormat::Json));
@@ -424,17 +369,32 @@ fn check_mcp_config_drift() -> HealthCheck {
     }
 }
 
+fn host_health_checks() -> Vec<HealthCheck> {
+    host::build_host_doctor_report(None)
+        .checks
+        .into_iter()
+        .map(|check| HealthCheck {
+            name: format!("host: {}", check.host.client_flag()),
+            passed: check.passed,
+            message: check.message,
+            repair_actions: check.repair_actions,
+        })
+        .collect()
+}
+
+fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
+    host_policy::codex_notify_configured_at_path(config_path)
+}
+
 fn build_report() -> DoctorReport {
-    let checks = vec![
+    let mut checks = vec![
         check_tool(Tool::Mycelium),
         check_tool(Tool::Hyphae),
         check_tool(Tool::Rhizome),
-        check_codex_available(),
         check_hyphae_db(),
         check_mcp_config_drift(),
-        check_codex_notify_adapter(),
-        check_claude_available(),
     ];
+    checks.extend(host_health_checks());
 
     let healthy = checks.iter().all(|check| check.passed);
     let failing = checks.iter().filter(|check| !check.passed).count();
@@ -487,9 +447,9 @@ pub fn run(json: bool) -> Result<()> {
         println!("{}", "All checks passed.".green());
     } else {
         println!(
-        "{}",
-        "Some checks failed. Use 'stipe init' to repair MCP registrations, 'hyphae init' to configure Codex notify coverage, or 'stipe install --profile codex' to restore Codex host mode.".yellow()
-    );
+            "{}",
+            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, 'stipe host setup <host>' to restore a specific host, or 'hyphae init' to configure Codex notify coverage.".yellow()
+        );
         if !report.repair_actions.is_empty() {
             println!();
             println!("{}", "Recommended repair actions:".bold());
@@ -502,24 +462,6 @@ pub fn run(json: bool) -> Result<()> {
     println!();
 
     Ok(())
-}
-
-fn check_claude_available() -> HealthCheck {
-    let passed = Command::new("claude")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
-
-    HealthCheck {
-        name: "claude code".to_string(),
-        passed,
-        message: if passed {
-            "Available".to_string()
-        } else {
-            "Not found in PATH (optional)".to_string()
-        },
-        repair_actions: Vec::new(),
-    }
 }
 
 #[cfg(test)]
@@ -619,23 +561,23 @@ mod tests {
     }
 
     #[test]
-    fn test_build_report_mentions_hooks_and_notify_separately() {
+    fn test_build_report_includes_host_inventory_checks() {
         let report = build_report();
-        let messages = report
+        let names = report
             .checks
             .iter()
-            .map(|check| check.message.as_str())
+            .map(|check| check.name.as_str())
             .collect::<Vec<_>>();
 
-        assert!(messages.iter().any(|message| message.contains("Codex")));
+        assert!(names.iter().any(|name| name.contains("host: claude-code")));
+        assert!(names.iter().any(|name| name.contains("host: codex")));
     }
 
     #[test]
     fn test_codex_notify_helpers_are_shared() {
-        assert_eq!(
-            host_policy::codex_notify_detail(false),
-            "Run `hyphae init` to add the Codex notify adapter to ~/.codex/config.toml and complete Codex host mode."
-        );
+        let detail = host_policy::codex_notify_detail(false);
+        assert!(detail.contains("hyphae init"));
+        assert!(detail.contains("Codex"));
         assert!(host_policy::codex_target_requested(Some("codex")));
     }
 

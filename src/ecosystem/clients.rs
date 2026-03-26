@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::{Map, Value, json};
+use spore::editors::{self, Editor, McpServer as SporeMcpServer};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -24,6 +25,16 @@ pub enum McpClient {
     GeminiCli,
     CopilotCli,
 }
+
+const SHARED_EDITOR_CLIENTS: &[(McpClient, Editor)] = &[
+    (McpClient::ClaudeCode, Editor::ClaudeCode),
+    (McpClient::Cursor, Editor::Cursor),
+    (McpClient::Windsurf, Editor::Windsurf),
+    (McpClient::ClaudeDesktop, Editor::ClaudeDesktop),
+    (McpClient::CodexCli, Editor::CodexCli),
+    (McpClient::GeminiCli, Editor::GeminiCli),
+    (McpClient::CopilotCli, Editor::CopilotCli),
+];
 
 impl McpClient {
     /// Human-readable display name.
@@ -74,33 +85,33 @@ impl McpClient {
     }
 
     /// Config file path for this client (if applicable).
-    fn config_path(self) -> Option<PathBuf> {
+    pub(crate) fn config_path(self) -> Option<PathBuf> {
+        if let Some(editor) = self.shared_editor() {
+            return editors::config_path(editor).ok();
+        }
+
         let home = dirs::home_dir()?;
         match self {
-            Self::ClaudeCode => Some(home.join(".claude.json")),
-            Self::Cursor => Some(home.join(".cursor").join("mcp.json")),
-            Self::Windsurf => Some(home.join(".windsurf").join("mcp.json")),
             Self::Cline => vscode_cline_settings_path(),
             Self::Continue => Some(home.join(".continue").join("config.json")),
-            Self::ClaudeDesktop => {
-                #[cfg(target_os = "macos")]
-                {
-                    Some(
-                        home.join("Library")
-                            .join("Application Support")
-                            .join("Claude")
-                            .join("claude_desktop_config.json"),
-                    )
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    dirs::config_dir().map(|d| d.join("Claude").join("claude_desktop_config.json"))
-                }
-            }
-            Self::CodexCli => Some(home.join(".codex").join("config.toml")),
-            Self::GeminiCli => Some(home.join(".gemini").join("settings.json")),
-            Self::CopilotCli => Some(home.join(".copilot").join("mcp-config.json")),
+            Self::ClaudeCode
+            | Self::Cursor
+            | Self::Windsurf
+            | Self::ClaudeDesktop
+            | Self::CodexCli
+            | Self::GeminiCli
+            | Self::CopilotCli => None,
         }
+    }
+
+    fn shared_editor(self) -> Option<Editor> {
+        SHARED_EDITOR_CLIENTS
+            .iter()
+            .find_map(|(client, editor)| (*client == self).then_some(*editor))
+    }
+
+    pub fn handled_separately_in_ecosystem(self) -> bool {
+        matches!(self, Self::ClaudeCode | Self::CodexCli)
     }
 }
 
@@ -125,34 +136,54 @@ const ALL_CLIENTS: [McpClient; 9] = [
 
 /// Detect which MCP clients are installed on this system.
 pub fn detect_clients() -> Vec<McpClient> {
+    let detected_editors = editors::detect();
+    collect_detected_clients(
+        &detected_editors,
+        claude_cli_installed(),
+        cline_installed(),
+        continue_installed(),
+    )
+}
+
+fn collect_detected_clients(
+    detected_editors: &[Editor],
+    claude_cli_available: bool,
+    cline_detected: bool,
+    continue_detected: bool,
+) -> Vec<McpClient> {
     ALL_CLIENTS
         .iter()
         .copied()
-        .filter(|c| is_installed(*c))
+        .filter(|client| {
+            shared_client_detected(*client, detected_editors)
+                || (*client == McpClient::ClaudeCode && claude_cli_available)
+                || (*client == McpClient::Cline && cline_detected)
+                || (*client == McpClient::Continue && continue_detected)
+        })
         .collect()
 }
 
-/// Check if a client appears to be installed.
-fn is_installed(client: McpClient) -> bool {
-    match client {
-        McpClient::ClaudeCode => {
-            // Check CLI first, fall back to config file
-            Command::new("claude")
-                .arg("--version")
-                .output()
-                .is_ok_and(|o| o.status.success())
-                || client.config_path().is_some_and(|p| p.exists())
-        }
-        McpClient::Cline => {
-            // Check if VS Code extensions dir has cline
-            vscode_cline_extension_exists() || client.config_path().is_some_and(|p| p.exists())
-        }
-        _ => client.config_path().is_some_and(|p| {
-            // For Cursor/Windsurf: check parent dir exists (app installed)
-            // For Continue/ClaudeDesktop: check config file or parent dir
-            p.exists() || p.parent().is_some_and(std::path::Path::exists)
-        }),
-    }
+fn shared_client_detected(client: McpClient, detected_editors: &[Editor]) -> bool {
+    client
+        .shared_editor()
+        .is_some_and(|editor| detected_editors.contains(&editor))
+}
+
+fn claude_cli_installed() -> bool {
+    Command::new("claude")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+fn cline_installed() -> bool {
+    vscode_cline_extension_exists() || McpClient::Cline.config_path().is_some_and(|p| p.exists())
+}
+
+fn continue_installed() -> bool {
+    McpClient::Continue
+        .config_path()
+        .is_some_and(|p| p.exists() || p.parent().is_some_and(std::path::Path::exists))
 }
 
 /// MCP server definition for registration.
@@ -166,21 +197,23 @@ pub struct ServerConfig {
 ///
 /// Returns `Ok(true)` if successfully registered, `Ok(false)` if skipped.
 pub fn register_servers(client: McpClient, servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+    if let Some(editor) = client.shared_editor() {
+        return register_spore_editor(editor, servers, verbose);
+    }
+
     match client {
         McpClient::ClaudeCode => register_claude_code(servers, verbose),
-        McpClient::Cursor | McpClient::Windsurf => {
-            register_json_mcp_config(client, servers, verbose)
-        }
         McpClient::Continue => register_continue(servers, verbose),
-        McpClient::ClaudeDesktop => register_json_mcp_config(client, servers, verbose),
         McpClient::Cline => {
             print_cline_snippet(servers);
             Ok(true)
         }
-        McpClient::GeminiCli | McpClient::CopilotCli => {
-            register_json_mcp_config(client, servers, verbose)
-        }
-        McpClient::CodexCli => register_codex_toml(servers, verbose),
+        McpClient::Cursor
+        | McpClient::Windsurf
+        | McpClient::ClaudeDesktop
+        | McpClient::CodexCli
+        | McpClient::GeminiCli
+        | McpClient::CopilotCli => unreachable!("shared editors handled above"),
     }
 }
 
@@ -251,66 +284,29 @@ fn register_claude_code(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JSON-based clients (Cursor, Windsurf, Claude Desktop)
+// Shared spore-backed clients
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn register_json_mcp_config(
-    client: McpClient,
-    servers: &[ServerConfig],
-    verbose: u8,
-) -> Result<bool> {
-    let config_path = client.config_path().context("no config path for client")?;
+fn register_spore_editor(editor: Editor, servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+    let config_path =
+        editors::config_path(editor).map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
-    // Ensure parent directory exists
-    if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+    let arg_slices: Vec<Vec<&str>> = servers
+        .iter()
+        .map(|server| server.args.iter().map(String::as_str).collect())
+        .collect();
+    let spore_servers: Vec<SporeMcpServer<'_>> = servers
+        .iter()
+        .zip(arg_slices.iter())
+        .map(|(server, args)| SporeMcpServer {
+            name: &server.name,
+            command: &server.command,
+            args: args.as_slice(),
+        })
+        .collect();
 
-    // Read existing config or create empty object
-    let mut root: Value = if config_path.exists() {
-        // Backup before modifying
-        let backup = config_path.with_extension("json.bak");
-        fs::copy(&config_path, &backup)
-            .with_context(|| format!("failed to backup {}", config_path.display()))?;
-        if verbose > 0 {
-            eprintln!(
-                "  Backed up {} → {}",
-                config_path.display(),
-                backup.display()
-            );
-        }
-
-        let content = fs::read_to_string(&config_path)?;
-        serde_json::from_str(&content).unwrap_or_else(|_| json!({}))
-    } else {
-        json!({})
-    };
-
-    // Ensure mcpServers key exists
-    let mcp_servers = root
-        .as_object_mut()
-        .context("config root is not an object")?
-        .entry("mcpServers")
-        .or_insert_with(|| json!({}));
-
-    let mcp_map = mcp_servers
-        .as_object_mut()
-        .context("mcpServers is not an object")?;
-
-    // Merge servers
-    for server in servers {
-        mcp_map.insert(
-            server.name.clone(),
-            json!({
-                "command": server.command,
-                "args": server.args,
-            }),
-        );
-    }
-
-    // Write back
-    let json_str = serde_json::to_string_pretty(&root)?;
-    fs::write(&config_path, json_str)?;
+    editors::register_mcp_servers(editor, &spore_servers)
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
     if verbose > 0 {
         eprintln!(
@@ -428,79 +424,6 @@ fn print_cline_snippet(servers: &[ServerConfig]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Codex CLI (TOML config)
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn register_codex_toml(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
-    let config_path = McpClient::CodexCli
-        .config_path()
-        .context("no Codex CLI config path")?;
-
-    if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut root: toml::Value = if config_path.exists() {
-        let backup = config_path.with_extension("toml.bak");
-        fs::copy(&config_path, &backup)?;
-        if verbose > 0 {
-            eprintln!(
-                "  Backed up {} → {}",
-                config_path.display(),
-                backup.display()
-            );
-        }
-        let content = fs::read_to_string(&config_path)?;
-        content
-            .parse()
-            .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()))
-    } else {
-        toml::Value::Table(toml::map::Map::new())
-    };
-
-    let root_table = root
-        .as_table_mut()
-        .context("Codex config root is not a TOML table")?;
-    let mcp_servers = root_table
-        .entry("mcp_servers")
-        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-
-    if let Some(table) = mcp_servers.as_table_mut() {
-        for server in servers {
-            let mut entry = toml::map::Map::new();
-            entry.insert(
-                "command".to_string(),
-                toml::Value::String(server.command.clone()),
-            );
-            entry.insert(
-                "args".to_string(),
-                toml::Value::Array(
-                    server
-                        .args
-                        .iter()
-                        .map(|a| toml::Value::String(a.clone()))
-                        .collect(),
-                ),
-            );
-            table.insert(server.name.clone(), toml::Value::Table(entry));
-        }
-    }
-
-    let toml_str = toml::to_string_pretty(&root)?;
-    fs::write(&config_path, toml_str)?;
-
-    if verbose > 0 {
-        eprintln!(
-            "  Wrote {} server(s) to {}",
-            servers.len(),
-            config_path.display()
-        );
-    }
-
-    Ok(true)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -577,6 +500,75 @@ mod tests {
         assert_eq!(McpClient::from_flag("claude"), Some(McpClient::ClaudeCode));
         assert_eq!(McpClient::from_flag("CURSOR"), Some(McpClient::Cursor));
         assert_eq!(McpClient::from_flag("unknown"), None);
+    }
+
+    #[test]
+    fn test_shared_editor_mapping_covers_supported_shared_hosts() {
+        assert_eq!(McpClient::Cursor.shared_editor(), Some(Editor::Cursor));
+        assert_eq!(McpClient::Windsurf.shared_editor(), Some(Editor::Windsurf));
+        assert_eq!(McpClient::CodexCli.shared_editor(), Some(Editor::CodexCli));
+        assert_eq!(McpClient::Continue.shared_editor(), None);
+        assert_eq!(McpClient::Cline.shared_editor(), None);
+    }
+
+    #[test]
+    fn test_ecosystem_special_case_clients_stay_explicit() {
+        assert!(McpClient::ClaudeCode.handled_separately_in_ecosystem());
+        assert!(McpClient::CodexCli.handled_separately_in_ecosystem());
+        assert!(!McpClient::Cursor.handled_separately_in_ecosystem());
+    }
+
+    #[test]
+    fn test_collect_detected_clients_preserves_inventory_order() {
+        let detected =
+            collect_detected_clients(&[Editor::CodexCli, Editor::Cursor], true, true, false);
+
+        assert_eq!(
+            detected,
+            vec![
+                McpClient::ClaudeCode,
+                McpClient::Cursor,
+                McpClient::Cline,
+                McpClient::CodexCli,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_collect_detected_clients_keeps_claude_hybrid_detection() {
+        let detected = collect_detected_clients(&[], true, false, false);
+
+        assert_eq!(detected, vec![McpClient::ClaudeCode]);
+    }
+
+    #[test]
+    fn test_collect_detected_clients_does_not_map_vscode_to_cline() {
+        let detected = collect_detected_clients(&[Editor::VsCode], false, false, false);
+
+        assert!(detected.is_empty());
+    }
+
+    #[test]
+    fn test_collect_detected_clients_keeps_continue_outside_shared_overlap() {
+        let detected = collect_detected_clients(&[Editor::Cursor], false, false, true);
+
+        assert_eq!(detected, vec![McpClient::Cursor, McpClient::Continue]);
+    }
+
+    #[test]
+    fn test_shared_host_config_paths_resolve_via_spore() {
+        assert_eq!(
+            McpClient::Cursor.config_path(),
+            editors::config_path(Editor::Cursor).ok()
+        );
+        assert_eq!(
+            McpClient::ClaudeDesktop.config_path(),
+            editors::config_path(Editor::ClaudeDesktop).ok()
+        );
+        assert_eq!(
+            McpClient::CodexCli.config_path(),
+            editors::config_path(Editor::CodexCli).ok()
+        );
     }
 
     #[test]
