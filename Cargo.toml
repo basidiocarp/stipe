@@ -1,6 +1,6 @@
 [package]
 name = "stipe"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.85"
 authors = ["William Newton"]
@@ -29,9 +29,6 @@ toml = "0.8"
 which = "7"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 indicatif = "0.17"
-
-[patch."https://github.com/basidiocarp/spore"]
-spore = { path = "../spore" }
 
 [profile.release]
 opt-level = 3

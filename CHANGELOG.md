@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.3] - 2026-03-26
+
+### Fixed
+
+- **Published Spore dependency**: Release and CI builds now resolve `spore` from the tagged git dependency instead of a workspace-only local path override, which fixes tagged builds on GitHub Actions and other non-workspace environments.
+
 ## [0.4.2] - 2026-03-26
 
 ### Added

@@ -1299,6 +1299,7 @@ dependencies = [
 [[package]]
 name = "spore"
 version = "0.4.3"
+source = "git+https://github.com/basidiocarp/spore?tag=v0.4.3#974f813f34debebc7d4f91b57938c5843fb4c887"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1322,7 +1323,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stipe"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "clap",
