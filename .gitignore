@@ -21,6 +21,7 @@ target/
 .claude/
 .serena/
 .plans/
+AGENTS.md
 CLAUDE.md
 INSTALL.md
 .rhizome/
