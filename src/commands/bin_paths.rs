@@ -37,9 +37,10 @@ pub fn local_bin_dir() -> Option<PathBuf> {
 }
 
 pub fn local_bin_dir_display() -> String {
-    local_bin_dir()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "your local bin directory".to_string())
+    local_bin_dir().map_or_else(
+        || "your local bin directory".to_string(),
+        |path| path.display().to_string(),
+    )
 }
 
 #[cfg(test)]

@@ -42,8 +42,7 @@ impl InstallProfile {
         match self {
             Self::Minimal => &["mycelium"],
             Self::ClaudeCode | Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
-            Self::Codex => &["mycelium", "hyphae", "rhizome"],
-            Self::Cursor => &["mycelium", "hyphae", "rhizome"],
+            Self::Codex | Self::Cursor => &["mycelium", "hyphae", "rhizome"],
         }
     }
 }

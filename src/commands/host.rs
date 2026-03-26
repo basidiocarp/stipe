@@ -40,7 +40,7 @@ pub struct HostDoctorReport {
     pub repair_actions: Vec<RepairAction>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum HostCommand {
     /// List known hosts and whether they are currently detected/configured
     List,
@@ -88,7 +88,10 @@ pub enum HostCommand {
 
 pub fn run(command: HostCommand) -> Result<()> {
     match command {
-        HostCommand::List => run_list(),
+        HostCommand::List => {
+            run_list();
+            Ok(())
+        }
         HostCommand::Setup { mode, dry_run } => run_setup(mode, dry_run),
         HostCommand::Doctor { mode, json } => run_doctor(mode, json),
         HostCommand::LegacyClaudeCode { dry_run } => run_setup(HostMode::ClaudeCode, dry_run),
@@ -136,10 +139,10 @@ fn host_configured(mode: HostMode, config_exists: bool) -> bool {
 fn host_detail(mode: HostMode, detected: bool, configured: bool, config_exists: bool) -> String {
     match mode {
         HostMode::Codex => {
-            if !detected {
-                "Codex is not detected on this machine yet.".to_string()
-            } else {
+            if detected {
                 host_policy::codex_notify_detail(configured)
+            } else {
+                "Codex is not detected on this machine yet.".to_string()
             }
         }
         HostMode::ClaudeCode => {
@@ -243,7 +246,7 @@ fn doctor_checks_for_entry(entry: &HostInventoryEntry) -> Vec<HostDoctorCheck> {
     checks
 }
 
-fn run_list() -> Result<()> {
+fn run_list() {
     let inventory = build_inventory();
 
     println!();
@@ -282,8 +285,6 @@ fn run_list() -> Result<()> {
         println!("  {:<14} {}", "", entry.detail.dimmed());
         println!();
     }
-
-    Ok(())
 }
 
 fn run_setup(mode: HostMode, dry_run: bool) -> Result<()> {

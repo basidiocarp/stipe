@@ -12,14 +12,34 @@ use crate::ecosystem::clients::{self, McpClient};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct InitSnapshot {
     target_client: Option<String>,
-    target_is_codex: bool,
     selected_hosts: Vec<HostMode>,
     detected_hosts: Vec<HostMode>,
     detected_clients: Vec<String>,
+    tools: ToolSnapshot,
+    codex: CodexSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ToolSnapshot {
     hyphae_installed: bool,
     rhizome_installed: bool,
     hyphae_db_exists: bool,
-    codex_notify_configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct CodexSnapshot {
+    notify_configured: bool,
+}
+
+impl InitSnapshot {
+    fn target_is_codex(&self) -> bool {
+        host_policy::codex_target_requested(self.target_client.as_deref())
+    }
+
+    fn codex_host_selected_or_detected(&self) -> bool {
+        self.selected_hosts.contains(&HostMode::Codex)
+            || self.detected_hosts.contains(&HostMode::Codex)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -58,7 +78,6 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
             ));
         }
     }
-    let target_is_codex = host_policy::codex_target_requested(client);
     let detected_clients_raw = clients::detect_clients();
     let detected_hosts = host_policy::supported_host_modes()
         .iter()
@@ -67,8 +86,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         .collect::<Vec<_>>();
     let selected_hosts = client
         .and_then(host_policy::host_mode_from_client_flag)
-        .map(|mode| vec![mode])
-        .unwrap_or_else(|| detected_hosts.clone());
+        .map_or_else(|| detected_hosts.clone(), |mode| vec![mode]);
 
     let detected_clients = detected_clients_raw
         .into_iter()
@@ -82,18 +100,19 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
 
-    let codex_notify_configured = host_policy::codex_notify_configured();
-
     Ok(InitSnapshot {
         target_client,
-        target_is_codex,
         selected_hosts,
         detected_hosts,
         detected_clients,
-        hyphae_installed,
-        rhizome_installed,
-        hyphae_db_exists,
-        codex_notify_configured,
+        tools: ToolSnapshot {
+            hyphae_installed,
+            rhizome_installed,
+            hyphae_db_exists,
+        },
+        codex: CodexSnapshot {
+            notify_configured: host_policy::codex_notify_configured(),
+        },
     })
 }
 
@@ -105,7 +124,7 @@ fn selected_mode_label(snapshot: &InitSnapshot) -> String {
             .map(|mode| mode.label().to_string())
             .collect::<Vec<_>>()
             .join(", ")
-    } else if snapshot.target_is_codex {
+    } else if snapshot.target_is_codex() {
         "Codex host mode".to_string()
     } else {
         "detected host inventory".to_string()
@@ -139,11 +158,9 @@ fn print_preview(snapshot: &InitSnapshot) {
     println!();
 }
 
-fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
-    let mut steps = Vec::new();
-
+fn host_inventory_step(snapshot: &InitSnapshot) -> InitStep {
     if !snapshot.selected_hosts.is_empty() {
-        steps.push(InitStep {
+        InitStep {
             status: InitStepStatus::Planned,
             title: if snapshot.target_client.is_some() {
                 format!("target {}", selected_mode_label(snapshot))
@@ -156,21 +173,21 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
             } else {
                 format!("Detected host inventory: {}", selected_mode_label(snapshot))
             },
-        });
+        }
     } else if let Some(client) = &snapshot.target_client {
-        steps.push(InitStep {
+        InitStep {
             status: InitStepStatus::Planned,
             title: format!("target {client}"),
             detail: "Use the selected host inventory for registration.".to_string(),
-        });
+        }
     } else if snapshot.detected_clients.is_empty() {
-        steps.push(InitStep {
+        InitStep {
             status: InitStepStatus::Skipped,
             title: "configure host inventory".to_string(),
             detail: "No supported host inventory was detected on this machine.".to_string(),
-        });
+        }
     } else {
-        steps.push(InitStep {
+        InitStep {
             status: InitStepStatus::Planned,
             title: "configure detected host inventory".to_string(),
             detail: format!(
@@ -182,63 +199,74 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-        });
+        }
     }
+}
 
-    steps.push(InitStep {
-        status: if snapshot.hyphae_installed {
+fn mcp_registration_step(installed: bool, title: &str, tool_name: &str) -> InitStep {
+    InitStep {
+        status: if installed {
             InitStepStatus::Planned
         } else {
             InitStepStatus::Skipped
         },
-        title: "register the hyphae MCP server".to_string(),
-        detail: if snapshot.hyphae_installed {
-            "Hyphae is installed and can be wired into supported clients.".to_string()
+        title: title.to_string(),
+        detail: if installed {
+            format!("{tool_name} is installed and can be wired into supported clients.")
         } else {
-            "Hyphae is not installed yet.".to_string()
+            format!("{tool_name} is not installed yet.")
         },
-    });
+    }
+}
 
-    steps.push(InitStep {
-        status: if snapshot.rhizome_installed {
-            InitStepStatus::Planned
-        } else {
-            InitStepStatus::Skipped
-        },
-        title: "register the rhizome MCP server".to_string(),
-        detail: if snapshot.rhizome_installed {
-            "Rhizome is installed and can be wired into supported clients.".to_string()
-        } else {
-            "Rhizome is not installed yet.".to_string()
-        },
-    });
-
-    steps.push(InitStep {
-        status: if snapshot.hyphae_db_exists {
+fn hyphae_database_step(snapshot: &InitSnapshot) -> InitStep {
+    InitStep {
+        status: if snapshot.tools.hyphae_db_exists {
             InitStepStatus::AlreadyOk
         } else {
             InitStepStatus::Planned
         },
         title: "initialize the Hyphae database".to_string(),
-        detail: if snapshot.hyphae_db_exists {
+        detail: if snapshot.tools.hyphae_db_exists {
             "The Hyphae database already exists.".to_string()
         } else {
             "Hyphae will create its local database on first access.".to_string()
         },
-    });
+    }
+}
 
-    if snapshot.selected_hosts.contains(&HostMode::Codex)
-        || snapshot.detected_hosts.contains(&HostMode::Codex)
-    {
-        steps.push(InitStep {
-            status: if snapshot.codex_notify_configured {
+fn codex_notify_step(snapshot: &InitSnapshot) -> Option<InitStep> {
+    snapshot
+        .codex_host_selected_or_detected()
+        .then(|| InitStep {
+            status: if snapshot.codex.notify_configured {
                 InitStepStatus::AlreadyOk
             } else {
                 InitStepStatus::Planned
             },
             title: "configure the Codex notify adapter".to_string(),
-            detail: host_policy::codex_notify_detail(snapshot.codex_notify_configured),
-        });
+            detail: host_policy::codex_notify_detail(snapshot.codex.notify_configured),
+        })
+}
+
+fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
+    let mut steps = vec![
+        host_inventory_step(snapshot),
+        mcp_registration_step(
+            snapshot.tools.hyphae_installed,
+            "register the hyphae MCP server",
+            "Hyphae",
+        ),
+        mcp_registration_step(
+            snapshot.tools.rhizome_installed,
+            "register the rhizome MCP server",
+            "Rhizome",
+        ),
+        hyphae_database_step(snapshot),
+    ];
+
+    if let Some(step) = codex_notify_step(snapshot) {
+        steps.push(step);
     }
 
     steps.push(InitStep {
@@ -262,13 +290,13 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         &snapshot.detected_clients,
     );
 
-    if !snapshot.hyphae_installed || !snapshot.rhizome_installed {
-        if snapshot.selected_hosts.is_empty() {
-            actions.push(host_policy::install_profile_repair_action(install_profile));
-        }
+    if (!snapshot.tools.hyphae_installed || !snapshot.tools.rhizome_installed)
+        && snapshot.selected_hosts.is_empty()
+    {
+        actions.push(host_policy::install_profile_repair_action(install_profile));
     }
 
-    if !snapshot.hyphae_db_exists
+    if !snapshot.tools.hyphae_db_exists
         || snapshot.target_client.is_some()
         || !snapshot.detected_clients.is_empty()
     {
@@ -281,19 +309,15 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         ));
     }
 
-    if snapshot.selected_hosts.contains(&HostMode::Codex)
-        || snapshot.detected_hosts.contains(&HostMode::Codex)
-    {
-        if !snapshot.codex_notify_configured {
-            actions.push(host_policy::codex_notify_repair_action());
-        }
+    if snapshot.codex_host_selected_or_detected() && !snapshot.codex.notify_configured {
+        actions.push(host_policy::codex_notify_repair_action());
     }
 
-    if !snapshot.hyphae_installed {
+    if !snapshot.tools.hyphae_installed {
         actions.push(cargo_install_action("hyphae"));
     }
 
-    if !snapshot.rhizome_installed {
+    if !snapshot.tools.rhizome_installed {
         actions.push(cargo_install_action("rhizome"));
     }
 
@@ -344,19 +368,47 @@ pub fn run(client: Option<&str>, dry_run: bool, json: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn snapshot(
+        target_client: Option<&str>,
+        selected_hosts: Vec<HostMode>,
+        detected_hosts: Vec<HostMode>,
+        detected_clients: Vec<&str>,
+        hyphae_installed: bool,
+        rhizome_installed: bool,
+        hyphae_db_exists: bool,
+        codex_notify_configured: bool,
+    ) -> InitSnapshot {
+        InitSnapshot {
+            target_client: target_client.map(ToOwned::to_owned),
+            selected_hosts,
+            detected_hosts,
+            detected_clients: detected_clients
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            tools: ToolSnapshot {
+                hyphae_installed,
+                rhizome_installed,
+                hyphae_db_exists,
+            },
+            codex: CodexSnapshot {
+                notify_configured: codex_notify_configured,
+            },
+        }
+    }
+
     #[test]
     fn test_render_preview_mentions_target_client_and_actions() {
-        let snapshot = InitSnapshot {
-            target_client: Some("cursor".to_string()),
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::Cursor],
-            detected_hosts: vec![HostMode::Cursor],
-            detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
-            hyphae_installed: true,
-            rhizome_installed: false,
-            hyphae_db_exists: false,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            Some("cursor"),
+            vec![HostMode::Cursor],
+            vec![HostMode::Cursor],
+            vec!["Cursor", "Continue"],
+            true,
+            false,
+            false,
+            false,
+        );
 
         let lines = render_preview(&snapshot);
         assert!(lines.iter().any(|line| line.contains("target Cursor mode")));
@@ -379,17 +431,16 @@ mod tests {
 
     #[test]
     fn test_render_preview_lists_detected_clients_when_unfiltered() {
-        let snapshot = InitSnapshot {
-            target_client: None,
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::Cursor],
-            detected_hosts: vec![HostMode::Cursor],
-            detected_clients: vec!["Cursor".to_string(), "Continue".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: false,
-            hyphae_db_exists: true,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            None,
+            vec![HostMode::Cursor],
+            vec![HostMode::Cursor],
+            vec!["Cursor", "Continue"],
+            false,
+            false,
+            true,
+            false,
+        );
 
         let lines = render_preview(&snapshot);
         assert!(
@@ -406,17 +457,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_contains_repair_actions() {
-        let snapshot = InitSnapshot {
-            target_client: None,
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::Cursor],
-            detected_hosts: vec![HostMode::Cursor],
-            detected_clients: vec!["Cursor".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: true,
-            hyphae_db_exists: false,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            None,
+            vec![HostMode::Cursor],
+            vec![HostMode::Cursor],
+            vec!["Cursor"],
+            false,
+            true,
+            false,
+            false,
+        );
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -432,17 +482,16 @@ mod tests {
 
     #[test]
     fn test_render_preview_mentions_codex_notify_adapter() {
-        let snapshot = InitSnapshot {
-            target_client: Some("codex".to_string()),
-            target_is_codex: true,
-            selected_hosts: vec![HostMode::Codex],
-            detected_hosts: vec![HostMode::Codex],
-            detected_clients: vec!["Codex CLI".to_string()],
-            hyphae_installed: true,
-            rhizome_installed: true,
-            hyphae_db_exists: true,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            Some("codex"),
+            vec![HostMode::Codex],
+            vec![HostMode::Codex],
+            vec!["Codex CLI"],
+            true,
+            true,
+            true,
+            false,
+        );
 
         let lines = render_preview(&snapshot);
         assert!(
@@ -464,17 +513,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_prefers_codex_profile_for_codex_targets() {
-        let snapshot = InitSnapshot {
-            target_client: Some("codex".to_string()),
-            target_is_codex: true,
-            selected_hosts: vec![HostMode::Codex],
-            detected_hosts: vec![HostMode::Codex],
-            detected_clients: vec!["Codex CLI".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: false,
-            hyphae_db_exists: false,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            Some("codex"),
+            vec![HostMode::Codex],
+            vec![HostMode::Codex],
+            vec!["Codex CLI"],
+            false,
+            false,
+            false,
+            false,
+        );
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -489,17 +537,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_does_not_switch_to_codex_profile_for_non_codex_targets() {
-        let snapshot = InitSnapshot {
-            target_client: Some("cursor".to_string()),
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::Cursor],
-            detected_hosts: vec![HostMode::Cursor, HostMode::Codex],
-            detected_clients: vec!["Codex CLI".to_string(), "Cursor".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: false,
-            hyphae_db_exists: false,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            Some("cursor"),
+            vec![HostMode::Cursor],
+            vec![HostMode::Cursor, HostMode::Codex],
+            vec!["Codex CLI", "Cursor"],
+            false,
+            false,
+            false,
+            false,
+        );
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -514,17 +561,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_uses_host_setup_for_supported_target_hosts() {
-        let snapshot = InitSnapshot {
-            target_client: Some("claude-code".to_string()),
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::ClaudeCode],
-            detected_hosts: vec![HostMode::ClaudeCode],
-            detected_clients: vec!["Claude Code".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: false,
-            hyphae_db_exists: true,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            Some("claude-code"),
+            vec![HostMode::ClaudeCode],
+            vec![HostMode::ClaudeCode],
+            vec!["Claude Code"],
+            false,
+            false,
+            true,
+            false,
+        );
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -539,17 +585,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_prefers_codex_profile_when_codex_is_detected_by_default() {
-        let snapshot = InitSnapshot {
-            target_client: None,
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::Codex],
-            detected_hosts: vec![HostMode::Codex],
-            detected_clients: vec!["Codex CLI".to_string()],
-            hyphae_installed: false,
-            rhizome_installed: false,
-            hyphae_db_exists: false,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            None,
+            vec![HostMode::Codex],
+            vec![HostMode::Codex],
+            vec!["Codex CLI"],
+            false,
+            false,
+            false,
+            false,
+        );
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -564,17 +609,16 @@ mod tests {
 
     #[test]
     fn test_render_preview_reports_multiple_detected_hosts() {
-        let snapshot = InitSnapshot {
-            target_client: None,
-            target_is_codex: false,
-            selected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
-            detected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
-            detected_clients: vec!["Claude Code".to_string(), "Codex CLI".to_string()],
-            hyphae_installed: true,
-            rhizome_installed: true,
-            hyphae_db_exists: true,
-            codex_notify_configured: false,
-        };
+        let snapshot = snapshot(
+            None,
+            vec![HostMode::ClaudeCode, HostMode::Codex],
+            vec![HostMode::ClaudeCode, HostMode::Codex],
+            vec!["Claude Code", "Codex CLI"],
+            true,
+            true,
+            true,
+            false,
+        );
 
         let lines = render_preview(&snapshot);
 

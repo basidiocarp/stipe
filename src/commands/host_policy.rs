@@ -147,9 +147,10 @@ pub fn host_detected_with_clients(mode: HostMode, detected_clients: &[McpClient]
 }
 
 pub fn host_config_display_path(mode: HostMode) -> String {
-    host_config_path(mode)
-        .map(|path| format_user_path(&path))
-        .unwrap_or_else(|| host_config_label(mode).to_string())
+    host_config_path(mode).map_or_else(
+        || host_config_label(mode).to_string(),
+        |path| format_user_path(&path),
+    )
 }
 
 pub fn host_setup_repair_action(mode: HostMode) -> RepairAction {

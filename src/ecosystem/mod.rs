@@ -200,7 +200,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // ─────────────────────────────────────────────────────────────────────
     if host_policy::codex_target_requested(client) {
         if codex_version.is_some() {
-            configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
+            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
         } else {
             println!(
                 "  {} {} not found in PATH — skipping Codex host mode configuration.",
@@ -211,7 +211,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
         }
     } else {
         if client.is_none() && codex_version.is_some() {
-            configure_codex_cli(&hyphae_info, &rhizome_info, verbose);
+            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -304,12 +304,14 @@ fn print_tool_status(name: &str, version: Option<&str>) {
 
 /// Build MCP server configurations from discovered tools.
 fn build_server_configs() -> Vec<ServerConfig> {
-    build_ecosystem_servers(&discover(Tool::Hyphae), &discover(Tool::Rhizome))
+    let hyphae_info = discover(Tool::Hyphae);
+    let rhizome_info = discover(Tool::Rhizome);
+    build_ecosystem_servers(hyphae_info.as_ref(), rhizome_info.as_ref())
 }
 
 fn build_ecosystem_servers(
-    hyphae_info: &Option<spore::ToolInfo>,
-    rhizome_info: &Option<spore::ToolInfo>,
+    hyphae_info: Option<&spore::ToolInfo>,
+    rhizome_info: Option<&spore::ToolInfo>,
 ) -> Vec<ServerConfig> {
     let mut servers = Vec::new();
     if hyphae_info.is_some() {
@@ -330,8 +332,8 @@ fn build_ecosystem_servers(
 }
 
 fn configure_codex_cli(
-    hyphae_info: &Option<spore::ToolInfo>,
-    rhizome_info: &Option<spore::ToolInfo>,
+    hyphae_info: Option<&spore::ToolInfo>,
+    rhizome_info: Option<&spore::ToolInfo>,
     verbose: u8,
 ) {
     let servers = build_ecosystem_servers(hyphae_info, rhizome_info);

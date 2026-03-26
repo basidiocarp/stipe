@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::Value;
 use spore::{Tool, discover};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use super::host;
@@ -382,6 +382,7 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
+#[cfg(test)]
 fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
     host_policy::codex_notify_configured_at_path(config_path)
 }
