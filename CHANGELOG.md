@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.4] - 2026-03-27
+
+### Added
+
+- **Host adapter installation**: `stipe init` and `stipe host setup` now install real Claude Code and Codex host adapters instead of only describing the repair steps.
+
+### Changed
+
+- **Claude host validation**: `stipe host doctor` and `stipe doctor` now treat Cortina hook coverage as part of Claude Code host readiness.
+- **Codex host validation**: Codex notify coverage now accepts the expected Hyphae entries even when users keep additional notify commands in the same config.
+- **Targeted host setup**: `stipe init --client codex` no longer opportunistically configures unrelated host adapters when a specific host was requested.
+
 ## [0.4.3] - 2026-03-26
 
 ### Fixed
