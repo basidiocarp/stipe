@@ -61,14 +61,14 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 
 1. Discovers installed tools via spore
 2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Configures Codex notify guidance by adding Hyphae's notify adapter to the Codex config file
+3. Installs the Codex notify adapter by adding Hyphae's notify command to the Codex config file
 4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) for Claude Code
 5. Creates the Hyphae database if missing
 6. Patches CLAUDE.md with ecosystem instructions
 
 Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
-`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify adapter coverage. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption.
+`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption.
 
 ## Why a Separate Tool
 

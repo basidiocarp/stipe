@@ -7,6 +7,8 @@ use spore::{Tool, discover};
 use super::host_policy;
 use super::host_policy::HostMode;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
+use crate::commands::claude_hooks;
+use crate::commands::codex_notify;
 use crate::ecosystem::clients::{self, McpClient};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -17,18 +19,29 @@ struct InitSnapshot {
     detected_clients: Vec<String>,
     tools: ToolSnapshot,
     codex: CodexSnapshot,
+    claude: ClaudeSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Init planning tracks a small fixed install/configuration matrix"
+)]
 struct ToolSnapshot {
     hyphae_installed: bool,
     rhizome_installed: bool,
+    cortina_installed: bool,
     hyphae_db_exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct CodexSnapshot {
     notify_configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ClaudeSnapshot {
+    hooks_configured: bool,
 }
 
 impl InitSnapshot {
@@ -39,6 +52,11 @@ impl InitSnapshot {
     fn codex_host_selected_or_detected(&self) -> bool {
         self.selected_hosts.contains(&HostMode::Codex)
             || self.detected_hosts.contains(&HostMode::Codex)
+    }
+
+    fn claude_host_selected_or_detected(&self) -> bool {
+        self.selected_hosts.contains(&HostMode::ClaudeCode)
+            || self.detected_hosts.contains(&HostMode::ClaudeCode)
     }
 }
 
@@ -96,6 +114,7 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
 
     let hyphae_installed = discover(Tool::Hyphae).is_some();
     let rhizome_installed = discover(Tool::Rhizome).is_some();
+    let cortina_installed = claude_hooks::cortina_installed();
     let hyphae_db_exists = dirs::data_dir()
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
@@ -108,10 +127,14 @@ fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
         tools: ToolSnapshot {
             hyphae_installed,
             rhizome_installed,
+            cortina_installed,
             hyphae_db_exists,
         },
         codex: CodexSnapshot {
-            notify_configured: host_policy::codex_notify_configured(),
+            notify_configured: codex_notify::codex_notify_configured(),
+        },
+        claude: ClaudeSnapshot {
+            hooks_configured: claude_hooks::claude_hooks_configured(),
         },
     })
 }
@@ -245,7 +268,27 @@ fn codex_notify_step(snapshot: &InitSnapshot) -> Option<InitStep> {
                 InitStepStatus::Planned
             },
             title: "configure the Codex notify adapter".to_string(),
-            detail: host_policy::codex_notify_detail(snapshot.codex.notify_configured),
+            detail: codex_notify::codex_notify_detail(snapshot.codex.notify_configured),
+        })
+}
+
+fn claude_hooks_step(snapshot: &InitSnapshot) -> Option<InitStep> {
+    snapshot
+        .claude_host_selected_or_detected()
+        .then(|| InitStep {
+            status: if !snapshot.tools.cortina_installed {
+                InitStepStatus::Skipped
+            } else if snapshot.claude.hooks_configured {
+                InitStepStatus::AlreadyOk
+            } else {
+                InitStepStatus::Planned
+            },
+            title: "install the Cortina Claude hooks".to_string(),
+            detail: if snapshot.tools.cortina_installed {
+                claude_hooks::claude_hooks_detail(snapshot.claude.hooks_configured)
+            } else {
+                "Cortina is not installed yet, so Claude hook registration is skipped.".to_string()
+            },
         })
 }
 
@@ -266,6 +309,9 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
     ];
 
     if let Some(step) = codex_notify_step(snapshot) {
+        steps.push(step);
+    }
+    if let Some(step) = claude_hooks_step(snapshot) {
         steps.push(step);
     }
 
@@ -310,7 +356,7 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
     }
 
     if snapshot.codex_host_selected_or_detected() && !snapshot.codex.notify_configured {
-        actions.push(host_policy::codex_notify_repair_action());
+        actions.push(codex_notify::codex_notify_repair_action());
     }
 
     if !snapshot.tools.hyphae_installed {
@@ -375,8 +421,10 @@ mod tests {
         detected_clients: Vec<&str>,
         hyphae_installed: bool,
         rhizome_installed: bool,
+        cortina_installed: bool,
         hyphae_db_exists: bool,
         codex_notify_configured: bool,
+        claude_hooks_configured: bool,
     ) -> InitSnapshot {
         InitSnapshot {
             target_client: target_client.map(ToOwned::to_owned),
@@ -389,10 +437,14 @@ mod tests {
             tools: ToolSnapshot {
                 hyphae_installed,
                 rhizome_installed,
+                cortina_installed,
                 hyphae_db_exists,
             },
             codex: CodexSnapshot {
                 notify_configured: codex_notify_configured,
+            },
+            claude: ClaudeSnapshot {
+                hooks_configured: claude_hooks_configured,
             },
         }
     }
@@ -405,6 +457,8 @@ mod tests {
             vec![HostMode::Cursor],
             vec!["Cursor", "Continue"],
             true,
+            false,
+            false,
             false,
             false,
             false,
@@ -438,7 +492,9 @@ mod tests {
             vec!["Cursor", "Continue"],
             false,
             false,
+            false,
             true,
+            false,
             false,
         );
 
@@ -466,6 +522,8 @@ mod tests {
             true,
             false,
             false,
+            false,
+            false,
         );
 
         let plan = build_plan(&snapshot, true);
@@ -489,7 +547,9 @@ mod tests {
             vec!["Codex CLI"],
             true,
             true,
+            false,
             true,
+            false,
             false,
         );
 
@@ -522,6 +582,8 @@ mod tests {
             false,
             false,
             false,
+            false,
+            false,
         );
 
         let plan = build_plan(&snapshot, true);
@@ -532,7 +594,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(commands.contains(&"stipe host setup codex"));
-        assert!(commands.contains(&"hyphae init"));
+        assert!(commands.contains(&"stipe init --client codex"));
     }
 
     #[test]
@@ -542,6 +604,8 @@ mod tests {
             vec![HostMode::Cursor],
             vec![HostMode::Cursor, HostMode::Codex],
             vec!["Codex CLI", "Cursor"],
+            false,
+            false,
             false,
             false,
             false,
@@ -569,6 +633,8 @@ mod tests {
             false,
             false,
             true,
+            true,
+            false,
             false,
         );
 
@@ -584,12 +650,37 @@ mod tests {
     }
 
     #[test]
+    fn test_render_preview_mentions_claude_hooks_when_cortina_is_available() {
+        let snapshot = snapshot(
+            Some("claude-code"),
+            vec![HostMode::ClaudeCode],
+            vec![HostMode::ClaudeCode],
+            vec!["Claude Code"],
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+        );
+
+        let lines = render_preview(&snapshot);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("install the Cortina Claude hooks"))
+        );
+    }
+
+    #[test]
     fn test_build_plan_prefers_codex_profile_when_codex_is_detected_by_default() {
         let snapshot = snapshot(
             None,
             vec![HostMode::Codex],
             vec![HostMode::Codex],
             vec!["Codex CLI"],
+            false,
+            false,
             false,
             false,
             false,
@@ -617,6 +708,8 @@ mod tests {
             true,
             true,
             true,
+            true,
+            false,
             false,
         );
 
@@ -647,8 +740,11 @@ mod tests {
             &["Codex CLI".to_string()]
         ));
         assert_eq!(
-            host_policy::codex_notify_detail(true),
-            "Codex host mode already points at Hyphae via its notify adapter."
+            codex_notify::codex_notify_detail(true),
+            format!(
+                "Codex host mode already points at Hyphae via notify in {}.",
+                host_policy::host_config_display_path(HostMode::Codex)
+            )
         );
     }
 }

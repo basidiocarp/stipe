@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use clap::ValueEnum;
@@ -12,8 +11,6 @@ pub const CODEX_CLIENT_FLAG: &str = "codex";
 pub const CLAUDE_CODE_HOST_MODE_LABEL: &str = "Claude Code operator mode";
 pub const CODEX_HOST_MODE_LABEL: &str = "Codex host mode";
 pub const CURSOR_HOST_MODE_LABEL: &str = "Cursor mode";
-const CODEX_NOTIFY_VALUES: [&str; 2] = ["hyphae", "codex-notify"];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HostMode {
@@ -170,10 +167,6 @@ pub fn host_setup_repair_action(mode: HostMode) -> RepairAction {
     )
 }
 
-pub fn codex_config_path() -> Option<PathBuf> {
-    HostMode::Codex.client().config_path()
-}
-
 pub fn codex_target_requested(client: Option<&str>) -> bool {
     client.is_some_and(|value| value.eq_ignore_ascii_case(CODEX_CLIENT_FLAG))
 }
@@ -228,57 +221,6 @@ pub fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
             RepairTier::Primary,
         ),
     }
-}
-
-pub fn codex_notify_configured_at_path(config_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(config_path) else {
-        return false;
-    };
-
-    let Ok(parsed) = content.parse::<toml::Value>() else {
-        return false;
-    };
-
-    parsed
-        .get("notify")
-        .and_then(toml::Value::as_array)
-        .is_some_and(|values| {
-            values.len() == CODEX_NOTIFY_VALUES.len()
-                && values
-                    .iter()
-                    .map(toml::Value::as_str)
-                    .eq(CODEX_NOTIFY_VALUES.iter().copied().map(Some))
-        })
-}
-
-pub fn codex_notify_configured() -> bool {
-    codex_config_path()
-        .as_deref()
-        .is_some_and(codex_notify_configured_at_path)
-}
-
-pub fn codex_notify_detail(configured: bool) -> String {
-    if configured {
-        "Codex host mode already points at Hyphae via its notify adapter.".to_string()
-    } else {
-        format!(
-            "Run `hyphae init` to add the Codex notify adapter to {} and complete Codex host mode.",
-            host_config_display_path(HostMode::Codex)
-        )
-    }
-}
-
-pub fn codex_notify_repair_action() -> RepairAction {
-    RepairAction::manual(
-        "Configure the Codex notify adapter".to_string(),
-        format!(
-            "Run hyphae init so {} includes notify = [\"hyphae\", \"codex-notify\"] and completes Codex host mode.",
-            host_config_display_path(HostMode::Codex)
-        ),
-        "hyphae init".to_string(),
-        vec!["init".to_string()],
-        RepairTier::Primary,
-    )
 }
 
 #[cfg(test)]
@@ -345,14 +287,5 @@ mod tests {
 
         assert_eq!(action.command, "stipe install --profile cursor");
         assert!(action.label.contains("Cursor"));
-    }
-
-    #[test]
-    fn test_codex_notify_detail_mentions_resolved_config_path() {
-        let detail = codex_notify_detail(false);
-
-        assert!(detail.contains("hyphae init"));
-        assert!(detail.contains("Codex"));
-        assert!(detail.contains(".codex"));
     }
 }

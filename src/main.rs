@@ -46,7 +46,7 @@ enum Commands {
         tools: Vec<String>,
     },
 
-    /// Configure MCP clients, Codex notify guidance, hooks, and databases
+    /// Configure MCP clients, Codex notify adapters, hooks, and databases
     Init {
         /// Target a specific MCP client
         #[arg(long)]

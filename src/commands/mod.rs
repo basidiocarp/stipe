@@ -1,4 +1,6 @@
 pub mod bin_paths;
+pub mod claude_hooks;
+pub mod codex_notify;
 pub mod doctor;
 pub mod github;
 pub mod host;

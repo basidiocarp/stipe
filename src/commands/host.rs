@@ -3,6 +3,8 @@ use clap::Subcommand;
 use colored::Colorize;
 use serde::Serialize;
 
+use super::claude_hooks;
+use super::codex_notify;
 use super::host_policy;
 use super::host_policy::{HostAdapterKind, HostMode};
 use super::init;
@@ -131,8 +133,9 @@ fn inventory_entry(mode: HostMode, detected_clients: &[McpClient]) -> HostInvent
 
 fn host_configured(mode: HostMode, config_exists: bool) -> bool {
     match mode {
-        HostMode::Codex => host_policy::codex_notify_configured(),
-        HostMode::ClaudeCode | HostMode::Cursor => config_exists,
+        HostMode::Codex => config_exists && codex_notify::codex_notify_configured(),
+        HostMode::ClaudeCode => config_exists && claude_hooks::claude_hooks_configured(),
+        HostMode::Cursor => config_exists,
     }
 }
 
@@ -140,14 +143,16 @@ fn host_detail(mode: HostMode, detected: bool, configured: bool, config_exists: 
     match mode {
         HostMode::Codex => {
             if detected {
-                host_policy::codex_notify_detail(configured)
+                codex_notify::codex_notify_detail(configured)
             } else {
                 "Codex is not detected on this machine yet.".to_string()
             }
         }
         HostMode::ClaudeCode => {
             if configured {
-                "Claude Code config is present and ready for per-host setup.".to_string()
+                claude_hooks::claude_hooks_detail(true)
+            } else if detected && config_exists {
+                claude_hooks::claude_hooks_detail(false)
             } else if detected {
                 format!(
                     "Claude Code is detected, but no {} was found yet.",
@@ -230,7 +235,7 @@ fn doctor_checks_for_entry(entry: &HostInventoryEntry) -> Vec<HostDoctorCheck> {
 
     let repair_actions = match entry.mode {
         HostMode::Codex if !entry.configured => {
-            vec![setup_action, host_policy::codex_notify_repair_action()]
+            vec![setup_action, codex_notify::codex_notify_repair_action()]
         }
         _ if !entry.configured => vec![setup_action],
         _ => Vec::new(),
@@ -366,7 +371,8 @@ mod tests {
             detected: true,
             configured: false,
             config_path: Some("/Users/test/.codex/config.toml".to_string()),
-            detail: "Run `hyphae init` to add the Codex notify adapter.".to_string(),
+            detail: "Run `stipe init --client codex` to install the Codex notify adapter."
+                .to_string(),
         };
 
         let checks = doctor_checks_for_entry(&entry);
@@ -377,12 +383,10 @@ mod tests {
                 .collect(),
         );
 
-        assert!(
-            repair_actions
-                .iter()
-                .any(|action| action.command.contains("hyphae init")
-                    || action.command.contains("stipe host setup codex"))
-        );
+        assert!(repair_actions.iter().any(|action| {
+            action.command.contains("stipe init --client codex")
+                || action.command.contains("stipe host setup codex")
+        }));
     }
 
     #[test]

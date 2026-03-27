@@ -7,6 +7,8 @@ use colored::Colorize;
 use spore::{Tool, discover};
 use std::process::Command;
 
+use crate::commands::claude_hooks;
+use crate::commands::codex_notify;
 use crate::commands::host_policy;
 use clients::{McpClient, ServerConfig};
 
@@ -112,6 +114,8 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
         return Ok(());
     }
 
+    let target_host = client.and_then(host_policy::host_mode_from_client_flag);
+
     // ─────────────────────────────────────────────────────────────────────
     // 1. Discover tools
     // ─────────────────────────────────────────────────────────────────────
@@ -147,7 +151,9 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // ─────────────────────────────────────────────────────────────────────
     // 3. Configure Claude Code (if available)
     // ─────────────────────────────────────────────────────────────────────
-    if claude_is_available() {
+    if target_host.is_none_or(|mode| mode == host_policy::HostMode::ClaudeCode)
+        && claude_is_available()
+    {
         println!("{}", "Configuring Claude Code...".bold());
         println!();
 
@@ -186,6 +192,26 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
                 println!("    - {item}");
             }
         }
+
+        if claude_hooks::cortina_installed() {
+            match claude_hooks::install_claude_hooks(verbose) {
+                Ok(true) => {
+                    println!("    - Cortina Claude hooks");
+                }
+                Ok(false) => {
+                    eprintln!("  {} Claude hook installation skipped", "!".yellow());
+                }
+                Err(e) => {
+                    eprintln!("  {} Cortina hook registration failed: {}", "!".yellow(), e);
+                }
+            }
+        } else {
+            eprintln!(
+                "  {} {} not found in PATH — skipping Claude hook registration.",
+                "!".yellow(),
+                "cortina".bold()
+            );
+        }
     } else {
         println!(
             "  {} {} not found in PATH — skipping Claude Code configuration.",
@@ -198,7 +224,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // ─────────────────────────────────────────────────────────────────────
     // 3b. Configure Codex host mode (if available)
     // ─────────────────────────────────────────────────────────────────────
-    if host_policy::codex_target_requested(client) {
+    if target_host == Some(host_policy::HostMode::Codex) {
         if codex_version.is_some() {
             configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
         } else {
@@ -210,7 +236,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
             println!("    Install Codex first, then re-run: stipe init");
         }
     } else {
-        if client.is_none() && codex_version.is_some() {
+        if target_host.is_none() && codex_version.is_some() {
             configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
         }
 
@@ -369,6 +395,14 @@ fn configure_codex_cli(
                 "!".yellow(),
                 e
             );
+        }
+    }
+
+    if hyphae_info.is_some() {
+        match codex_notify::install_codex_notify(verbose) {
+            Ok(true) => println!("    - Hyphae Codex notify adapter"),
+            Ok(false) => eprintln!("  {} Codex notify installation skipped", "!".yellow()),
+            Err(e) => eprintln!("  {} Codex notify installation failed: {}", "!".yellow(), e),
         }
     }
 }

@@ -383,8 +383,8 @@ fn host_health_checks() -> Vec<HealthCheck> {
 }
 
 #[cfg(test)]
-fn codex_notify_adapter_configured_at_path(config_path: &Path) -> bool {
-    host_policy::codex_notify_configured_at_path(config_path)
+fn codex_notify_adapter_configured_at_path(config_path: &std::path::Path) -> bool {
+    super::codex_notify::codex_notify_configured_at_path(config_path)
 }
 
 fn build_report() -> DoctorReport {
@@ -449,7 +449,7 @@ pub fn run(json: bool) -> Result<()> {
     } else {
         println!(
             "{}",
-            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, 'stipe host setup <host>' to restore a specific host, or 'hyphae init' to configure Codex notify coverage.".yellow()
+            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow()
         );
         if !report.repair_actions.is_empty() {
             println!();
@@ -468,6 +468,7 @@ pub fn run(json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::codex_notify;
     use std::fs;
 
     #[test]
@@ -576,8 +577,8 @@ mod tests {
 
     #[test]
     fn test_codex_notify_helpers_are_shared() {
-        let detail = host_policy::codex_notify_detail(false);
-        assert!(detail.contains("hyphae init"));
+        let detail = codex_notify::codex_notify_detail(false);
+        assert!(detail.contains("stipe init --client codex"));
         assert!(detail.contains("Codex"));
         assert!(host_policy::codex_target_requested(Some("codex")));
     }
