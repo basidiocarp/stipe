@@ -563,8 +563,7 @@ mod tests {
                     | "x86_64-unknown-linux-musl"
                     | "x86_64-pc-windows-msvc"
             ),
-            "platform_key returned unexpected value: {}",
-            key
+            "platform_key returned unexpected value: {key}"
         );
     }
 

@@ -9,8 +9,11 @@ use serde_json::{Map, Value, json};
 use spore::editors::{self, Editor, McpServer as SporeMcpServer};
 use std::fmt;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+
+use crate::commands::host_policy::{self, HostConfigScope};
 
 /// Known MCP clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,13 +199,18 @@ pub struct ServerConfig {
 /// Register MCP servers in a client's config.
 ///
 /// Returns `Ok(true)` if successfully registered, `Ok(false)` if skipped.
-pub fn register_servers(client: McpClient, servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+pub fn register_servers(
+    client: McpClient,
+    servers: &[ServerConfig],
+    scope: HostConfigScope,
+    verbose: u8,
+) -> Result<bool> {
     if let Some(editor) = client.shared_editor() {
-        return register_spore_editor(editor, servers, verbose);
+        return register_shared_editor(client, editor, servers, scope, verbose);
     }
 
     match client {
-        McpClient::ClaudeCode => register_claude_code(servers, verbose),
+        McpClient::ClaudeCode => register_claude_code(servers, scope, verbose),
         McpClient::Continue => register_continue(servers, verbose),
         McpClient::Cline => {
             print_cline_snippet(servers);
@@ -251,14 +259,22 @@ pub fn print_generic_config(servers: &[ServerConfig]) {
 // Claude Code
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn register_claude_code(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+fn register_claude_code(
+    servers: &[ServerConfig],
+    scope: HostConfigScope,
+    verbose: u8,
+) -> Result<bool> {
     let mut all_ok = true;
     for server in servers {
         let mut cmd = Command::new("claude");
         cmd.arg("mcp")
             .arg("add")
             .arg("--scope")
-            .arg("user")
+            .arg(match scope {
+                HostConfigScope::User => "user",
+                HostConfigScope::Project => "project",
+                HostConfigScope::Local => "local",
+            })
             .arg(&server.name)
             .arg("--");
         cmd.arg(&server.command);
@@ -268,7 +284,12 @@ fn register_claude_code(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
 
         if verbose > 0 {
             eprintln!(
-                "  Running: claude mcp add --scope user {} -- {} {}",
+                "  Running: claude mcp add --scope {} {} -- {} {}",
+                match scope {
+                    HostConfigScope::User => "user",
+                    HostConfigScope::Project => "project",
+                    HostConfigScope::Local => "local",
+                },
                 server.name,
                 server.command,
                 server.args.join(" ")
@@ -287,7 +308,23 @@ fn register_claude_code(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
 // Shared spore-backed clients
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn register_spore_editor(editor: Editor, servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+fn register_shared_editor(
+    client: McpClient,
+    editor: Editor,
+    servers: &[ServerConfig],
+    scope: HostConfigScope,
+    verbose: u8,
+) -> Result<bool> {
+    if client == McpClient::CodexCli && scope == HostConfigScope::Project {
+        let config_path =
+            host_policy::codex_notify_config_path(scope).context("no project Codex config path")?;
+        return register_codex_toml_at_path(&config_path, servers, verbose);
+    }
+
+    if client == McpClient::ClaudeCode {
+        return register_claude_code(servers, scope, verbose);
+    }
+
     let config_path =
         editors::config_path(editor).map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
@@ -307,6 +344,72 @@ fn register_spore_editor(editor: Editor, servers: &[ServerConfig], verbose: u8) 
 
     editors::register_mcp_servers(editor, &spore_servers)
         .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+
+    if verbose > 0 {
+        eprintln!(
+            "  Wrote {} server(s) to {}",
+            servers.len(),
+            config_path.display()
+        );
+    }
+
+    Ok(true)
+}
+
+fn register_codex_toml_at_path(
+    config_path: &Path,
+    servers: &[ServerConfig],
+    verbose: u8,
+) -> Result<bool> {
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut root: toml::Value = if config_path.exists() {
+        let content = fs::read_to_string(config_path)?;
+        if content.trim().is_empty() {
+            toml::Value::Table(toml::map::Map::new())
+        } else {
+            toml::from_str(&content)?
+        }
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+
+    if config_path.exists() {
+        let backup = config_path.with_extension("toml.bak");
+        fs::copy(config_path, &backup)?;
+    }
+
+    let root_table = root
+        .as_table_mut()
+        .context("Codex config root must be a TOML table")?;
+    let server_map = root_table
+        .entry("mcp_servers")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .context("Codex mcp_servers must be a TOML table")?;
+
+    for server in servers {
+        let mut server_table = toml::map::Map::new();
+        server_table.insert(
+            "command".to_string(),
+            toml::Value::String(server.command.clone()),
+        );
+        server_table.insert(
+            "args".to_string(),
+            toml::Value::Array(
+                server
+                    .args
+                    .iter()
+                    .map(|arg| toml::Value::String(arg.clone()))
+                    .collect(),
+            ),
+        );
+        server_map.insert(server.name.clone(), toml::Value::Table(server_table));
+    }
+
+    fs::write(config_path, toml::to_string_pretty(&root)?)?;
 
     if verbose > 0 {
         eprintln!(

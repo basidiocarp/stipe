@@ -52,6 +52,10 @@ enum Commands {
         #[arg(long)]
         client: Option<String>,
 
+        /// Scope for host-specific adapter configuration
+        #[arg(long, value_enum, default_value_t = commands::host_policy::HostConfigScope::User)]
+        scope: commands::host_policy::HostConfigScope,
+
         /// Show what would change without mutating the machine
         #[arg(long)]
         dry_run: bool,
@@ -105,9 +109,10 @@ fn main() -> Result<()> {
         Commands::Update { all, check, tools } => commands::update::run(all, check, &tools),
         Commands::Init {
             client,
+            scope,
             dry_run,
             json,
-        } => commands::init::run(client.as_deref(), dry_run, json),
+        } => commands::init::run(client.as_deref(), scope, dry_run, json),
         Commands::Host { command } => commands::host::run(command),
         Commands::Doctor { json } => commands::doctor::run(json),
         Commands::Uninstall {

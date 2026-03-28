@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::host_policy::{self, HostMode};
+use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
 
 const CODEX_NOTIFY_VALUES: [&str; 2] = ["hyphae", "codex-notify"];
@@ -15,8 +15,11 @@ fn hyphae_installed() -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
-fn codex_config_path() -> Option<PathBuf> {
-    host_policy::host_config_path(HostMode::Codex)
+fn configured_paths() -> Vec<PathBuf> {
+    host_policy::codex_notify_config_paths()
+        .into_iter()
+        .filter(|path| codex_notify_configured_at_path(path))
+        .collect()
 }
 
 fn load_or_create_config(config_path: &Path) -> Result<toml::Value> {
@@ -63,13 +66,11 @@ pub fn codex_notify_configured_at_path(config_path: &Path) -> bool {
 }
 
 pub fn codex_notify_configured() -> bool {
-    codex_config_path()
-        .as_deref()
-        .is_some_and(codex_notify_configured_at_path)
+    !configured_paths().is_empty()
 }
 
-pub fn install_codex_notify(verbose: u8) -> Result<bool> {
-    let Some(config_path) = codex_config_path() else {
+pub fn install_codex_notify(scope: HostConfigScope, verbose: u8) -> Result<bool> {
+    let Some(config_path) = host_policy::codex_notify_config_path(scope) else {
         return Ok(false);
     };
 
@@ -109,13 +110,18 @@ pub fn install_codex_notify(verbose: u8) -> Result<bool> {
     Ok(true)
 }
 
-pub fn codex_notify_detail(configured: bool) -> String {
-    let path = host_policy::host_config_display_path(HostMode::Codex);
-    if configured {
-        format!("Codex host mode already points at Hyphae via notify in {path}.")
+pub fn codex_notify_detail(_configured: bool) -> String {
+    let configured = configured_paths();
+    let candidate_paths = host_policy::codex_notify_config_paths();
+    if !configured.is_empty() {
+        format!(
+            "Codex host mode already points at Hyphae via notify in {}.",
+            host_policy::format_config_path_list(&configured)
+        )
     } else if hyphae_installed() {
         format!(
-            "Run `stipe init --client codex` to install Hyphae notify for Codex host mode in {path}."
+            "Run `stipe init --client codex --scope <user|project>` to install Hyphae notify for Codex host mode in {}.",
+            host_policy::format_config_path_list(&candidate_paths)
         )
     } else {
         "Hyphae is not installed, so Codex notify registration cannot be completed yet.".to_string()
@@ -126,14 +132,16 @@ pub fn codex_notify_repair_action() -> RepairAction {
     RepairAction::manual(
         "Configure the Codex notify adapter".to_string(),
         format!(
-            "Write notify = [\"hyphae\", \"codex-notify\"] to {} and complete Codex host mode.",
-            host_policy::host_config_display_path(HostMode::Codex)
+            "Write notify = [\"hyphae\", \"codex-notify\"] to one of {} and complete Codex host mode.",
+            host_policy::format_config_path_list(&host_policy::codex_notify_config_paths())
         ),
-        "stipe init --client codex".to_string(),
+        "stipe init --client codex --scope user".to_string(),
         vec![
             "init".to_string(),
             "--client".to_string(),
             "codex".to_string(),
+            "--scope".to_string(),
+            "user".to_string(),
         ],
         RepairTier::Primary,
     )

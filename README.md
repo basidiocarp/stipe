@@ -44,15 +44,15 @@ Install profiles:
 ## Commands
 
 ```
-stipe install [--all] [--profile <name>] [--dry-run] [tools...]     Download tools from GitHub releases
-stipe host list                                                     Show known hosts and whether they are detected/configured
-stipe host setup <claude-code|codex|cursor> [--dry-run]             Install and initialize a named host
-stipe host doctor [<claude-code|codex|cursor>] [--json]             Check one host, or all managed hosts, independently
-stipe init [--client <name>] [--dry-run]                            Register MCP servers, install hooks and notify adapters, init databases
-stipe doctor                                                        Health check across the full stack and installed host config
-stipe update [--all] [--check]                                      Update tools to latest versions
-stipe status                                                        Show installed tools and versions
-stipe uninstall [--all] [--dry-run] [tools...]                      Remove tools and configuration
+stipe install [--all] [--profile <name>] [--dry-run] [tools...]              Download tools from GitHub releases
+stipe host list                                                              Show known hosts and whether they are detected/configured
+stipe host setup <claude-code|codex|cursor> [--scope <scope>] [--dry-run]   Install and initialize a named host
+stipe host doctor [<claude-code|codex|cursor>] [--json]                      Check one host, or all managed hosts, independently
+stipe init [--client <name>] [--scope <scope>] [--dry-run]                   Register MCP servers, install hooks and notify adapters, init databases
+stipe doctor                                                                 Health check across the full stack and installed host config
+stipe update [--all] [--check]                                               Update tools to latest versions
+stipe status                                                                 Show installed tools and versions
+stipe uninstall [--all] [--dry-run] [tools...]                               Remove tools and configuration
 ```
 
 This first multi-host slice focuses on shared host descriptors, inventory, and per-host setup/doctor flows. Platform-aware path and shell differences will expand from here rather than landing in one pass.
@@ -61,8 +61,8 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 
 1. Discovers installed tools via spore
 2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Installs the Codex notify adapter by adding Hyphae's notify command to the Codex config file
-4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) for Claude Code
+3. Installs the Codex notify adapter by adding Hyphae's notify command to `~/.codex/config.toml` or `.codex/config.toml`
+4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) in `~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`
 5. Creates the Hyphae database if missing
 6. Patches CLAUDE.md with ecosystem instructions
 

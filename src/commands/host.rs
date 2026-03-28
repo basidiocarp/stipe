@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use colored::Colorize;
 use serde::Serialize;
@@ -6,7 +6,7 @@ use serde::Serialize;
 use super::claude_hooks;
 use super::codex_notify;
 use super::host_policy;
-use super::host_policy::{HostAdapterKind, HostMode};
+use super::host_policy::{HostAdapterKind, HostConfigScope, HostMode};
 use super::init;
 use super::install;
 use super::repair::{RepairAction, dedupe_repair_actions};
@@ -53,6 +53,10 @@ pub enum HostCommand {
         #[arg(value_enum)]
         mode: HostMode,
 
+        /// Scope for host-specific adapter configuration
+        #[arg(long, value_enum, default_value_t = HostConfigScope::User)]
+        scope: HostConfigScope,
+
         /// Show what would change without mutating the machine
         #[arg(long)]
         dry_run: bool,
@@ -94,11 +98,21 @@ pub fn run(command: HostCommand) -> Result<()> {
             run_list();
             Ok(())
         }
-        HostCommand::Setup { mode, dry_run } => run_setup(mode, dry_run),
+        HostCommand::Setup {
+            mode,
+            scope,
+            dry_run,
+        } => run_setup(mode, scope, dry_run),
         HostCommand::Doctor { mode, json } => run_doctor(mode, json),
-        HostCommand::LegacyClaudeCode { dry_run } => run_setup(HostMode::ClaudeCode, dry_run),
-        HostCommand::LegacyCodex { dry_run } => run_setup(HostMode::Codex, dry_run),
-        HostCommand::LegacyCursor { dry_run } => run_setup(HostMode::Cursor, dry_run),
+        HostCommand::LegacyClaudeCode { dry_run } => {
+            run_setup(HostMode::ClaudeCode, HostConfigScope::User, dry_run)
+        }
+        HostCommand::LegacyCodex { dry_run } => {
+            run_setup(HostMode::Codex, HostConfigScope::User, dry_run)
+        }
+        HostCommand::LegacyCursor { dry_run } => {
+            run_setup(HostMode::Cursor, HostConfigScope::User, dry_run)
+        }
     }
 }
 
@@ -114,8 +128,8 @@ pub fn build_inventory() -> Vec<HostInventoryEntry> {
 
 fn inventory_entry(mode: HostMode, detected_clients: &[McpClient]) -> HostInventoryEntry {
     let descriptor = mode.descriptor();
-    let config_path = host_policy::host_config_path(mode);
-    let config_exists = config_path.as_ref().is_some_and(|path| path.exists());
+    let config_paths = host_adapter_paths(mode);
+    let config_exists = config_paths.iter().any(|path| path.exists());
     let detected = host_policy::host_detected_with_clients(mode, detected_clients) || config_exists;
     let configured = host_configured(mode, config_exists);
 
@@ -126,8 +140,17 @@ fn inventory_entry(mode: HostMode, detected_clients: &[McpClient]) -> HostInvent
         adapter_label: descriptor.adapter_kind.label().to_string(),
         detected,
         configured,
-        config_path: config_path.map(|path| host_policy::format_user_path(&path)),
+        config_path: (!config_paths.is_empty())
+            .then(|| host_policy::format_config_path_list(&config_paths)),
         detail: host_detail(mode, detected, configured, config_exists),
+    }
+}
+
+fn host_adapter_paths(mode: HostMode) -> Vec<std::path::PathBuf> {
+    match mode {
+        HostMode::ClaudeCode => host_policy::claude_hook_settings_paths(),
+        HostMode::Codex => host_policy::codex_notify_config_paths(),
+        HostMode::Cursor => host_policy::host_config_path(mode).into_iter().collect(),
     }
 }
 
@@ -292,7 +315,19 @@ fn run_list() {
     }
 }
 
-fn run_setup(mode: HostMode, dry_run: bool) -> Result<()> {
+fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Result<()> {
+    if !host_policy::host_scope_supported(mode, scope) {
+        return Err(anyhow!(
+            "{} does not support the '{}' scope",
+            mode.label(),
+            match scope {
+                HostConfigScope::User => "user",
+                HostConfigScope::Project => "project",
+                HostConfigScope::Local => "local",
+            }
+        ));
+    }
+
     if dry_run {
         println!("{} {}", "Planning".bold(), mode.label().bold());
         println!(
@@ -304,7 +339,7 @@ fn run_setup(mode: HostMode, dry_run: bool) -> Result<()> {
     }
 
     install::run(false, Some(mode.install_profile()), dry_run, &[])?;
-    init::run(Some(mode.client_flag()), dry_run, false)
+    init::run(Some(mode.client_flag()), scope, dry_run, false)
 }
 
 fn run_doctor(mode: Option<HostMode>, json: bool) -> Result<()> {

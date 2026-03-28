@@ -4,12 +4,15 @@ pub mod clients;
 
 use anyhow::Result;
 use colored::Colorize;
+use serde_json::Value;
 use spore::{Tool, discover};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::commands::claude_hooks;
 use crate::commands::codex_notify;
-use crate::commands::host_policy;
+use crate::commands::host_policy::{self, HostConfigScope};
 use clients::{McpClient, ServerConfig};
 
 /// Cap is not in the spore `Tool` enum — detect it separately.
@@ -54,20 +57,65 @@ fn claude_is_available() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Check if an MCP server is already registered with Claude Code.
-fn mcp_exists(name: &str) -> bool {
-    Command::new("claude")
-        .args(["mcp", "get", name])
-        .output()
-        .is_ok_and(|o| o.status.success())
+fn current_project_root() -> Option<PathBuf> {
+    host_policy::project_root()
+}
+
+fn claude_mcp_project_path() -> Option<PathBuf> {
+    current_project_root().map(|root| root.join(".mcp.json"))
+}
+
+fn load_json(path: &Path) -> Option<Value> {
+    let content = fs::read_to_string(path).ok()?;
+    if content.trim().is_empty() {
+        Some(serde_json::json!({}))
+    } else {
+        serde_json::from_str(&content).ok()
+    }
+}
+
+fn path_scoped_mcp_exists(root: &Value, project_root: &Path, name: &str) -> bool {
+    let project_key = project_root.to_string_lossy();
+    root.get("projects")
+        .and_then(Value::as_object)
+        .and_then(|projects| projects.get(project_key.as_ref()))
+        .and_then(|project| project.get("mcpServers"))
+        .and_then(Value::as_object)
+        .is_some_and(|servers| servers.contains_key(name))
+}
+
+/// Check if an MCP server is already registered with Claude Code for the selected scope.
+fn mcp_exists(name: &str, scope: HostConfigScope) -> bool {
+    match scope {
+        HostConfigScope::User => host_policy::host_config_path(host_policy::HostMode::ClaudeCode)
+            .as_deref()
+            .and_then(load_json)
+            .and_then(|root| root.get("mcpServers").and_then(Value::as_object).cloned())
+            .is_some_and(|servers| servers.contains_key(name)),
+        HostConfigScope::Project => claude_mcp_project_path()
+            .as_deref()
+            .and_then(load_json)
+            .and_then(|root| root.get("mcpServers").and_then(Value::as_object).cloned())
+            .is_some_and(|servers| servers.contains_key(name)),
+        HostConfigScope::Local => host_policy::host_config_path(host_policy::HostMode::ClaudeCode)
+            .as_deref()
+            .and_then(load_json)
+            .zip(current_project_root())
+            .is_some_and(|(root, project_root)| path_scoped_mcp_exists(&root, &project_root, name)),
+    }
 }
 
 /// Register an MCP server with Claude Code. Returns:
 /// - `Ok(Some("registered"))` if newly registered
 /// - `Ok(Some("already registered"))` if already present
 /// - `Ok(None)` if registration failed
-fn register_mcp(name: &str, args: &[&str], verbose: u8) -> Result<Option<&'static str>> {
-    if mcp_exists(name) {
+fn register_mcp(
+    name: &str,
+    args: &[&str],
+    scope: HostConfigScope,
+    verbose: u8,
+) -> Result<Option<&'static str>> {
+    if mcp_exists(name, scope) {
         if verbose > 0 {
             eprintln!("  {name} MCP already registered");
         }
@@ -78,7 +126,11 @@ fn register_mcp(name: &str, args: &[&str], verbose: u8) -> Result<Option<&'stati
     cmd.arg("mcp")
         .arg("add")
         .arg("--scope")
-        .arg("user")
+        .arg(match scope {
+            HostConfigScope::User => "user",
+            HostConfigScope::Project => "project",
+            HostConfigScope::Local => "local",
+        })
         .arg(name);
     cmd.arg("--");
     for arg in args {
@@ -87,7 +139,12 @@ fn register_mcp(name: &str, args: &[&str], verbose: u8) -> Result<Option<&'stati
 
     if verbose > 0 {
         eprintln!(
-            "  Running: claude mcp add --scope user {} -- {}",
+            "  Running: claude mcp add --scope {} {} -- {}",
+            match scope {
+                HostConfigScope::User => "user",
+                HostConfigScope::Project => "project",
+                HostConfigScope::Local => "local",
+            },
             name,
             args.join(" ")
         );
@@ -103,7 +160,7 @@ fn register_mcp(name: &str, args: &[&str], verbose: u8) -> Result<Option<&'stati
 
 /// Main entry point for ecosystem setup.
 #[allow(clippy::too_many_lines, clippy::unnecessary_wraps)]
-pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
+pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) -> Result<()> {
     // Handle --client generic: just print JSON snippet and exit
     if client
         .as_ref()
@@ -161,7 +218,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
 
         // Register hyphae MCP if installed
         if hyphae_info.is_some() {
-            match register_mcp("hyphae", &["hyphae", "serve"], verbose) {
+            match register_mcp("hyphae", &["hyphae", "serve"], scope, verbose) {
                 Ok(Some(status)) => configured.push(if status == "already registered" {
                     "hyphae MCP (already registered)"
                 } else {
@@ -174,7 +231,12 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
 
         // Register rhizome MCP if installed
         if rhizome_info.is_some() {
-            match register_mcp("rhizome", &["rhizome", "serve", "--expanded"], verbose) {
+            match register_mcp(
+                "rhizome",
+                &["rhizome", "serve", "--expanded"],
+                scope,
+                verbose,
+            ) {
                 Ok(Some(status)) => configured.push(if status == "already registered" {
                     "rhizome MCP (already registered)"
                 } else {
@@ -194,7 +256,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
         }
 
         if claude_hooks::cortina_installed() {
-            match claude_hooks::install_claude_hooks(verbose) {
+            match claude_hooks::install_claude_hooks(scope, verbose) {
                 Ok(true) => {
                     println!("    - Cortina Claude hooks");
                 }
@@ -226,7 +288,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
     // ─────────────────────────────────────────────────────────────────────
     if target_host == Some(host_policy::HostMode::Codex) {
         if codex_version.is_some() {
-            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
+            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), scope, verbose);
         } else {
             println!(
                 "  {} {} not found in PATH — skipping Codex host mode configuration.",
@@ -237,7 +299,7 @@ pub fn run_ecosystem(client: Option<&str>, verbose: u8) -> Result<()> {
         }
     } else {
         if target_host.is_none() && codex_version.is_some() {
-            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), verbose);
+            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), scope, verbose);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -360,8 +422,22 @@ fn build_ecosystem_servers(
 fn configure_codex_cli(
     hyphae_info: Option<&spore::ToolInfo>,
     rhizome_info: Option<&spore::ToolInfo>,
+    scope: HostConfigScope,
     verbose: u8,
 ) {
+    if !host_policy::host_scope_supported(host_policy::HostMode::Codex, scope) {
+        eprintln!(
+            "  {} Codex host mode does not support the '{}' scope — skipping Codex configuration.",
+            "!".yellow(),
+            match scope {
+                HostConfigScope::User => "user",
+                HostConfigScope::Project => "project",
+                HostConfigScope::Local => "local",
+            }
+        );
+        return;
+    }
+
     let servers = build_ecosystem_servers(hyphae_info, rhizome_info);
 
     if servers.is_empty() {
@@ -372,7 +448,7 @@ fn configure_codex_cli(
     println!("{}", "Configuring Codex host mode...".bold());
     println!();
 
-    match clients::register_servers(McpClient::CodexCli, &servers, verbose) {
+    match clients::register_servers(McpClient::CodexCli, &servers, scope, verbose) {
         Ok(true) => {
             println!();
             println!(
@@ -399,7 +475,7 @@ fn configure_codex_cli(
     }
 
     if hyphae_info.is_some() {
-        match codex_notify::install_codex_notify(verbose) {
+        match codex_notify::install_codex_notify(scope, verbose) {
             Ok(true) => println!("    - Hyphae Codex notify adapter"),
             Ok(false) => eprintln!("  {} Codex notify installation skipped", "!".yellow()),
             Err(e) => eprintln!("  {} Codex notify installation failed: {}", "!".yellow(), e),
@@ -468,7 +544,7 @@ fn configure_detected_clients(
             continue;
         }
 
-        match clients::register_servers(*target, &servers, verbose) {
+        match clients::register_servers(*target, &servers, HostConfigScope::User, verbose) {
             Ok(true) => {
                 client_configured.push(target.name());
             }

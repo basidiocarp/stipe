@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::host_policy::{self, HostMode};
+use super::host_policy::{self, HostConfigScope, HostMode};
 
 #[derive(Clone, Copy)]
 struct HookSpec {
@@ -46,8 +46,11 @@ pub fn cortina_installed() -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
-fn claude_settings_path() -> Option<PathBuf> {
-    host_policy::host_config_path(HostMode::ClaudeCode)
+fn configured_paths() -> Vec<PathBuf> {
+    host_policy::claude_hook_settings_paths()
+        .into_iter()
+        .filter(|path| claude_hooks_configured_at_path(path))
+        .collect()
 }
 
 fn hook_command(spec: HookSpec) -> String {
@@ -188,13 +191,11 @@ fn claude_hooks_configured_at_path(settings_path: &Path) -> bool {
 }
 
 pub fn claude_hooks_configured() -> bool {
-    claude_settings_path()
-        .as_deref()
-        .is_some_and(claude_hooks_configured_at_path)
+    !configured_paths().is_empty()
 }
 
-pub fn install_claude_hooks(verbose: u8) -> Result<bool> {
-    let Some(settings_path) = claude_settings_path() else {
+pub fn install_claude_hooks(scope: HostConfigScope, verbose: u8) -> Result<bool> {
+    let Some(settings_path) = host_policy::claude_hook_settings_path(scope) else {
         return Ok(false);
     };
 
@@ -212,12 +213,28 @@ pub fn install_claude_hooks(verbose: u8) -> Result<bool> {
     Ok(configured)
 }
 
-pub fn claude_hooks_detail(configured: bool) -> String {
-    let path = host_policy::host_config_display_path(HostMode::ClaudeCode);
-    if configured {
-        format!("Claude Code config exists and Cortina hooks are installed in {path}.")
+pub fn claude_hooks_detail(_configured: bool) -> String {
+    let configured = configured_paths();
+    let candidate_paths = host_policy::claude_hook_settings_paths();
+    if !configured.is_empty() {
+        format!(
+            "Claude Code hooks are installed in {}.",
+            host_policy::format_config_path_list(&configured)
+        )
     } else if cortina_installed() {
-        format!("Run `stipe init` to install Cortina Claude hooks in {path}.")
+        let scope_hint = host_policy::supported_host_config_scopes(HostMode::ClaudeCode)
+            .iter()
+            .map(|scope| match scope {
+                HostConfigScope::User => "user",
+                HostConfigScope::Project => "project",
+                HostConfigScope::Local => "local",
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+        format!(
+            "Run `stipe init --client claude-code --scope <{scope_hint}>` to install Cortina Claude hooks in {}.",
+            host_policy::format_config_path_list(&candidate_paths)
+        )
     } else {
         "Cortina is not installed, so Claude hook registration cannot be completed yet.".to_string()
     }

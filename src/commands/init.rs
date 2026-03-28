@@ -5,7 +5,7 @@ use serde::Serialize;
 use spore::{Tool, discover};
 
 use super::host_policy;
-use super::host_policy::HostMode;
+use super::host_policy::{HostConfigScope, HostMode};
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
 use crate::commands::claude_hooks;
 use crate::commands::codex_notify;
@@ -22,7 +22,7 @@ struct InitSnapshot {
     claude: ClaudeSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "Init planning tracks a small fixed install/configuration matrix"
@@ -34,12 +34,12 @@ struct ToolSnapshot {
     hyphae_db_exists: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 struct CodexSnapshot {
     notify_configured: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 struct ClaudeSnapshot {
     hooks_configured: bool,
 }
@@ -86,13 +86,26 @@ struct InitPlan {
     repair_actions: Vec<RepairAction>,
 }
 
-fn build_snapshot(client: Option<&str>) -> Result<InitSnapshot> {
+fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Result<InitSnapshot> {
     let target_client = client.map(ToOwned::to_owned);
 
     if let Some(target) = client {
         if McpClient::from_flag(target).is_none() {
             return Err(anyhow!(
                 "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot"
+            ));
+        }
+        if let Some(mode) = host_policy::host_mode_from_client_flag(target)
+            && !host_policy::host_scope_supported(mode, scope)
+        {
+            return Err(anyhow!(
+                "{} does not support the '{}' scope",
+                mode.label(),
+                match scope {
+                    HostConfigScope::User => "user",
+                    HostConfigScope::Project => "project",
+                    HostConfigScope::Local => "local",
+                }
             ));
         }
     }
@@ -390,13 +403,13 @@ fn build_plan(snapshot: &InitSnapshot, dry_run: bool) -> InitPlan {
     }
 }
 
-pub fn run(client: Option<&str>, dry_run: bool, json: bool) -> Result<()> {
-    let snapshot = build_snapshot(client)?;
+pub fn run(client: Option<&str>, scope: HostConfigScope, dry_run: bool, json: bool) -> Result<()> {
+    let snapshot = build_snapshot(client, scope)?;
     let plan = build_plan(&snapshot, dry_run);
 
     if json {
         if !dry_run {
-            ecosystem::run_ecosystem(client, 0)?;
+            ecosystem::run_ecosystem(client, scope, 0)?;
         }
         println!("{}", serde_json::to_string_pretty(&plan)?);
         return Ok(());
@@ -407,62 +420,75 @@ pub fn run(client: Option<&str>, dry_run: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    ecosystem::run_ecosystem(client, 0)
+    ecosystem::run_ecosystem(client, scope, 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn snapshot(
-        target_client: Option<&str>,
+    struct SnapshotFixture {
+        target_client: Option<&'static str>,
         selected_hosts: Vec<HostMode>,
         detected_hosts: Vec<HostMode>,
-        detected_clients: Vec<&str>,
-        hyphae_installed: bool,
-        rhizome_installed: bool,
-        cortina_installed: bool,
-        hyphae_db_exists: bool,
-        codex_notify_configured: bool,
-        claude_hooks_configured: bool,
-    ) -> InitSnapshot {
+        detected_clients: Vec<&'static str>,
+        tools: ToolSnapshot,
+        codex: CodexSnapshot,
+        claude: ClaudeSnapshot,
+    }
+
+    impl Default for SnapshotFixture {
+        fn default() -> Self {
+            Self {
+                target_client: None,
+                selected_hosts: Vec::new(),
+                detected_hosts: Vec::new(),
+                detected_clients: Vec::new(),
+                tools: ToolSnapshot {
+                    hyphae_installed: false,
+                    rhizome_installed: false,
+                    cortina_installed: false,
+                    hyphae_db_exists: false,
+                },
+                codex: CodexSnapshot {
+                    notify_configured: false,
+                },
+                claude: ClaudeSnapshot {
+                    hooks_configured: false,
+                },
+            }
+        }
+    }
+
+    fn snapshot(fixture: SnapshotFixture) -> InitSnapshot {
         InitSnapshot {
-            target_client: target_client.map(ToOwned::to_owned),
-            selected_hosts,
-            detected_hosts,
-            detected_clients: detected_clients
+            target_client: fixture.target_client.map(ToOwned::to_owned),
+            selected_hosts: fixture.selected_hosts,
+            detected_hosts: fixture.detected_hosts,
+            detected_clients: fixture
+                .detected_clients
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect(),
-            tools: ToolSnapshot {
-                hyphae_installed,
-                rhizome_installed,
-                cortina_installed,
-                hyphae_db_exists,
-            },
-            codex: CodexSnapshot {
-                notify_configured: codex_notify_configured,
-            },
-            claude: ClaudeSnapshot {
-                hooks_configured: claude_hooks_configured,
-            },
+            tools: fixture.tools,
+            codex: fixture.codex,
+            claude: fixture.claude,
         }
     }
 
     #[test]
     fn test_render_preview_mentions_target_client_and_actions() {
-        let snapshot = snapshot(
-            Some("cursor"),
-            vec![HostMode::Cursor],
-            vec![HostMode::Cursor],
-            vec!["Cursor", "Continue"],
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("cursor"),
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
+            detected_clients: vec!["Cursor", "Continue"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
 
         let lines = render_preview(&snapshot);
         assert!(lines.iter().any(|line| line.contains("target Cursor mode")));
@@ -485,18 +511,16 @@ mod tests {
 
     #[test]
     fn test_render_preview_lists_detected_clients_when_unfiltered() {
-        let snapshot = snapshot(
-            None,
-            vec![HostMode::Cursor],
-            vec![HostMode::Cursor],
-            vec!["Cursor", "Continue"],
-            false,
-            false,
-            false,
-            true,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
+            detected_clients: vec!["Cursor", "Continue"],
+            tools: ToolSnapshot {
+                hyphae_db_exists: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
 
         let lines = render_preview(&snapshot);
         assert!(
@@ -513,18 +537,16 @@ mod tests {
 
     #[test]
     fn test_build_plan_contains_repair_actions() {
-        let snapshot = snapshot(
-            None,
-            vec![HostMode::Cursor],
-            vec![HostMode::Cursor],
-            vec!["Cursor"],
-            false,
-            true,
-            false,
-            false,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
+            detected_clients: vec!["Cursor"],
+            tools: ToolSnapshot {
+                rhizome_installed: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -540,18 +562,19 @@ mod tests {
 
     #[test]
     fn test_render_preview_mentions_codex_notify_adapter() {
-        let snapshot = snapshot(
-            Some("codex"),
-            vec![HostMode::Codex],
-            vec![HostMode::Codex],
-            vec!["Codex CLI"],
-            true,
-            true,
-            false,
-            true,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("codex"),
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
+            detected_clients: vec!["Codex CLI"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                rhizome_installed: true,
+                hyphae_db_exists: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
 
         let lines = render_preview(&snapshot);
         assert!(
@@ -573,18 +596,13 @@ mod tests {
 
     #[test]
     fn test_build_plan_prefers_codex_profile_for_codex_targets() {
-        let snapshot = snapshot(
-            Some("codex"),
-            vec![HostMode::Codex],
-            vec![HostMode::Codex],
-            vec!["Codex CLI"],
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("codex"),
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
+            detected_clients: vec!["Codex CLI"],
+            ..Default::default()
+        });
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -594,23 +612,22 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(commands.contains(&"stipe host setup codex"));
-        assert!(commands.contains(&"stipe init --client codex"));
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.starts_with("stipe init --client codex"))
+        );
     }
 
     #[test]
     fn test_build_plan_does_not_switch_to_codex_profile_for_non_codex_targets() {
-        let snapshot = snapshot(
-            Some("cursor"),
-            vec![HostMode::Cursor],
-            vec![HostMode::Cursor, HostMode::Codex],
-            vec!["Codex CLI", "Cursor"],
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("cursor"),
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor, HostMode::Codex],
+            detected_clients: vec!["Codex CLI", "Cursor"],
+            ..Default::default()
+        });
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -625,18 +642,18 @@ mod tests {
 
     #[test]
     fn test_build_plan_uses_host_setup_for_supported_target_hosts() {
-        let snapshot = snapshot(
-            Some("claude-code"),
-            vec![HostMode::ClaudeCode],
-            vec![HostMode::ClaudeCode],
-            vec!["Claude Code"],
-            false,
-            false,
-            true,
-            true,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("claude-code"),
+            selected_hosts: vec![HostMode::ClaudeCode],
+            detected_hosts: vec![HostMode::ClaudeCode],
+            detected_clients: vec!["Claude Code"],
+            tools: ToolSnapshot {
+                cortina_installed: true,
+                hyphae_db_exists: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -651,18 +668,19 @@ mod tests {
 
     #[test]
     fn test_render_preview_mentions_claude_hooks_when_cortina_is_available() {
-        let snapshot = snapshot(
-            Some("claude-code"),
-            vec![HostMode::ClaudeCode],
-            vec![HostMode::ClaudeCode],
-            vec!["Claude Code"],
-            true,
-            true,
-            true,
-            true,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("claude-code"),
+            selected_hosts: vec![HostMode::ClaudeCode],
+            detected_hosts: vec![HostMode::ClaudeCode],
+            detected_clients: vec!["Claude Code"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                rhizome_installed: true,
+                cortina_installed: true,
+                hyphae_db_exists: true,
+            },
+            ..Default::default()
+        });
 
         let lines = render_preview(&snapshot);
         assert!(
@@ -674,18 +692,12 @@ mod tests {
 
     #[test]
     fn test_build_plan_prefers_codex_profile_when_codex_is_detected_by_default() {
-        let snapshot = snapshot(
-            None,
-            vec![HostMode::Codex],
-            vec![HostMode::Codex],
-            vec!["Codex CLI"],
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            selected_hosts: vec![HostMode::Codex],
+            detected_hosts: vec![HostMode::Codex],
+            detected_clients: vec!["Codex CLI"],
+            ..Default::default()
+        });
 
         let plan = build_plan(&snapshot, true);
         let commands = plan
@@ -700,18 +712,18 @@ mod tests {
 
     #[test]
     fn test_render_preview_reports_multiple_detected_hosts() {
-        let snapshot = snapshot(
-            None,
-            vec![HostMode::ClaudeCode, HostMode::Codex],
-            vec![HostMode::ClaudeCode, HostMode::Codex],
-            vec!["Claude Code", "Codex CLI"],
-            true,
-            true,
-            true,
-            true,
-            false,
-            false,
-        );
+        let snapshot = snapshot(SnapshotFixture {
+            selected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
+            detected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
+            detected_clients: vec!["Claude Code", "Codex CLI"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                rhizome_installed: true,
+                cortina_installed: true,
+                hyphae_db_exists: true,
+            },
+            ..Default::default()
+        });
 
         let lines = render_preview(&snapshot);
 
@@ -739,12 +751,6 @@ mod tests {
             None,
             &["Codex CLI".to_string()]
         ));
-        assert_eq!(
-            codex_notify::codex_notify_detail(true),
-            format!(
-                "Codex host mode already points at Hyphae via notify in {}.",
-                host_policy::host_config_display_path(HostMode::Codex)
-            )
-        );
+        assert!(codex_notify::codex_notify_detail(true).contains("Codex host mode"));
     }
 }

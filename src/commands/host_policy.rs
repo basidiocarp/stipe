@@ -11,6 +11,16 @@ pub const CODEX_CLIENT_FLAG: &str = "codex";
 pub const CLAUDE_CODE_HOST_MODE_LABEL: &str = "Claude Code operator mode";
 pub const CODEX_HOST_MODE_LABEL: &str = "Codex host mode";
 pub const CURSOR_HOST_MODE_LABEL: &str = "Cursor mode";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum HostConfigScope {
+    #[default]
+    User,
+    Project,
+    Local,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum HostMode {
@@ -114,6 +124,65 @@ pub fn host_config_path(mode: HostMode) -> Option<PathBuf> {
     mode.client().config_path()
 }
 
+pub fn project_root() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    Some(spore::paths::find_project_root(&cwd).unwrap_or(cwd))
+}
+
+pub fn supported_host_config_scopes(mode: HostMode) -> &'static [HostConfigScope] {
+    const CLAUDE_SCOPES: &[HostConfigScope] = &[
+        HostConfigScope::User,
+        HostConfigScope::Project,
+        HostConfigScope::Local,
+    ];
+    const CODEX_SCOPES: &[HostConfigScope] = &[HostConfigScope::User, HostConfigScope::Project];
+    const CURSOR_SCOPES: &[HostConfigScope] = &[HostConfigScope::User];
+
+    match mode {
+        HostMode::ClaudeCode => CLAUDE_SCOPES,
+        HostMode::Codex => CODEX_SCOPES,
+        HostMode::Cursor => CURSOR_SCOPES,
+    }
+}
+
+pub fn host_scope_supported(mode: HostMode, scope: HostConfigScope) -> bool {
+    supported_host_config_scopes(mode).contains(&scope)
+}
+
+pub fn claude_hook_settings_path(scope: HostConfigScope) -> Option<PathBuf> {
+    match scope {
+        HostConfigScope::User => dirs::home_dir().map(|home| home.join(".claude/settings.json")),
+        HostConfigScope::Project => project_root().map(|root| root.join(".claude/settings.json")),
+        HostConfigScope::Local => {
+            project_root().map(|root| root.join(".claude/settings.local.json"))
+        }
+    }
+}
+
+pub fn claude_hook_settings_paths() -> Vec<PathBuf> {
+    supported_host_config_scopes(HostMode::ClaudeCode)
+        .iter()
+        .copied()
+        .filter_map(claude_hook_settings_path)
+        .collect()
+}
+
+pub fn codex_notify_config_path(scope: HostConfigScope) -> Option<PathBuf> {
+    match scope {
+        HostConfigScope::User => dirs::home_dir().map(|home| home.join(".codex/config.toml")),
+        HostConfigScope::Project => project_root().map(|root| root.join(".codex/config.toml")),
+        HostConfigScope::Local => None,
+    }
+}
+
+pub fn codex_notify_config_paths() -> Vec<PathBuf> {
+    supported_host_config_scopes(HostMode::Codex)
+        .iter()
+        .copied()
+        .filter_map(codex_notify_config_path)
+        .collect()
+}
+
 pub fn format_user_path(path: &Path) -> String {
     let Some(home) = dirs::home_dir() else {
         return path.display().to_string();
@@ -148,6 +217,14 @@ pub fn host_config_display_path(mode: HostMode) -> String {
         || host_config_label(mode).to_string(),
         |path| format_user_path(&path),
     )
+}
+
+pub fn format_config_path_list(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|path| format_user_path(path))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub fn host_setup_repair_action(mode: HostMode) -> RepairAction {
@@ -279,6 +356,37 @@ mod tests {
             host_config_path(HostMode::Cursor),
             McpClient::Cursor.config_path()
         );
+    }
+
+    #[test]
+    fn test_claude_hook_settings_paths_follow_scope() {
+        let root = project_root().unwrap();
+        let user_path = claude_hook_settings_path(HostConfigScope::User).unwrap();
+        assert!(user_path.ends_with(".claude/settings.json"));
+
+        let project_path = claude_hook_settings_path(HostConfigScope::Project).unwrap();
+        assert!(project_path.ends_with(".claude/settings.json"));
+        assert!(project_path.starts_with(&root));
+
+        let local_path = claude_hook_settings_path(HostConfigScope::Local).unwrap();
+        assert!(local_path.ends_with(".claude/settings.local.json"));
+        assert!(local_path.starts_with(&root));
+    }
+
+    #[test]
+    fn test_codex_notify_paths_follow_scope() {
+        let root = project_root().unwrap();
+        let user_path = codex_notify_config_path(HostConfigScope::User).unwrap();
+        assert!(user_path.ends_with(".codex/config.toml"));
+
+        let project_path = codex_notify_config_path(HostConfigScope::Project).unwrap();
+        assert!(project_path.ends_with(".codex/config.toml"));
+        assert!(project_path.starts_with(&root));
+    }
+
+    #[test]
+    fn test_local_scope_is_not_supported_for_codex_notify() {
+        assert!(codex_notify_config_path(HostConfigScope::Local).is_none());
     }
 
     #[test]

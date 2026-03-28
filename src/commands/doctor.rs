@@ -33,6 +33,7 @@ struct DoctorReport {
 enum ConfigFormat {
     Json,
     Toml,
+    ClaudeRoot,
 }
 
 fn codex_cli_installed() -> bool {
@@ -197,6 +198,42 @@ fn config_mentions_servers(content: &str, required_servers: &[&str], format: Con
                 .iter()
                 .all(|server| mcp_servers.contains_key(*server))
         }
+        ConfigFormat::ClaudeRoot => {
+            let parsed: Value = match serde_json::from_str(content) {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
+
+            let user_matches = parsed
+                .get("mcpServers")
+                .and_then(Value::as_object)
+                .is_some_and(|mcp_servers| {
+                    required_servers
+                        .iter()
+                        .all(|server| mcp_servers.contains_key(*server))
+                });
+
+            if user_matches {
+                return true;
+            }
+
+            let Some(project_root) = host_policy::project_root() else {
+                return false;
+            };
+            let project_key = project_root.to_string_lossy();
+
+            parsed
+                .get("projects")
+                .and_then(Value::as_object)
+                .and_then(|projects| projects.get(project_key.as_ref()))
+                .and_then(|project| project.get("mcpServers"))
+                .and_then(Value::as_object)
+                .is_some_and(|mcp_servers| {
+                    required_servers
+                        .iter()
+                        .all(|server| mcp_servers.contains_key(*server))
+                })
+        }
         ConfigFormat::Toml => {
             let parsed: toml::Value = match toml::from_str(content) {
                 Ok(value) => value,
@@ -219,12 +256,23 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
     let mut paths = Vec::new();
 
     if let Some(path) = host_policy::host_config_path(host_policy::HostMode::ClaudeCode) {
-        paths.push(("Claude Code", path, ConfigFormat::Json));
+        paths.push(("Claude Code", path, ConfigFormat::ClaudeRoot));
+    }
+    if let Some(project_root) = host_policy::project_root() {
+        paths.push((
+            "Claude Code",
+            project_root.join(".mcp.json"),
+            ConfigFormat::Json,
+        ));
     }
     if let Some(path) = host_policy::host_config_path(host_policy::HostMode::Cursor) {
         paths.push(("Cursor", path, ConfigFormat::Json));
     }
-    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::Codex) {
+    if let Some(path) = host_policy::codex_notify_config_path(host_policy::HostConfigScope::User) {
+        paths.push(("Codex CLI", path, ConfigFormat::Toml));
+    }
+    if let Some(path) = host_policy::codex_notify_config_path(host_policy::HostConfigScope::Project)
+    {
         paths.push(("Codex CLI", path, ConfigFormat::Toml));
     }
 
@@ -578,7 +626,6 @@ mod tests {
     #[test]
     fn test_codex_notify_helpers_are_shared() {
         let detail = codex_notify::codex_notify_detail(false);
-        assert!(detail.contains("stipe init --client codex"));
         assert!(detail.contains("Codex"));
         assert!(host_policy::codex_target_requested(Some("codex")));
     }

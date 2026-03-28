@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.5] - 2026-03-27
+
+### Fixed
+
+- **Claude hook install target**: `stipe init` now writes Cortina Claude hooks to Claude settings files (`~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`) instead of mixing hook registration into `~/.claude.json`.
+- **Scoped host adapter installs**: `stipe init` and `stipe host setup` now accept `--scope`, and Codex project installs write to `.codex/config.toml` instead of only targeting the user config.
+- **Scoped health detection**: `stipe host list`, `stipe host doctor`, and `stipe doctor` now recognize Claude and Codex adapter installs across the supported user and project scopes.
+
+### Changed
+
+- **Rust quality gate**: `stipe` is clippy-clean under `cargo clippy -p stipe --all-targets -- -D warnings`.
+
 ## [0.4.4] - 2026-03-27
 
 ### Added
