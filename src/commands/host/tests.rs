@@ -1,4 +1,5 @@
 use crate::commands::install::InstallProfile;
+use crate::commands::repair::{RepairAction, RepairTier};
 
 use super::*;
 
@@ -75,4 +76,52 @@ fn test_inventory_entry_uses_shared_host_descriptor_metadata() {
     assert_eq!(entry.label, HostMode::Codex.label());
     assert_eq!(entry.adapter_kind, HostAdapterKind::McpAndNotify);
     assert_eq!(entry.adapter_label, "MCP + notify");
+}
+
+#[test]
+fn test_render_list_snapshot_includes_known_sections() {
+    let lines = render_list();
+
+    assert_eq!(lines[0], "");
+    assert_eq!(lines[1], "Configured Hosts");
+    assert_eq!(lines[2], "─".repeat(75));
+    assert!(lines.iter().any(|line| line.contains("claude-code")));
+    assert!(lines.iter().any(|line| line.contains("codex")));
+    assert!(lines.iter().any(|line| line.contains("cursor")));
+}
+
+#[test]
+fn test_render_doctor_snapshot_for_failure() {
+    let report = crate::commands::host::model::HostDoctorReport {
+        healthy: false,
+        summary: "1 host needs attention.".to_string(),
+        checks: vec![crate::commands::host::model::HostDoctorCheck {
+            host: HostMode::Cursor,
+            passed: false,
+            message: "Cursor is not configured".to_string(),
+            repair_actions: vec![],
+        }],
+        repair_actions: vec![RepairAction::stipe(
+            "host setup cursor",
+            "Set up Cursor",
+            "Restore the Cursor MCP config.",
+            &["host", "setup", "cursor"],
+            RepairTier::Primary,
+        )],
+    };
+
+    assert_eq!(
+        render_doctor(&report, false),
+        vec![
+            "",
+            "Host Health",
+            &"─".repeat(75),
+            "",
+            "  cursor         ✗ Cursor is not configured",
+            "",
+            "Recommended repair actions:",
+            "  - stipe host setup cursor",
+            "",
+        ]
+    );
 }

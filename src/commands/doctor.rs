@@ -21,6 +21,84 @@ use model::ConfigFormat;
 #[cfg(test)]
 use tool_checks::check_hyphae_db_at_path;
 
+fn render_check_line(check: &HealthCheck, colorize: bool) -> String {
+    let (symbol, message) = if check.passed {
+        ("✓", check.message.clone())
+    } else {
+        ("✗", check.message.clone())
+    };
+
+    let message = if colorize {
+        if check.passed {
+            message.green().to_string()
+        } else {
+            message.red().to_string()
+        }
+    } else {
+        message
+    };
+
+    let name = if colorize {
+        check.name.bold().to_string()
+    } else {
+        check.name.clone()
+    };
+
+    format!("  {name:<20} {symbol} {message}")
+}
+
+fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
+    let mut lines = vec![
+        String::new(),
+        if colorize {
+            "Basidiocarp Ecosystem Health Check".bold().to_string()
+        } else {
+            "Basidiocarp Ecosystem Health Check".to_string()
+        },
+        "─".repeat(75),
+        String::new(),
+    ];
+
+    lines.extend(
+        report
+            .checks
+            .iter()
+            .map(|check| render_check_line(check, colorize)),
+    );
+    lines.push(String::new());
+
+    if report.healthy {
+        lines.push(if colorize {
+            "All checks passed.".green().to_string()
+        } else {
+            "All checks passed.".to_string()
+        });
+    } else {
+        lines.push(if colorize {
+            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow().to_string()
+        } else {
+            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".to_string()
+        });
+        if !report.repair_actions.is_empty() {
+            lines.push(String::new());
+            lines.push(if colorize {
+                "Recommended repair actions:".bold().to_string()
+            } else {
+                "Recommended repair actions:".to_string()
+            });
+            lines.extend(
+                report
+                    .repair_actions
+                    .iter()
+                    .map(|action| format!("  - {}", action.command)),
+            );
+        }
+    }
+
+    lines.push(String::new());
+    lines
+}
+
 fn host_health_checks() -> Vec<HealthCheck> {
     host::build_host_doctor_report(None)
         .checks
@@ -71,41 +149,13 @@ pub fn run(json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!();
-    println!("{}", "Basidiocarp Ecosystem Health Check".bold());
-    println!("{}", "─".repeat(75));
-    println!();
-
-    for check in &report.checks {
-        let status = if check.passed {
-            format!("{} {}", "✓".green(), check.message.green())
-        } else {
-            format!("{} {}", "✗".red(), check.message.red())
-        };
-
-        println!("  {:<20} {}", check.name.bold(), status);
+    for line in render_report(&report, true) {
+        println!("{line}");
     }
-
-    println!();
 
     if report.healthy {
         crate::banner::print_banner();
-        println!("{}", "All checks passed.".green());
-    } else {
-        println!(
-            "{}",
-            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow()
-        );
-        if !report.repair_actions.is_empty() {
-            println!();
-            println!("{}", "Recommended repair actions:".bold());
-            for action in &report.repair_actions {
-                println!("  - {}", action.command);
-            }
-        }
     }
-
-    println!();
 
     Ok(())
 }
@@ -285,5 +335,43 @@ mod tests {
         assert!(!report.healthy);
         assert_eq!(report.repair_actions.len(), 1);
         assert_eq!(report.repair_actions[0].command, "stipe init");
+    }
+
+    #[test]
+    fn test_render_report_snapshot_for_failure() {
+        let report = DoctorReport {
+            healthy: false,
+            summary: "1 checks need attention.".to_string(),
+            checks: vec![HealthCheck {
+                name: "hyphae".to_string(),
+                passed: false,
+                message: "not found in PATH".to_string(),
+                repair_actions: vec![],
+            }],
+            repair_actions: vec![RepairAction::stipe(
+                "install hyphae",
+                "Install hyphae",
+                "Add hyphae to PATH.",
+                &["install", "hyphae"],
+                RepairTier::Primary,
+            )],
+        };
+
+        assert_eq!(
+            render_report(&report, false),
+            vec![
+                "",
+                "Basidiocarp Ecosystem Health Check",
+                &"─".repeat(75),
+                "",
+                "  hyphae               ✗ not found in PATH",
+                "",
+                "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.",
+                "",
+                "Recommended repair actions:",
+                "  - stipe install hyphae",
+                "",
+            ]
+        );
     }
 }

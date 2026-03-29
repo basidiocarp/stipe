@@ -9,44 +9,98 @@ use crate::commands::install;
 use super::doctor_report::build_host_doctor_report;
 use super::inventory::build_inventory;
 
-pub fn run_list() {
+fn render_inventory(colorize: bool) -> Vec<String> {
     let inventory = build_inventory();
-
-    println!();
-    println!("{}", "Configured Hosts".bold());
-    println!("{}", "─".repeat(75));
-    println!();
+    let mut lines = vec![
+        String::new(),
+        if colorize {
+            "Configured Hosts".bold().to_string()
+        } else {
+            "Configured Hosts".to_string()
+        },
+        "─".repeat(75),
+        String::new(),
+    ];
 
     for entry in inventory {
         let detection = if entry.detected {
-            "detected".green()
+            "detected"
         } else {
-            "not detected".yellow()
+            "not detected"
         };
         let configured = if entry.configured {
-            "configured".green()
+            "configured"
         } else {
-            "needs setup".yellow()
+            "needs setup"
         };
 
-        println!(
-            "  {:<14} {:<14} {}",
-            entry.mode.client_flag().bold(),
-            detection,
-            configured
-        );
-        println!("  {:<14} {}", "", entry.adapter_label.dimmed());
-        if let Some(path) = entry.config_path {
-            println!("  {:<14} {}", "", path.dimmed());
+        let detection = if colorize {
+            if entry.detected {
+                detection.green().to_string()
+            } else {
+                detection.yellow().to_string()
+            }
         } else {
-            println!(
-                "  {:<14} {}",
-                "",
-                host_policy::host_config_label(entry.mode).dimmed()
-            );
+            detection.to_string()
+        };
+        let configured = if colorize {
+            if entry.configured {
+                configured.green().to_string()
+            } else {
+                configured.yellow().to_string()
+            }
+        } else {
+            configured.to_string()
+        };
+        let client_flag = if colorize {
+            entry.mode.client_flag().bold().to_string()
+        } else {
+            entry.mode.client_flag().to_string()
+        };
+        let adapter_label = if colorize {
+            entry.adapter_label.dimmed().to_string()
+        } else {
+            entry.adapter_label.clone()
+        };
+
+        lines.push(format!("  {client_flag:<14} {detection:<14} {configured}"));
+        lines.push(format!("  {:<14} {}", "", adapter_label));
+        if let Some(path) = entry.config_path {
+            let path = if colorize {
+                path.dimmed().to_string()
+            } else {
+                path
+            };
+            lines.push(format!("  {:<14} {}", "", path));
+        } else {
+            let label = host_policy::host_config_label(entry.mode);
+            let label = if colorize {
+                label.dimmed().to_string()
+            } else {
+                label.to_string()
+            };
+            lines.push(format!("  {:<14} {}", "", label));
         }
-        println!("  {:<14} {}", "", entry.detail.dimmed());
-        println!();
+        let detail = if colorize {
+            entry.detail.dimmed().to_string()
+        } else {
+            entry.detail
+        };
+        lines.push(format!("  {:<14} {}", "", detail));
+        lines.push(String::new());
+    }
+
+    lines
+}
+
+#[cfg(test)]
+pub(super) fn render_list() -> Vec<String> {
+    render_inventory(false)
+}
+
+pub fn run_list() {
+    for line in render_inventory(true) {
+        println!("{line}");
     }
 }
 
@@ -85,30 +139,62 @@ pub fn run_doctor(mode: Option<HostMode>, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!();
-    println!("{}", "Host Health".bold());
-    println!("{}", "─".repeat(75));
-    println!();
-
-    for check in &report.checks {
-        let status = if check.passed {
-            format!("{} {}", "✓".green(), check.message.green())
-        } else {
-            format!("{} {}", "✗".red(), check.message.red())
-        };
-
-        println!("  {:<14} {}", check.host.client_flag().bold(), status);
-    }
-
-    println!();
-
-    if !report.repair_actions.is_empty() {
-        println!("{}", "Recommended repair actions:".bold());
-        for action in &report.repair_actions {
-            println!("  - {}", action.command);
-        }
-        println!();
+    for line in render_doctor(&report, true) {
+        println!("{line}");
     }
 
     Ok(())
+}
+
+pub(super) fn render_doctor(
+    report: &crate::commands::host::model::HostDoctorReport,
+    colorize: bool,
+) -> Vec<String> {
+    let mut lines = vec![
+        String::new(),
+        if colorize {
+            "Host Health".bold().to_string()
+        } else {
+            "Host Health".to_string()
+        },
+        "─".repeat(75),
+        String::new(),
+    ];
+
+    for check in &report.checks {
+        let symbol = if check.passed { "✓" } else { "✗" };
+        let message = if colorize {
+            if check.passed {
+                check.message.green().to_string()
+            } else {
+                check.message.red().to_string()
+            }
+        } else {
+            check.message.clone()
+        };
+        let host = if colorize {
+            check.host.client_flag().bold().to_string()
+        } else {
+            check.host.client_flag().to_string()
+        };
+        lines.push(format!("  {host:<14} {symbol} {message}"));
+    }
+
+    lines.push(String::new());
+    if !report.repair_actions.is_empty() {
+        lines.push(if colorize {
+            "Recommended repair actions:".bold().to_string()
+        } else {
+            "Recommended repair actions:".to_string()
+        });
+        lines.extend(
+            report
+                .repair_actions
+                .iter()
+                .map(|action| format!("  - {}", action.command)),
+        );
+        lines.push(String::new());
+    }
+
+    lines
 }

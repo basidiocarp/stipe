@@ -19,6 +19,8 @@ use inventory::inventory_entry;
 pub(crate) use model::HostCommand;
 #[cfg(test)]
 use model::HostInventoryEntry;
+#[cfg(test)]
+use render::{render_doctor, render_list};
 
 pub fn run(command: HostCommand) -> Result<()> {
     match command {

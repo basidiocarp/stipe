@@ -130,6 +130,33 @@ mod tests {
     }
 
     #[test]
+    fn test_render_preview_snapshot_for_cursor_target() {
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("cursor"),
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
+            detected_clients: vec!["Cursor"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                hyphae_db_exists: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        assert_eq!(
+            render_preview(&snapshot),
+            vec![
+                "Would target Cursor mode. Use the selected host inventory for registration instead of inferring setup from unrelated clients.",
+                "Would register the hyphae MCP server. Hyphae is installed and can be wired into supported clients.",
+                "Would skip: register the rhizome MCP server. Rhizome is not installed yet.",
+                "Already OK: initialize the Hyphae database. The Hyphae database already exists.",
+                "Would patch the local instruction file with ecosystem guidance. Keep the workspace instructions aligned with the installed ecosystem.",
+            ]
+        );
+    }
+
+    #[test]
     fn test_render_preview_lists_detected_clients_when_unfiltered() {
         let snapshot = snapshot(SnapshotFixture {
             selected_hosts: vec![HostMode::Cursor],
