@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.7] - 2026-03-29
+
+### Changed
+
+- **Shared tool inventory**: install, update, status, uninstall, doctor, and ecosystem status now read from one centralized tool registry instead of maintaining separate hard-coded inventories.
+- **Command structure**: large command modules such as `init`, `doctor`, `install`, and `host` were split into smaller planning, model, render, and execution modules for easier maintenance.
+- **Ecosystem workflow split**: `run_ecosystem` now builds explicit context, renders status, and executes host/client configuration as separate steps instead of mixing planning and output in one module.
+- **CLI snapshot coverage**: dry-run and human-facing output for `init`, `doctor`, `host`, `install`, `uninstall`, and ecosystem status now have stable snapshot-style coverage to make wording and repair-hint regressions easier to catch.
+- **Spore integration boundary**: `stipe` now consumes `spore` editor descriptors directly, while keeping ecosystem policy such as tool inventory, release mapping, and doctor semantics local to `stipe`.
+
+### Fixed
+
+- **Released Spore dependency**: `stipe` now pins `spore` to released tag `v0.4.4` instead of a transient git revision.
+
 ## [0.4.6] - 2026-03-28
 
 ### Added
