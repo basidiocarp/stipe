@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.6] - 2026-03-28
+
+### Added
+
+- **Canopy tool management**: `stipe install`, `stipe update`, `stipe status`, `stipe uninstall`, and the ecosystem summary now include `canopy` as a managed ecosystem binary.
+
+### Changed
+
+- **Full-stack profile**: `stipe install --profile full-stack` now installs `canopy` alongside `mycelium`, `hyphae`, `rhizome`, and `cortina`.
+- **CLI and README inventory**: `stipe` help text and installation docs now list `canopy` in the managed tool inventory.
+
 ## [0.4.5] - 2026-03-27
 
 ### Fixed
