@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use super::bin_paths;
 
-const ALL_TOOLS: &[&str] = &["mycelium", "hyphae", "rhizome", "cortina", "stipe"];
+const ALL_TOOLS: &[&str] = &[
+    "mycelium", "hyphae", "rhizome", "canopy", "cortina", "stipe",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UninstallTarget {
@@ -154,6 +156,7 @@ mod tests {
                 "mycelium".to_string(),
                 "hyphae".to_string(),
                 "rhizome".to_string(),
+                "canopy".to_string(),
                 "cortina".to_string(),
                 "stipe".to_string(),
             ]

@@ -15,6 +15,7 @@ const TOOLS: &[(&str, &str)] = &[
     ("mycelium", "token compression proxy"),
     ("hyphae", "agent memory system"),
     ("rhizome", "code intelligence server"),
+    ("canopy", "coordination runtime"),
     ("cortina", "hook runner & session tracking"),
 ];
 
@@ -41,7 +42,8 @@ impl InstallProfile {
     fn tools(self) -> &'static [&'static str] {
         match self {
             Self::Minimal => &["mycelium"],
-            Self::ClaudeCode | Self::FullStack => &["mycelium", "hyphae", "rhizome", "cortina"],
+            Self::ClaudeCode => &["mycelium", "hyphae", "rhizome", "cortina"],
+            Self::FullStack => &["mycelium", "hyphae", "rhizome", "canopy", "cortina"],
             Self::Codex | Self::Cursor => &["mycelium", "hyphae", "rhizome"],
         }
     }
@@ -255,6 +257,7 @@ fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
                 if name_str == "mycelium"
                     || name_str == "hyphae"
                     || name_str == "rhizome"
+                    || name_str == "canopy"
                     || name_str == "cortina"
                     || name_str == "stipe"
                 {
@@ -467,7 +470,7 @@ mod tests {
         );
         assert_eq!(
             InstallProfile::FullStack.tools(),
-            &["mycelium", "hyphae", "rhizome", "cortina"]
+            &["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
         );
     }
 
@@ -501,6 +504,7 @@ mod tests {
                 "mycelium".to_string(),
                 "hyphae".to_string(),
                 "rhizome".to_string(),
+                "canopy".to_string(),
                 "cortina".to_string(),
             ]
         );

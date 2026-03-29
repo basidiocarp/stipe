@@ -14,7 +14,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Install ecosystem tools (mycelium, hyphae, rhizome, cortina)
+    /// Install ecosystem tools (mycelium, hyphae, rhizome, canopy, cortina)
     Install {
         /// Install a predefined profile
         #[arg(long, value_enum)]

@@ -32,6 +32,22 @@ fn discover_cap() -> Option<String> {
     Some(version)
 }
 
+fn discover_canopy() -> Option<String> {
+    let output = Command::new("canopy").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().last())
+        .filter(|v| v.contains('.'))
+        .unwrap_or("unknown")
+        .to_string();
+    Some(version)
+}
+
 /// Detect the Codex CLI version, if available.
 pub fn discover_codex_version() -> Option<String> {
     let output = Command::new("codex").arg("--version").output().ok()?;
@@ -177,6 +193,7 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
     // 1. Discover tools
     // ─────────────────────────────────────────────────────────────────────
     let cap_version = discover_cap();
+    let canopy_version = discover_canopy();
     let codex_version = discover_codex_version();
 
     // ─────────────────────────────────────────────────────────────────────
@@ -199,6 +216,8 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
 
     let rhizome_info = discover(Tool::Rhizome);
     print_tool_status("rhizome", rhizome_info.as_ref().map(|i| i.version.as_str()));
+
+    print_tool_status("canopy", canopy_version.as_deref());
 
     print_tool_status("codex", codex_version.as_deref());
     print_tool_status("cap", cap_version.as_deref());
@@ -339,6 +358,9 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
             "cargo install --git https://github.com/basidiocarp/rhizome rhizome-cli",
         ));
     }
+    if canopy_version.is_none() {
+        missing.push(("canopy", "stipe install canopy"));
+    }
     if cap_version.is_none() {
         missing.push((
             "cap",
@@ -375,6 +397,7 @@ fn print_tool_status(name: &str, version: Option<&str>) {
         );
     } else {
         let hint = match name {
+            "canopy" => " (optional outside the coordination runtime path: stipe install canopy)",
             "cap" => {
                 " (optional: git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all)"
             }

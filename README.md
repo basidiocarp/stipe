@@ -14,7 +14,7 @@ Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
 ```
 
-The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, cortina) and configures your editor's MCP servers. After that, use stipe to manage updates and health checks:
+The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, canopy, cortina) and configures your editor's MCP servers. After that, use stipe to manage updates and health checks:
 
 ```bash
 stipe doctor       # verify everything is configured
@@ -39,7 +39,7 @@ Install profiles:
 - `claude-code` installs `mycelium`, `hyphae`, `rhizome`, and `cortina`
 - `codex` installs `mycelium`, `hyphae`, and `rhizome` for Codex host support
 - `cursor` installs `mycelium`, `hyphae`, and `rhizome`
-- `full-stack` installs all ecosystem tools
+- `full-stack` installs `mycelium`, `hyphae`, `rhizome`, `canopy`, and `cortina`
 
 ## Commands
 

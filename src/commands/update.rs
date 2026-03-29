@@ -6,6 +6,13 @@ use std::process::Command;
 
 use super::install;
 
+fn canopy_installed() -> bool {
+    Command::new("canopy")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
         .arg("--version")
@@ -122,6 +129,9 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
         if discover(Tool::Rhizome).is_some() {
             all_tools.push("rhizome");
         }
+        if canopy_installed() {
+            all_tools.push("canopy");
+        }
 
         if all_tools.is_empty() {
             println!("No installed tools found. Run 'stipe install --all' first.");
@@ -133,7 +143,7 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
     } else if tools.is_empty() {
         println!("Specify tools to update:");
         println!("  {} stipe update mycelium", "→".dimmed());
-        println!("  {} stipe update hyphae rhizome", "→".dimmed());
+        println!("  {} stipe update hyphae rhizome canopy", "→".dimmed());
         println!("  {} stipe update --all", "→".dimmed());
         println!();
         println!("Check without installing:");
