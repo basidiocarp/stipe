@@ -16,7 +16,10 @@ use status::{build_server_configs, print_status_report};
 use workflow::execute;
 
 /// Main entry point for ecosystem setup.
-#[allow(clippy::unnecessary_wraps, reason = "CLI command boundary stays Result-shaped")]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "CLI command boundary stays Result-shaped"
+)]
 pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) -> Result<()> {
     if client
         .as_ref()

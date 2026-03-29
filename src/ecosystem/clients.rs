@@ -9,6 +9,7 @@
 //! and orchestration across those editors.
 
 use anyhow::Result;
+use spore::editors::Editor;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -16,11 +17,8 @@ use crate::commands::host_policy::HostConfigScope;
 
 mod detection;
 mod registration;
-mod spore_bridge;
 #[cfg(test)]
 mod tests;
-
-pub(super) use spore_bridge::Editor;
 
 /// Known MCP clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +108,10 @@ impl McpClient {
     /// Config file path for this client (if applicable).
     pub(crate) fn config_path(self) -> Option<PathBuf> {
         if let Some(editor) = self.shared_editor() {
-            return spore_bridge::config_path(editor).ok();
+            return editor
+                .descriptor()
+                .ok()
+                .map(|descriptor| descriptor.config_path);
         }
 
         let home = dirs::home_dir()?;

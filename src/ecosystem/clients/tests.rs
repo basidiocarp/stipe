@@ -86,15 +86,24 @@ fn test_collect_detected_clients_keeps_continue_outside_shared_overlap() {
 fn test_shared_host_config_paths_resolve_via_spore() {
     assert_eq!(
         McpClient::Cursor.config_path(),
-        spore_bridge::config_path(Editor::Cursor).ok()
+        Editor::Cursor
+            .descriptor()
+            .ok()
+            .map(|descriptor| descriptor.config_path)
     );
     assert_eq!(
         McpClient::ClaudeDesktop.config_path(),
-        spore_bridge::config_path(Editor::ClaudeDesktop).ok()
+        Editor::ClaudeDesktop
+            .descriptor()
+            .ok()
+            .map(|descriptor| descriptor.config_path)
     );
     assert_eq!(
         McpClient::CodexCli.config_path(),
-        spore_bridge::config_path(Editor::CodexCli).ok()
+        Editor::CodexCli
+            .descriptor()
+            .ok()
+            .map(|descriptor| descriptor.config_path)
     );
 }
 

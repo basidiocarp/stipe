@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::{Map, Value, json};
-use spore::editors::McpServer as SporeMcpServer;
+use spore::editors::{Editor, McpServer as SporeMcpServer, register_mcp_servers};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use crate::commands::host_policy::{self, HostConfigScope};
 
-use super::{Editor, McpClient, ServerConfig, spore_bridge};
+use super::{McpClient, ServerConfig};
 
 pub(super) fn register_servers(
     client: McpClient,
@@ -127,7 +127,10 @@ fn register_shared_editor(
         return register_claude_code(servers, scope, verbose);
     }
 
-    let config_path = spore_bridge::config_path(editor)?;
+    let config_path = editor
+        .descriptor()
+        .map(|descriptor| descriptor.config_path)
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
     let arg_slices: Vec<Vec<&str>> = servers
         .iter()
@@ -143,7 +146,7 @@ fn register_shared_editor(
         })
         .collect();
 
-    spore_bridge::register_mcp_servers(editor, &spore_servers)?;
+    register_mcp_servers(editor, &spore_servers).map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
     if verbose > 0 {
         eprintln!(
