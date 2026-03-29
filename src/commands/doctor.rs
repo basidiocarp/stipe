@@ -2,14 +2,13 @@ use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 use serde_json::Value;
-use spore::{Tool, discover};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::host;
 use super::host_policy;
 use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
+use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
 use crate::ecosystem::clients::{self, McpClient};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -37,7 +36,7 @@ enum ConfigFormat {
 }
 
 fn codex_cli_installed() -> bool {
-    Command::new("codex")
+    std::process::Command::new("codex")
         .arg("--version")
         .output()
         .is_ok_and(|o| o.status.success())
@@ -47,7 +46,7 @@ fn codex_environment_present() -> bool {
     codex_cli_installed() || clients::detect_clients().contains(&McpClient::CodexCli)
 }
 
-fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
+fn missing_tool_actions(tool: &ToolSpec) -> Vec<RepairAction> {
     let install_profile = host_policy::preferred_install_profile(
         if codex_environment_present() {
             Some(host_policy::CODEX_CLIENT_FLAG)
@@ -60,15 +59,15 @@ fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
             .collect::<Vec<_>>(),
     );
 
-    match tool {
-        Tool::Mycelium => vec![RepairAction::stipe(
+    match tool.name {
+        "mycelium" => vec![RepairAction::stipe(
             "install-minimal",
             "Install the minimal profile",
             "Restore the Mycelium CLI before attempting deeper repair work.",
             &["install", "--profile", "minimal"],
             RepairTier::Primary,
         )],
-        Tool::Hyphae | Tool::Rhizome => vec![
+        "hyphae" | "rhizome" => vec![
             host_policy::install_profile_repair_action(install_profile),
             RepairAction::stipe(
                 "install-full-stack",
@@ -77,52 +76,59 @@ fn missing_tool_actions(tool: Tool) -> Vec<RepairAction> {
                 &["install", "--profile", "full-stack"],
                 RepairTier::Secondary,
             ),
-            match tool {
-                Tool::Hyphae => cargo_install_action("hyphae"),
-                Tool::Rhizome => cargo_install_action("rhizome"),
-                Tool::Mycelium | Tool::Cap => unreachable!(),
+            match tool.name {
+                "hyphae" => cargo_install_action("hyphae"),
+                "rhizome" => cargo_install_action("rhizome"),
+                _ => unreachable!(),
             },
         ],
-        Tool::Cap => Vec::new(),
+        "canopy" => vec![
+            RepairAction::stipe(
+                "install-canopy",
+                "Install Canopy",
+                "Install the optional coordination runtime.",
+                &["install", "canopy"],
+                RepairTier::Primary,
+            ),
+            RepairAction::stipe(
+                "install-full-stack",
+                "Install the full stack",
+                "Install every supported ecosystem tool when you want the broadest local setup.",
+                &["install", "--profile", "full-stack"],
+                RepairTier::Secondary,
+            ),
+        ],
+        _ => Vec::new(),
     }
 }
 
-fn check_tool(tool: Tool) -> HealthCheck {
-    let tool_name = format!("{tool:?}").to_lowercase();
-
-    match discover(tool) {
-        Some(info) => {
-            let cmd_name = match tool {
-                Tool::Mycelium => "mycelium",
-                Tool::Hyphae => "hyphae",
-                Tool::Rhizome => "rhizome",
-                Tool::Cap => "cap",
-            };
-
-            match Command::new(cmd_name).arg("--version").output() {
-                Ok(output) => {
-                    let _version = String::from_utf8_lossy(&output.stdout);
-                    HealthCheck {
-                        name: tool_name,
-                        passed: true,
-                        message: format!("v{} installed and working", info.version),
-                        repair_actions: Vec::new(),
-                    }
-                }
-                Err(e) => HealthCheck {
-                    name: tool_name,
-                    passed: false,
-                    message: format!("Binary found but failed to run: {e}"),
-                    repair_actions: missing_tool_actions(tool),
-                },
-            }
-        }
-        None => HealthCheck {
-            name: tool_name,
+fn check_tool(spec: &ToolSpec) -> HealthCheck {
+    match (spec.doctor_coverage, tool_registry::probe(spec)) {
+        (_, ToolProbe::Installed(version)) => HealthCheck {
+            name: spec.name.to_string(),
+            passed: true,
+            message: format!("v{version} installed and working"),
+            repair_actions: Vec::new(),
+        },
+        (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
+            name: spec.name.to_string(),
+            passed: true,
+            message: "Optional coordination runtime not installed".to_string(),
+            repair_actions: Vec::new(),
+        },
+        (_, ToolProbe::Broken) => HealthCheck {
+            name: spec.name.to_string(),
+            passed: false,
+            message: "Binary found but failed to run".to_string(),
+            repair_actions: missing_tool_actions(spec),
+        },
+        (DoctorCoverage::Required, ToolProbe::Missing) => HealthCheck {
+            name: spec.name.to_string(),
             passed: false,
             message: "Not installed".to_string(),
-            repair_actions: missing_tool_actions(tool),
+            repair_actions: missing_tool_actions(spec),
         },
+        (DoctorCoverage::Ignore, _) => unreachable!(),
     }
 }
 
@@ -172,10 +178,14 @@ fn check_hyphae_db_at_path(db_path: &std::path::Path) -> HealthCheck {
 fn installed_mcp_servers() -> Vec<&'static str> {
     let mut servers = Vec::new();
 
-    if discover(Tool::Hyphae).is_some() {
+    if tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
+    {
         servers.push("hyphae");
     }
-    if discover(Tool::Rhizome).is_some() {
+    if tool_registry::find("rhizome")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
+    {
         servers.push("rhizome");
     }
 
@@ -436,13 +446,11 @@ fn codex_notify_adapter_configured_at_path(config_path: &std::path::Path) -> boo
 }
 
 fn build_report() -> DoctorReport {
-    let mut checks = vec![
-        check_tool(Tool::Mycelium),
-        check_tool(Tool::Hyphae),
-        check_tool(Tool::Rhizome),
-        check_hyphae_db(),
-        check_mcp_config_drift(),
-    ];
+    let mut checks = tool_registry::doctor_specs()
+        .into_iter()
+        .map(check_tool)
+        .collect::<Vec<_>>();
+    checks.extend([check_hyphae_db(), check_mcp_config_drift()]);
     checks.extend(host_health_checks());
 
     let healthy = checks.iter().all(|check| check.passed);
@@ -642,6 +650,19 @@ mod tests {
         assert_eq!(check.name, "test");
         assert!(check.passed);
         assert_eq!(check.message, "Test passed");
+    }
+
+    #[test]
+    fn test_optional_canopy_missing_is_not_a_failure() {
+        let canopy = tool_registry::find("canopy").expect("canopy spec should exist");
+        let check = check_tool(canopy);
+
+        if !matches!(tool_registry::probe(canopy), ToolProbe::Missing) {
+            return;
+        }
+
+        assert!(check.passed);
+        assert!(check.message.contains("Optional coordination runtime"));
     }
 
     #[test]

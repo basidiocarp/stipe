@@ -4,10 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::bin_paths;
-
-const ALL_TOOLS: &[&str] = &[
-    "mycelium", "hyphae", "rhizome", "canopy", "cortina", "stipe",
-];
+use super::tool_registry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UninstallTarget {
@@ -18,9 +15,9 @@ struct UninstallTarget {
 
 fn resolve_uninstall_tools(all: bool, tools: &[String]) -> Option<Vec<String>> {
     if all {
-        let mut resolved = ALL_TOOLS
-            .iter()
-            .map(|tool| (*tool).to_string())
+        let mut resolved = tool_registry::uninstall_all_specs()
+            .into_iter()
+            .map(|spec| spec.name.to_string())
             .collect::<Vec<_>>();
         for tool in tools {
             if !resolved.iter().any(|existing| existing == tool) {

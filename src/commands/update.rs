@@ -1,17 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use reqwest::blocking::Client;
-use spore::{Tool, discover};
 use std::process::Command;
 
 use super::install;
-
-fn canopy_installed() -> bool {
-    Command::new("canopy")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
+use super::tool_registry;
 
 fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
@@ -37,11 +30,12 @@ fn get_installed_version(tool: &str) -> Result<String> {
 }
 
 fn fetch_latest_version(tool: &str, client: &Client) -> Result<String> {
-    let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
+    let repo = tool_registry::find(tool).map_or(tool, |spec| spec.release_repo);
+    let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
         client,
         &url,
-        &format!("latest release for {tool}"),
+        &format!("latest release for {repo}"),
     )?;
     let version = data
         .get("tag_name")
@@ -56,18 +50,30 @@ struct UpdateInfo {
     installed: String,
     latest: String,
     update_available: bool,
+    needs_reinstall: bool,
 }
 
 fn check_tool_update(tool: &str, client: &Client) -> Result<UpdateInfo> {
-    let installed = get_installed_version(tool)?;
+    let (installed, needs_reinstall) = if let Some(spec) = tool_registry::find(tool) {
+        match tool_registry::probe(spec) {
+            tool_registry::ToolProbe::Installed(version) => (version, false),
+            tool_registry::ToolProbe::Broken => ("broken".to_string(), true),
+            tool_registry::ToolProbe::Missing => {
+                return Err(anyhow!("{tool} is not installed"));
+            }
+        }
+    } else {
+        (get_installed_version(tool)?, false)
+    };
     let latest = fetch_latest_version(tool, client)?;
 
-    let update_available = installed != latest;
+    let update_available = needs_reinstall || installed != latest;
 
     Ok(UpdateInfo {
         installed,
         latest,
         update_available,
+        needs_reinstall,
     })
 }
 
@@ -86,13 +92,22 @@ fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
         return Ok(());
     }
 
-    println!(
-        "  {} {} {} → {} available",
-        "↑".cyan(),
-        tool,
-        update_info.installed,
-        update_info.latest
-    );
+    if update_info.needs_reinstall {
+        println!(
+            "  {} {} is installed but broken → reinstall {}",
+            "↑".cyan(),
+            tool,
+            update_info.latest
+        );
+    } else {
+        println!(
+            "  {} {} {} → {} available",
+            "↑".cyan(),
+            tool,
+            update_info.installed,
+            update_info.latest
+        );
+    }
 
     println!("  {} Downloading and installing...", "⏳".yellow());
 
@@ -118,20 +133,14 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
     println!();
 
     let tools_to_check: Vec<&str> = if all {
-        let mut all_tools = vec![];
-
-        if discover(Tool::Mycelium).is_some() {
-            all_tools.push("mycelium");
-        }
-        if discover(Tool::Hyphae).is_some() {
-            all_tools.push("hyphae");
-        }
-        if discover(Tool::Rhizome).is_some() {
-            all_tools.push("rhizome");
-        }
-        if canopy_installed() {
-            all_tools.push("canopy");
-        }
+        let all_tools = tool_registry::update_all_specs()
+            .into_iter()
+            .filter_map(|spec| {
+                tool_registry::probe(spec)
+                    .is_repairable_presence()
+                    .then_some(spec.name)
+            })
+            .collect::<Vec<_>>();
 
         if all_tools.is_empty() {
             println!("No installed tools found. Run 'stipe install --all' first.");
@@ -160,7 +169,14 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
         match check_tool_update(tool, &client) {
             Ok(info) => {
                 if check {
-                    if info.update_available {
+                    if info.needs_reinstall {
+                        println!(
+                            "  {} {} is installed but broken → reinstall {}",
+                            "!".yellow(),
+                            tool,
+                            info.latest
+                        );
+                    } else if info.update_available {
                         println!(
                             "  {} {} {} → {}",
                             "↑".cyan(),

@@ -5,7 +5,6 @@ pub mod clients;
 use anyhow::Result;
 use colored::Colorize;
 use serde_json::Value;
-use spore::{Tool, discover};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,39 +12,11 @@ use std::process::Command;
 use crate::commands::claude_hooks;
 use crate::commands::codex_notify;
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::commands::tool_registry::{self, ToolProbe};
 use clients::{McpClient, ServerConfig};
 
-/// Cap is not in the spore `Tool` enum — detect it separately.
-fn discover_cap() -> Option<String> {
-    let output = Command::new("cap").arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let version = stdout
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().last())
-        .filter(|v| v.contains('.'))
-        .unwrap_or("unknown")
-        .to_string();
-    Some(version)
-}
-
-fn discover_canopy() -> Option<String> {
-    let output = Command::new("canopy").arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let version = stdout
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().last())
-        .filter(|v| v.contains('.'))
-        .unwrap_or("unknown")
-        .to_string();
-    Some(version)
+fn tool_probe(tool_name: &str) -> ToolProbe {
+    tool_registry::find(tool_name).map_or(ToolProbe::Missing, tool_registry::probe)
 }
 
 /// Detect the Codex CLI version, if available.
@@ -188,12 +159,23 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
     }
 
     let target_host = client.and_then(host_policy::host_mode_from_client_flag);
+    let detected_clients = clients::detect_clients();
+    let claude_runtime_relevant = target_host == Some(host_policy::HostMode::ClaudeCode)
+        || (target_host.is_none()
+            && host_policy::host_detected_with_clients(
+                host_policy::HostMode::ClaudeCode,
+                &detected_clients,
+            ));
 
     // ─────────────────────────────────────────────────────────────────────
     // 1. Discover tools
     // ─────────────────────────────────────────────────────────────────────
-    let cap_version = discover_cap();
-    let canopy_version = discover_canopy();
+    let mycelium_probe = tool_probe("mycelium");
+    let hyphae_probe = tool_probe("hyphae");
+    let rhizome_probe = tool_probe("rhizome");
+    let canopy_probe = tool_probe("canopy");
+    let cortina_probe = tool_probe("cortina");
+    let cap_probe = tool_probe("cap");
     let codex_version = discover_codex_version();
 
     // ─────────────────────────────────────────────────────────────────────
@@ -204,23 +186,34 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
     println!("{}", "\u{2500}".repeat(75));
     println!();
 
-    // Always show mycelium first (we know it's installed — we're running via stipe)
-    let mycelium_info = discover(Tool::Mycelium);
-    print_tool_status(
-        "mycelium",
-        mycelium_info.as_ref().map(|i| i.version.as_str()),
-    );
+    for spec in tool_registry::ecosystem_specs() {
+        let version = match spec.name {
+            "mycelium" => mycelium_probe.version(),
+            "hyphae" => hyphae_probe.version(),
+            "rhizome" => rhizome_probe.version(),
+            "canopy" => canopy_probe.version(),
+            "cortina" => cortina_probe.version(),
+            "cap" => cap_probe.version(),
+            _ => None,
+        };
+        let probe = match spec.name {
+            "mycelium" => &mycelium_probe,
+            "hyphae" => &hyphae_probe,
+            "rhizome" => &rhizome_probe,
+            "canopy" => &canopy_probe,
+            "cortina" => &cortina_probe,
+            "cap" => &cap_probe,
+            _ => unreachable!(),
+        };
+        print_tool_status(spec.name, version, probe);
+    }
 
-    let hyphae_info = discover(Tool::Hyphae);
-    print_tool_status("hyphae", hyphae_info.as_ref().map(|i| i.version.as_str()));
-
-    let rhizome_info = discover(Tool::Rhizome);
-    print_tool_status("rhizome", rhizome_info.as_ref().map(|i| i.version.as_str()));
-
-    print_tool_status("canopy", canopy_version.as_deref());
-
-    print_tool_status("codex", codex_version.as_deref());
-    print_tool_status("cap", cap_version.as_deref());
+    let codex_probe = if let Some(version) = codex_version.as_ref() {
+        ToolProbe::Installed(version.clone())
+    } else {
+        ToolProbe::Missing
+    };
+    print_tool_status("codex", codex_version.as_deref(), &codex_probe);
 
     println!();
 
@@ -236,7 +229,7 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
         let mut configured = Vec::new();
 
         // Register hyphae MCP if installed
-        if hyphae_info.is_some() {
+        if hyphae_probe.is_installed() {
             match register_mcp("hyphae", &["hyphae", "serve"], scope, verbose) {
                 Ok(Some(status)) => configured.push(if status == "already registered" {
                     "hyphae MCP (already registered)"
@@ -249,7 +242,7 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
         }
 
         // Register rhizome MCP if installed
-        if rhizome_info.is_some() {
+        if rhizome_probe.is_installed() {
             match register_mcp(
                 "rhizome",
                 &["rhizome", "serve", "--expanded"],
@@ -274,7 +267,7 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
             }
         }
 
-        if claude_hooks::cortina_installed() {
+        if cortina_probe.is_installed() {
             match claude_hooks::install_claude_hooks(scope, verbose) {
                 Ok(true) => {
                     println!("    - Cortina Claude hooks");
@@ -286,6 +279,13 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
                     eprintln!("  {} Cortina hook registration failed: {}", "!".yellow(), e);
                 }
             }
+        } else if matches!(cortina_probe, ToolProbe::Broken) {
+            eprintln!(
+                "  {} {} is installed but broken — repair it before retrying Claude hook registration.",
+                "!".yellow(),
+                "cortina".bold()
+            );
+            eprintln!("    Run: stipe install cortina");
         } else {
             eprintln!(
                 "  {} {} not found in PATH — skipping Claude hook registration.",
@@ -307,7 +307,12 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
     // ─────────────────────────────────────────────────────────────────────
     if target_host == Some(host_policy::HostMode::Codex) {
         if codex_version.is_some() {
-            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), scope, verbose);
+            configure_codex_cli(
+                hyphae_probe.is_installed(),
+                rhizome_probe.is_installed(),
+                scope,
+                verbose,
+            );
         } else {
             println!(
                 "  {} {} not found in PATH — skipping Codex host mode configuration.",
@@ -318,15 +323,21 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
         }
     } else {
         if target_host.is_none() && codex_version.is_some() {
-            configure_codex_cli(hyphae_info.as_ref(), rhizome_info.as_ref(), scope, verbose);
+            configure_codex_cli(
+                hyphae_probe.is_installed(),
+                rhizome_probe.is_installed(),
+                scope,
+                verbose,
+            );
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // 3c. Initialize the Hyphae database if needed
         // ─────────────────────────────────────────────────────────────────────
-        if let Some(data_dir) = hyphae_info
-            .as_ref()
-            .and(dirs::data_dir())
+        if let Some(data_dir) = hyphae_probe
+            .is_installed()
+            .then(dirs::data_dir)
+            .flatten()
             .map(|d| d.join("hyphae"))
             .filter(|d| !d.join("hyphae.db").exists())
         {
@@ -338,34 +349,43 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
         // ─────────────────────────────────────────────────────────────────────
         // 3d. Configure additional MCP clients
         // ─────────────────────────────────────────────────────────────────────
-        configure_detected_clients(client, &hyphae_info, &rhizome_info, verbose);
+        configure_detected_clients(
+            client,
+            hyphae_probe.is_installed(),
+            rhizome_probe.is_installed(),
+            verbose,
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────
     // 4. Print missing tool instructions
     // ─────────────────────────────────────────────────────────────────────
     let mut missing: Vec<(&str, &str)> = Vec::new();
+    let mut broken: Vec<(&str, &str)> = Vec::new();
+    for spec in tool_registry::ecosystem_specs() {
+        let probe = match spec.name {
+            "mycelium" => &mycelium_probe,
+            "hyphae" => &hyphae_probe,
+            "rhizome" => &rhizome_probe,
+            "canopy" => &canopy_probe,
+            "cortina" => &cortina_probe,
+            "cap" => &cap_probe,
+            _ => continue,
+        };
 
-    if hyphae_info.is_none() {
-        missing.push((
-            "hyphae",
-            "cargo install --git https://github.com/basidiocarp/hyphae hyphae-cli --no-default-features",
-        ));
-    }
-    if rhizome_info.is_none() {
-        missing.push((
-            "rhizome",
-            "cargo install --git https://github.com/basidiocarp/rhizome rhizome-cli",
-        ));
-    }
-    if canopy_version.is_none() {
-        missing.push(("canopy", "stipe install canopy"));
-    }
-    if cap_version.is_none() {
-        missing.push((
-            "cap",
-            "git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all",
-        ));
+        if spec.name == "cortina" && !claude_runtime_relevant {
+            continue;
+        }
+
+        if matches!(probe, ToolProbe::Broken)
+            && let Some(hint) = spec.missing_hint
+        {
+            broken.push((spec.name, hint));
+        } else if matches!(probe, ToolProbe::Missing)
+            && let Some(hint) = spec.missing_hint
+        {
+            missing.push((spec.name, hint));
+        }
     }
 
     if !missing.is_empty() {
@@ -382,18 +402,33 @@ pub fn run_ecosystem(client: Option<&str>, scope: HostConfigScope, verbose: u8) 
         );
     }
 
+    if !broken.is_empty() {
+        println!();
+        println!("{}", "Broken tools:".bold());
+        for (name, cmd) in &broken {
+            println!("  {:<10}{} {}", name, "\u{2192}".dimmed(), cmd.dimmed());
+        }
+    }
+
     println!();
     Ok(())
 }
 
 /// Print a single tool's status line.
-fn print_tool_status(name: &str, version: Option<&str>) {
+fn print_tool_status(name: &str, version: Option<&str>, probe: &ToolProbe) {
     if let Some(v) = version {
         println!(
             "  {:<10}v{:<8}{}",
             name.bold(),
             v,
             "\u{2713} installed".green()
+        );
+    } else if matches!(probe, ToolProbe::Broken) {
+        println!(
+            "  {:<10}{:<8} {}",
+            name.bold(),
+            "!",
+            "\u{2717} installed but broken".red()
         );
     } else {
         let hint = match name {
@@ -415,24 +450,22 @@ fn print_tool_status(name: &str, version: Option<&str>) {
 
 /// Build MCP server configurations from discovered tools.
 fn build_server_configs() -> Vec<ServerConfig> {
-    let hyphae_info = discover(Tool::Hyphae);
-    let rhizome_info = discover(Tool::Rhizome);
-    build_ecosystem_servers(hyphae_info.as_ref(), rhizome_info.as_ref())
+    build_ecosystem_servers(
+        tool_probe("hyphae").is_installed(),
+        tool_probe("rhizome").is_installed(),
+    )
 }
 
-fn build_ecosystem_servers(
-    hyphae_info: Option<&spore::ToolInfo>,
-    rhizome_info: Option<&spore::ToolInfo>,
-) -> Vec<ServerConfig> {
+fn build_ecosystem_servers(hyphae_installed: bool, rhizome_installed: bool) -> Vec<ServerConfig> {
     let mut servers = Vec::new();
-    if hyphae_info.is_some() {
+    if hyphae_installed {
         servers.push(ServerConfig {
             name: "hyphae".to_string(),
             command: "hyphae".to_string(),
             args: vec!["serve".to_string()],
         });
     }
-    if rhizome_info.is_some() {
+    if rhizome_installed {
         servers.push(ServerConfig {
             name: "rhizome".to_string(),
             command: "rhizome".to_string(),
@@ -443,8 +476,8 @@ fn build_ecosystem_servers(
 }
 
 fn configure_codex_cli(
-    hyphae_info: Option<&spore::ToolInfo>,
-    rhizome_info: Option<&spore::ToolInfo>,
+    hyphae_installed: bool,
+    rhizome_installed: bool,
     scope: HostConfigScope,
     verbose: u8,
 ) {
@@ -461,7 +494,7 @@ fn configure_codex_cli(
         return;
     }
 
-    let servers = build_ecosystem_servers(hyphae_info, rhizome_info);
+    let servers = build_ecosystem_servers(hyphae_installed, rhizome_installed);
 
     if servers.is_empty() {
         return;
@@ -497,7 +530,7 @@ fn configure_codex_cli(
         }
     }
 
-    if hyphae_info.is_some() {
+    if hyphae_installed {
         match codex_notify::install_codex_notify(scope, verbose) {
             Ok(true) => println!("    - Hyphae Codex notify adapter"),
             Ok(false) => eprintln!("  {} Codex notify installation skipped", "!".yellow()),
@@ -510,19 +543,19 @@ fn configure_codex_cli(
 #[allow(clippy::ref_option)]
 fn configure_detected_clients(
     client_filter: Option<&str>,
-    hyphae_info: &Option<spore::ToolInfo>,
-    rhizome_info: &Option<spore::ToolInfo>,
+    hyphae_installed: bool,
+    rhizome_installed: bool,
     verbose: u8,
 ) {
     let mut servers = Vec::new();
-    if hyphae_info.is_some() {
+    if hyphae_installed {
         servers.push(ServerConfig {
             name: "hyphae".to_string(),
             command: "hyphae".to_string(),
             args: vec!["serve".to_string()],
         });
     }
-    if rhizome_info.is_some() {
+    if rhizome_installed {
         servers.push(ServerConfig {
             name: "rhizome".to_string(),
             command: "rhizome".to_string(),
@@ -605,21 +638,29 @@ mod tests {
     #[test]
     fn test_print_tool_status_installed_does_not_panic() {
         // Just verify no panics with various inputs
-        print_tool_status("mycelium", Some("0.2.0"));
-        print_tool_status("hyphae", Some("0.6.0"));
+        print_tool_status(
+            "mycelium",
+            Some("0.2.0"),
+            &ToolProbe::Installed("0.2.0".to_string()),
+        );
+        print_tool_status(
+            "hyphae",
+            Some("0.6.0"),
+            &ToolProbe::Installed("0.6.0".to_string()),
+        );
     }
 
     #[test]
     fn test_print_tool_status_missing_does_not_panic() {
-        print_tool_status("cap", None);
-        print_tool_status("rhizome", None);
-        print_tool_status("codex", None);
+        print_tool_status("cap", None, &ToolProbe::Missing);
+        print_tool_status("rhizome", None, &ToolProbe::Missing);
+        print_tool_status("codex", None, &ToolProbe::Missing);
     }
 
     #[test]
-    fn test_discover_cap_does_not_panic() {
-        // Cap likely not installed in test env — just verify no panic
-        let _result = discover_cap();
+    fn test_installed_version_does_not_panic_for_optional_tool() {
+        // Cap is often absent in test env — just verify probing stays safe.
+        let _result = tool_probe("cap");
     }
 
     #[test]

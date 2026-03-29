@@ -2,11 +2,11 @@ use crate::ecosystem;
 use anyhow::{Result, anyhow};
 use colored::Colorize;
 use serde::Serialize;
-use spore::{Tool, discover};
 
 use super::host_policy;
 use super::host_policy::{HostConfigScope, HostMode};
-use super::repair::{RepairAction, RepairTier, cargo_install_action, dedupe_repair_actions};
+use super::repair::{RepairAction, RepairTier, dedupe_repair_actions};
+use super::tool_registry::{self, ToolProbe};
 use crate::commands::claude_hooks;
 use crate::commands::codex_notify;
 use crate::ecosystem::clients::{self, McpClient};
@@ -29,8 +29,11 @@ struct InitSnapshot {
 )]
 struct ToolSnapshot {
     hyphae_installed: bool,
+    hyphae_broken: bool,
     rhizome_installed: bool,
+    rhizome_broken: bool,
     cortina_installed: bool,
+    cortina_broken: bool,
     hyphae_db_exists: bool,
 }
 
@@ -125,9 +128,17 @@ fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Result<InitSn
         .map(|client| client.name().to_string())
         .collect();
 
-    let hyphae_installed = discover(Tool::Hyphae).is_some();
-    let rhizome_installed = discover(Tool::Rhizome).is_some();
-    let cortina_installed = claude_hooks::cortina_installed();
+    let hyphae_installed = tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)));
+    let hyphae_broken = tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Broken));
+    let rhizome_installed = tool_registry::find("rhizome")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)));
+    let rhizome_broken = tool_registry::find("rhizome")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Broken));
+    let cortina_probe = tool_registry::find("cortina").map(tool_registry::probe);
+    let cortina_installed = matches!(cortina_probe, Some(ToolProbe::Installed(_)));
+    let cortina_broken = matches!(cortina_probe, Some(ToolProbe::Broken));
     let hyphae_db_exists = dirs::data_dir()
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
@@ -139,8 +150,11 @@ fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Result<InitSn
         detected_clients,
         tools: ToolSnapshot {
             hyphae_installed,
+            hyphae_broken,
             rhizome_installed,
+            rhizome_broken,
             cortina_installed,
+            cortina_broken,
             hyphae_db_exists,
         },
         codex: CodexSnapshot {
@@ -239,7 +253,7 @@ fn host_inventory_step(snapshot: &InitSnapshot) -> InitStep {
     }
 }
 
-fn mcp_registration_step(installed: bool, title: &str, tool_name: &str) -> InitStep {
+fn mcp_registration_step(installed: bool, broken: bool, title: &str, tool_name: &str) -> InitStep {
     InitStep {
         status: if installed {
             InitStepStatus::Planned
@@ -249,6 +263,11 @@ fn mcp_registration_step(installed: bool, title: &str, tool_name: &str) -> InitS
         title: title.to_string(),
         detail: if installed {
             format!("{tool_name} is installed and can be wired into supported clients.")
+        } else if broken {
+            format!(
+                "{tool_name} is installed but broken, so MCP registration is skipped. Run 'stipe install {}' first.",
+                tool_name.to_ascii_lowercase()
+            )
         } else {
             format!("{tool_name} is not installed yet.")
         },
@@ -289,7 +308,7 @@ fn claude_hooks_step(snapshot: &InitSnapshot) -> Option<InitStep> {
     snapshot
         .claude_host_selected_or_detected()
         .then(|| InitStep {
-            status: if !snapshot.tools.cortina_installed {
+            status: if snapshot.tools.cortina_broken || !snapshot.tools.cortina_installed {
                 InitStepStatus::Skipped
             } else if snapshot.claude.hooks_configured {
                 InitStepStatus::AlreadyOk
@@ -297,7 +316,9 @@ fn claude_hooks_step(snapshot: &InitSnapshot) -> Option<InitStep> {
                 InitStepStatus::Planned
             },
             title: "install the Cortina Claude hooks".to_string(),
-            detail: if snapshot.tools.cortina_installed {
+            detail: if snapshot.tools.cortina_broken {
+                "Cortina is installed but broken, so Claude hook registration is skipped. Run 'stipe install cortina' first.".to_string()
+            } else if snapshot.tools.cortina_installed {
                 claude_hooks::claude_hooks_detail(snapshot.claude.hooks_configured)
             } else {
                 "Cortina is not installed yet, so Claude hook registration is skipped.".to_string()
@@ -310,11 +331,13 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
         host_inventory_step(snapshot),
         mcp_registration_step(
             snapshot.tools.hyphae_installed,
+            snapshot.tools.hyphae_broken,
             "register the hyphae MCP server",
             "Hyphae",
         ),
         mcp_registration_step(
             snapshot.tools.rhizome_installed,
+            snapshot.tools.rhizome_broken,
             "register the rhizome MCP server",
             "Rhizome",
         ),
@@ -372,12 +395,34 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         actions.push(codex_notify::codex_notify_repair_action());
     }
 
+    if snapshot.claude_host_selected_or_detected() && snapshot.tools.cortina_broken {
+        actions.push(RepairAction::stipe(
+            "install-cortina",
+            "Repair Cortina",
+            "Reinstall Cortina before attempting Claude hook registration.",
+            &["install", "cortina"],
+            RepairTier::Primary,
+        ));
+    }
+
     if !snapshot.tools.hyphae_installed {
-        actions.push(cargo_install_action("hyphae"));
+        actions.push(RepairAction::stipe(
+            "install-hyphae",
+            "Install Hyphae",
+            "Install Hyphae through the managed stipe release path.",
+            &["install", "hyphae"],
+            RepairTier::Manual,
+        ));
     }
 
     if !snapshot.tools.rhizome_installed {
-        actions.push(cargo_install_action("rhizome"));
+        actions.push(RepairAction::stipe(
+            "install-rhizome",
+            "Install Rhizome",
+            "Install Rhizome through the managed stipe release path.",
+            &["install", "rhizome"],
+            RepairTier::Manual,
+        ));
     }
 
     dedupe_repair_actions(actions)
@@ -446,8 +491,11 @@ mod tests {
                 detected_clients: Vec::new(),
                 tools: ToolSnapshot {
                     hyphae_installed: false,
+                    hyphae_broken: false,
                     rhizome_installed: false,
+                    rhizome_broken: false,
                     cortina_installed: false,
+                    cortina_broken: false,
                     hyphae_db_exists: false,
                 },
                 codex: CodexSnapshot {
@@ -557,7 +605,7 @@ mod tests {
 
         assert!(commands.contains(&"stipe host setup cursor"));
         assert!(commands.contains(&"stipe init"));
-        assert!(commands.contains(&"cargo install hyphae"));
+        assert!(commands.contains(&"stipe install hyphae"));
     }
 
     #[test]
@@ -677,6 +725,9 @@ mod tests {
                 hyphae_installed: true,
                 rhizome_installed: true,
                 cortina_installed: true,
+                hyphae_broken: false,
+                rhizome_broken: false,
+                cortina_broken: false,
                 hyphae_db_exists: true,
             },
             ..Default::default()
@@ -720,6 +771,9 @@ mod tests {
                 hyphae_installed: true,
                 rhizome_installed: true,
                 cortina_installed: true,
+                hyphae_broken: false,
+                rhizome_broken: false,
+                cortina_broken: false,
                 hyphae_db_exists: true,
             },
             ..Default::default()
@@ -752,5 +806,83 @@ mod tests {
             &["Codex CLI".to_string()]
         ));
         assert!(codex_notify::codex_notify_detail(true).contains("Codex host mode"));
+    }
+
+    #[test]
+    fn test_claude_hooks_step_skips_broken_cortina_with_repair_guidance() {
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("claude-code"),
+            selected_hosts: vec![HostMode::ClaudeCode],
+            detected_hosts: vec![HostMode::ClaudeCode],
+            detected_clients: vec!["Claude Code"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                hyphae_broken: false,
+                rhizome_installed: true,
+                rhizome_broken: false,
+                cortina_installed: false,
+                cortina_broken: true,
+                hyphae_db_exists: true,
+            },
+            ..Default::default()
+        });
+
+        let plan = build_plan(&snapshot, true);
+        let hook_step = plan
+            .steps
+            .iter()
+            .find(|step| step.title == "install the Cortina Claude hooks")
+            .expect("expected Claude hooks step");
+
+        assert_eq!(hook_step.status, InitStepStatus::Skipped);
+        assert!(hook_step.detail.contains("installed but broken"));
+        assert!(
+            plan.repair_actions
+                .iter()
+                .any(|action| action.command == "stipe install cortina")
+        );
+    }
+
+    #[test]
+    fn test_mcp_registration_step_skips_broken_tools_with_repair_guidance() {
+        let snapshot = snapshot(SnapshotFixture {
+            selected_hosts: vec![HostMode::Cursor],
+            detected_hosts: vec![HostMode::Cursor],
+            detected_clients: vec!["Cursor"],
+            tools: ToolSnapshot {
+                hyphae_installed: false,
+                hyphae_broken: true,
+                rhizome_installed: false,
+                rhizome_broken: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let plan = build_plan(&snapshot, true);
+
+        let hyphae_step = plan
+            .steps
+            .iter()
+            .find(|step| step.title == "register the hyphae MCP server")
+            .expect("expected hyphae step");
+        let rhizome_step = plan
+            .steps
+            .iter()
+            .find(|step| step.title == "register the rhizome MCP server")
+            .expect("expected rhizome step");
+
+        assert!(hyphae_step.detail.contains("installed but broken"));
+        assert!(rhizome_step.detail.contains("installed but broken"));
+        assert!(
+            plan.repair_actions
+                .iter()
+                .any(|action| action.command == "stipe install hyphae")
+        );
+        assert!(
+            plan.repair_actions
+                .iter()
+                .any(|action| action.command == "stipe install rhizome")
+        );
     }
 }

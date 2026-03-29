@@ -6,15 +6,13 @@ This page is the Stipe-specific backlog. The workspace [ROADMAP.md](../ROADMAP.m
 
 - Multi-host `host list`, `host setup`, and `host doctor`.
 - Shared platform-aware install, update, and uninstall path handling.
-- Better separation between host orchestration in `stipe` and editor/config mechanics in `spore`.
+- Shared managed-tool registry for install, update, status, uninstall, doctor, and ecosystem status.
+- Explicit optional `canopy` coverage in `stipe doctor` without treating it as a required host prerequisite.
+- Better separation between host orchestration and tool inventory in `stipe`, with `spore` staying focused on shared editor/config mechanics.
 - More portable repair guidance and config-path handling across macOS, Linux, and Windows.
 - Better convergence with `spore` for editor detection and MCP registration.
 
 ## Next
-
-### Install profiles
-
-Add install profiles such as `minimal`, `claude-code`, `codex`, `cursor`, and `full-stack`.
 
 ### Drift detection and repair
 

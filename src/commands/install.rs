@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow};
-use clap::ValueEnum;
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -9,45 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::bin_paths;
-use super::host_policy;
-
-const TOOLS: &[(&str, &str)] = &[
-    ("mycelium", "token compression proxy"),
-    ("hyphae", "agent memory system"),
-    ("rhizome", "code intelligence server"),
-    ("canopy", "coordination runtime"),
-    ("cortina", "hook runner & session tracking"),
-];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum InstallProfile {
-    Minimal,
-    ClaudeCode,
-    Codex,
-    Cursor,
-    FullStack,
-}
-
-impl InstallProfile {
-    fn mode_label(self) -> &'static str {
-        match self {
-            Self::Minimal => "minimal profile",
-            Self::ClaudeCode => host_policy::CLAUDE_CODE_HOST_MODE_LABEL,
-            Self::Codex => host_policy::CODEX_HOST_MODE_LABEL,
-            Self::Cursor => "Cursor profile",
-            Self::FullStack => "full-stack profile",
-        }
-    }
-
-    fn tools(self) -> &'static [&'static str] {
-        match self {
-            Self::Minimal => &["mycelium"],
-            Self::ClaudeCode => &["mycelium", "hyphae", "rhizome", "cortina"],
-            Self::FullStack => &["mycelium", "hyphae", "rhizome", "canopy", "cortina"],
-            Self::Codex | Self::Cursor => &["mycelium", "hyphae", "rhizome"],
-        }
-    }
-}
+use super::tool_registry;
+pub use super::tool_registry::InstallProfile;
 
 #[derive(Debug)]
 struct GitHubRelease {
@@ -78,15 +40,17 @@ fn resolve_requested_tools(
     tools: &[String],
 ) -> Option<Vec<String>> {
     if all {
-        let known = TOOLS.iter().map(|(name, _)| (*name).to_string()).collect();
+        let known = tool_registry::install_all_specs()
+            .into_iter()
+            .map(|spec| spec.name.to_string())
+            .collect();
         return Some(unique_tools(known, tools));
     }
 
     if let Some(profile) = profile {
-        let selected = profile
-            .tools()
-            .iter()
-            .map(|tool| (*tool).to_string())
+        let selected = tool_registry::specs_for_profile(profile)
+            .into_iter()
+            .map(|spec| spec.name.to_string())
             .collect();
         return Some(unique_tools(selected, tools));
     }
@@ -129,8 +93,8 @@ fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {
             "Interactive selection would be shown with all tools preselected.".bold()
         );
         println!();
-        for (tool, description) in TOOLS {
-            println!("  {tool:<15} {description}");
+        for spec in tool_registry::installable_specs() {
+            println!("  {:<15} {}", spec.name, spec.description);
         }
         return;
     }
@@ -156,12 +120,17 @@ fn platform_key() -> &'static str {
     }
 }
 
+fn release_repo(tool: &str) -> &str {
+    tool_registry::find(tool).map_or(tool, |spec| spec.release_repo)
+}
+
 fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHubRelease> {
-    let url = format!("https://api.github.com/repos/basidiocarp/{tool}/releases/latest");
+    let repo = release_repo(tool);
+    let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
         client,
         &url,
-        &format!("latest release for {tool}"),
+        &format!("latest release for {repo}"),
     )?;
 
     let version = data
@@ -254,13 +223,7 @@ fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
 
         if let Some(file_name) = path.file_name() {
             if let Some(name_str) = file_name.to_str() {
-                if name_str == "mycelium"
-                    || name_str == "hyphae"
-                    || name_str == "rhizome"
-                    || name_str == "canopy"
-                    || name_str == "cortina"
-                    || name_str == "stipe"
-                {
+                if tool_registry::release_archive_binaries().contains(&name_str) {
                     entry.unpack_in(dest_dir)?;
                     binary_path = Some(dest_dir.join(file_name));
                 }
@@ -398,15 +361,16 @@ pub fn run(
         tools
     } else {
         let theme = ColorfulTheme::default();
+        let installable_specs = tool_registry::installable_specs();
         println!(
             "{}",
             "Select tools to install (all selected by default):".bold()
         );
         println!();
 
-        let tool_items: Vec<(String, bool)> = TOOLS
+        let tool_items: Vec<(String, bool)> = installable_specs
             .iter()
-            .map(|(name, desc)| (format!("{name:<15} — {desc}"), true))
+            .map(|spec| (format!("{:<15} — {}", spec.name, spec.description), true))
             .collect();
 
         let selections = MultiSelect::with_theme(&theme)
@@ -422,7 +386,7 @@ pub fn run(
 
         selections
             .iter()
-            .map(|&idx| TOOLS[idx].0.to_string())
+            .map(|&idx| installable_specs[idx].name.to_string())
             .collect()
     };
 
@@ -452,25 +416,41 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::tool_registry;
 
     #[test]
     fn test_profile_tools_cover_expected_sets() {
-        assert_eq!(InstallProfile::Minimal.tools(), &["mycelium"]);
+        let minimal = tool_registry::specs_for_profile(InstallProfile::Minimal)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        assert_eq!(minimal, vec!["mycelium"]);
+
+        let claude = tool_registry::specs_for_profile(InstallProfile::ClaudeCode)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        assert_eq!(claude, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
+
+        let codex = tool_registry::specs_for_profile(InstallProfile::Codex)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        assert_eq!(codex, vec!["mycelium", "hyphae", "rhizome"]);
+
+        let cursor = tool_registry::specs_for_profile(InstallProfile::Cursor)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        assert_eq!(cursor, vec!["mycelium", "hyphae", "rhizome"]);
+
+        let full_stack = tool_registry::specs_for_profile(InstallProfile::FullStack)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
         assert_eq!(
-            InstallProfile::ClaudeCode.tools(),
-            &["mycelium", "hyphae", "rhizome", "cortina"]
-        );
-        assert_eq!(
-            InstallProfile::Codex.tools(),
-            &["mycelium", "hyphae", "rhizome"]
-        );
-        assert_eq!(
-            InstallProfile::Cursor.tools(),
-            &["mycelium", "hyphae", "rhizome"]
-        );
-        assert_eq!(
-            InstallProfile::FullStack.tools(),
-            &["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
+            full_stack,
+            vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
         );
     }
 

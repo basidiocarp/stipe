@@ -1,41 +1,24 @@
 use anyhow::Result;
-use spore::{Tool, discover};
-use std::process::Command;
 
-fn canopy_version() -> Option<String> {
-    let output = Command::new("canopy").arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().last())
-        .filter(|version| version.contains('.'))
-        .map(str::to_owned)
-}
+use super::tool_registry::{self, ToolProbe};
 
 #[allow(clippy::unnecessary_wraps)]
 pub fn run() -> Result<()> {
     println!("Basidiocarp Ecosystem Status");
     println!("{}", "─".repeat(40));
 
-    for tool in Tool::all() {
-        match discover(*tool) {
-            Some(info) => {
-                println!("  {:<12} v{:<10} installed", tool, info.version);
+    for spec in tool_registry::status_specs() {
+        match tool_registry::probe(spec) {
+            ToolProbe::Installed(version) => {
+                println!("  {:<12} v{:<10} installed", spec.name, version);
             }
-            None => {
-                println!("  {:<12} {:<12} not installed", tool, "—");
+            ToolProbe::Missing => {
+                println!("  {:<12} {:<12} not installed", spec.name, "—");
+            }
+            ToolProbe::Broken => {
+                println!("  {:<12} {:<12} installed but broken", spec.name, "!");
             }
         }
-    }
-
-    match canopy_version() {
-        Some(version) => println!("  {:<12} v{:<10} installed", "canopy", version),
-        None => println!("  {:<12} {:<12} not installed", "canopy", "—"),
     }
 
     Ok(())

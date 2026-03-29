@@ -9,5 +9,6 @@ pub mod init;
 pub mod install;
 pub mod repair;
 pub mod status;
+pub mod tool_registry;
 pub mod uninstall;
 pub mod update;
