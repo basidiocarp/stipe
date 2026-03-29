@@ -2,7 +2,7 @@
 
 Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers MCP servers with your editor, wires up hook and notification adapters, and runs health checks across multiple hosts and platforms. One binary replaces the shell scripts and the 4,000 lines of ecosystem management that used to live in Mycelium.
 
-Stipe is moving from single-host modes to a host inventory model: each host gets its own setup and doctor flow, while shared tool state stays global.
+Stipe now uses a shared tool registry plus a host inventory model: tool metadata is centralized in one place, each host gets its own setup and doctor flow, and shared tool state stays global.
 
 Named after the mushroom's stem—the structural support connecting all parts.
 
@@ -14,7 +14,7 @@ Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
 ```
 
-The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, canopy, cortina) and configures your editor's MCP servers. After that, use stipe to manage updates and health checks:
+The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, canopy, cortina) and configures your editor's MCP servers. `canopy` is optional coordination-runtime coverage and only part of the `full-stack` profile. After that, use stipe to manage updates and health checks:
 
 ```bash
 stipe doctor       # verify everything is configured
@@ -59,7 +59,7 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 
 ## What `init` Does
 
-1. Discovers installed tools via spore
+1. Discovers installed tools via the shared `stipe` tool registry
 2. Registers Hyphae and Rhizome as MCP servers with your editor
 3. Installs the Codex notify adapter by adding Hyphae's notify command to `~/.codex/config.toml` or `.codex/config.toml`
 4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) in `~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`
@@ -68,7 +68,7 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 
 Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
-`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption.
+`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption.
 
 ## Why a Separate Tool
 

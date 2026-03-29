@@ -369,4 +369,72 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["mycelium", "hyphae", "rhizome", "canopy"]);
     }
+
+    #[test]
+    fn test_install_profiles_only_reference_installable_tools() {
+        let installable = installable_specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+
+        for profile in [
+            InstallProfile::Minimal,
+            InstallProfile::ClaudeCode,
+            InstallProfile::Codex,
+            InstallProfile::Cursor,
+            InstallProfile::FullStack,
+        ] {
+            for spec in specs_for_profile(profile) {
+                assert!(
+                    installable.contains(&spec.name),
+                    "{} includes non-installable tool {}",
+                    profile.mode_label(),
+                    spec.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_install_all_and_update_all_cover_same_managed_release_tools() {
+        let install_all = install_all_specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+        let update_all = update_all_specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(install_all, update_all);
+    }
+
+    #[test]
+    fn test_ecosystem_and_status_views_only_reference_visible_tools() {
+        let status = status_specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>();
+
+        for spec in ecosystem_specs() {
+            assert!(
+                status.contains(&spec.name),
+                "ecosystem view references tool missing from status: {}",
+                spec.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_optional_doctor_tools_have_install_hints() {
+        for spec in doctor_specs() {
+            if spec.doctor_coverage == DoctorCoverage::Optional {
+                assert!(
+                    spec.missing_hint.is_some(),
+                    "optional doctor tool {} should have a repair hint",
+                    spec.name
+                );
+            }
+        }
+    }
 }
