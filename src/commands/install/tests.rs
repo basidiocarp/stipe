@@ -106,6 +106,55 @@ fn test_format_install_preview_reports_existing_and_missing_tools() {
 }
 
 #[test]
+fn test_render_install_preview_snapshot_for_explicit_tools() {
+    let temp_dir = std::env::temp_dir().join("stipe-install-preview-snapshot");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    std::fs::write(temp_dir.join("mycelium"), "").unwrap();
+
+    assert_eq!(
+        render_install_preview(
+            &temp_dir,
+            &["mycelium".to_string(), "hyphae".to_string()],
+            "minimal profile"
+        ),
+        vec![
+            "Dry run: no changes will be made.".to_string(),
+            String::new(),
+            "  Mode: minimal profile".to_string(),
+            format!(
+                "  mycelium: would be skipped because {} already exists",
+                temp_dir.join("mycelium").display()
+            ),
+            format!(
+                "  hyphae: would be downloaded and installed to {}",
+                temp_dir.join("hyphae").display()
+            ),
+        ]
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_render_install_preview_snapshot_for_interactive_mode() {
+    assert_eq!(
+        render_install_preview(std::path::Path::new("/tmp/tools"), &[], "minimal profile"),
+        vec![
+            "Dry run: no changes will be made.".to_string(),
+            String::new(),
+            "Interactive selection would be shown with all tools preselected.".to_string(),
+            String::new(),
+            "  mycelium        token compression proxy".to_string(),
+            "  hyphae          agent memory system".to_string(),
+            "  rhizome         code intelligence server".to_string(),
+            "  canopy          coordination runtime".to_string(),
+            "  cortina         hook runner & session tracking".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn test_profile_mode_labels_make_codex_explicit() {
     assert_eq!(InstallProfile::Codex.mode_label(), "Codex host mode");
     assert_eq!(

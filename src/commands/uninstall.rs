@@ -80,15 +80,28 @@ fn render_uninstall_preview(targets: &[UninstallTarget], all: bool) -> Vec<Strin
     lines
 }
 
+fn render_preview_output(targets: &[UninstallTarget], all: bool) -> Vec<String> {
+    let mut lines = vec![
+        "Dry run: no changes will be made.".to_string(),
+        String::new(),
+    ];
+    lines.extend(
+        render_uninstall_preview(targets, all)
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
+    lines.push(String::new());
+    lines
+}
+
 fn print_preview(targets: &[UninstallTarget], all: bool) {
-    println!("{}", "Dry run: no changes will be made.".yellow());
-    println!();
-
-    for line in render_uninstall_preview(targets, all) {
-        println!("  {line}");
+    for (index, line) in render_preview_output(targets, all).into_iter().enumerate() {
+        if index == 0 {
+            println!("{}", line.yellow());
+        } else {
+            println!("{line}");
+        }
     }
-
-    println!();
 }
 
 pub fn run(all: bool, dry_run: bool, tools: &[String]) -> Result<()> {
@@ -199,5 +212,38 @@ mod tests {
                 .any(|line| line.contains("Would remove all ecosystem binaries"))
         );
         assert!(lines.iter().any(|line| line.contains("manual cleanup")));
+    }
+
+    #[test]
+    fn test_render_preview_output_snapshot() {
+        let targets = vec![
+            UninstallTarget {
+                tool: "mycelium".to_string(),
+                path: PathBuf::from("/tmp/mycelium"),
+                exists: true,
+            },
+            UninstallTarget {
+                tool: "hyphae".to_string(),
+                path: PathBuf::from("/tmp/hyphae"),
+                exists: false,
+            },
+        ];
+
+        assert_eq!(
+            render_preview_output(&targets, true),
+            vec![
+                "Dry run: no changes will be made.".to_string(),
+                String::new(),
+                format!(
+                    "  Would remove all ecosystem binaries from {}.",
+                    bin_paths::local_bin_dir_display()
+                ),
+                "  mycelium: would be removed from /tmp/mycelium".to_string(),
+                "  hyphae: not present at /tmp/hyphae".to_string(),
+                "  MCP registrations in editor config files would remain for manual cleanup."
+                    .to_string(),
+                String::new(),
+            ]
+        );
     }
 }

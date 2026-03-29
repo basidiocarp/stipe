@@ -2,9 +2,13 @@
 //!
 //! Detects installed MCP clients (Cursor, Windsurf, Cline, Continue, Claude Desktop)
 //! and registers hyphae/rhizome MCP servers in each client's config.
+//!
+//! Boundary note: `spore` owns editor primitives such as detection, config paths,
+//! MCP config writing, and editor-specific capabilities. `stipe` owns ecosystem
+//! policy such as managed tool inventory, install profiles, repair semantics,
+//! and orchestration across those editors.
 
 use anyhow::Result;
-use spore::editors::{self, Editor};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -12,8 +16,11 @@ use crate::commands::host_policy::HostConfigScope;
 
 mod detection;
 mod registration;
+mod spore_bridge;
 #[cfg(test)]
 mod tests;
+
+pub(super) use spore_bridge::Editor;
 
 /// Known MCP clients.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +110,7 @@ impl McpClient {
     /// Config file path for this client (if applicable).
     pub(crate) fn config_path(self) -> Option<PathBuf> {
         if let Some(editor) = self.shared_editor() {
-            return editors::config_path(editor).ok();
+            return spore_bridge::config_path(editor).ok();
         }
 
         let home = dirs::home_dir()?;

@@ -2,12 +2,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use spore::editors::Editor;
-
-use super::{ALL_CLIENTS, McpClient};
+use super::{ALL_CLIENTS, Editor, McpClient, spore_bridge};
 
 pub(super) fn detect_clients() -> Vec<McpClient> {
-    let detected_editors = spore::editors::detect();
+    let detected_editors = spore_bridge::detect_editors();
     collect_detected_clients(
         &detected_editors,
         claude_cli_installed(),

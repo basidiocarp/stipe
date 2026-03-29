@@ -11,4 +11,4 @@ pub(crate) use runner::{install_bin_dir, install_tool, run};
 #[cfg(test)]
 use release::{GitHubRelease, ReleaseAsset, extract_tarball, find_matching_asset, platform_key};
 #[cfg(test)]
-use selection::{format_install_preview, resolve_requested_tools};
+use selection::{format_install_preview, render_install_preview, resolve_requested_tools};

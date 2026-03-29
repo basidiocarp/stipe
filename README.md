@@ -4,6 +4,8 @@ Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers M
 
 Stipe now uses a shared tool registry plus a host inventory model: tool metadata is centralized in one place, each host gets its own setup and doctor flow, and shared tool state stays global.
 
+Boundary note: `spore` stays responsible for editor primitives such as detection, config paths, MCP config writes, and editor capability differences. `stipe` stays responsible for ecosystem policy such as managed tool inventory, install profiles, doctor severity, release mapping, and cross-tool orchestration.
+
 Named after the mushroom's stem—the structural support connecting all parts.
 
 Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
@@ -68,7 +70,7 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 
 Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
-`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption.
+`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption. Shared editor mechanics should continue to land in `spore`; `stipe` should consume those primitives rather than duplicating them.
 
 ## Why a Separate Tool
 

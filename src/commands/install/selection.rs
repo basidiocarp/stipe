@@ -67,23 +67,47 @@ pub(super) fn format_install_preview(
     lines
 }
 
-pub(super) fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {
-    println!("{}", "Dry run: no changes will be made.".yellow());
-    println!();
+pub(super) fn render_install_preview(
+    prefix: &Path,
+    tools: &[String],
+    mode_label: &str,
+) -> Vec<String> {
+    let mut lines = vec![
+        "Dry run: no changes will be made.".to_string(),
+        String::new(),
+    ];
 
     if tools.is_empty() {
-        println!(
-            "{}",
-            "Interactive selection would be shown with all tools preselected.".bold()
+        lines.push("Interactive selection would be shown with all tools preselected.".to_string());
+        lines.push(String::new());
+        lines.extend(
+            tool_registry::installable_specs()
+                .into_iter()
+                .map(|spec| format!("  {:<15} {}", spec.name, spec.description)),
         );
-        println!();
-        for spec in tool_registry::installable_specs() {
-            println!("  {:<15} {}", spec.name, spec.description);
-        }
-        return;
+        return lines;
     }
 
-    for line in format_install_preview(prefix, tools, mode_label) {
-        println!("  {line}");
+    lines.extend(
+        format_install_preview(prefix, tools, mode_label)
+            .into_iter()
+            .map(|line| format!("  {line}")),
+    );
+    lines
+}
+
+pub(super) fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {
+    let lines = render_install_preview(prefix, tools, mode_label);
+
+    for (index, line) in lines.into_iter().enumerate() {
+        if index == 0 {
+            println!("{}", line.yellow());
+        } else if !tools.is_empty() && line.starts_with("  Mode:") {
+            println!("{line}");
+        } else if tools.is_empty() && index == 2 {
+            println!("{}", line.bold());
+        } else {
+            println!("{line}");
+        }
     }
 }

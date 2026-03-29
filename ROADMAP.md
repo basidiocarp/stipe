@@ -11,6 +11,7 @@ This page is the Stipe-specific backlog. The workspace [ROADMAP.md](../ROADMAP.m
 - Better separation between host orchestration and tool inventory in `stipe`, with `spore` staying focused on shared editor/config mechanics.
 - More portable repair guidance and config-path handling across macOS, Linux, and Windows.
 - Better convergence with `spore` for editor detection and MCP registration.
+- A narrower `spore` boundary: editor primitives stay in `spore`, while tool policy and orchestration stay in `stipe`.
 
 ## Next
 
