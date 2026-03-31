@@ -186,6 +186,7 @@ fn profile_flag_name(profile: InstallProfile) -> &'static str {
         InstallProfile::Codex => "codex",
         InstallProfile::Cursor => "cursor",
         InstallProfile::FullStack => "full-stack",
+        InstallProfile::DeveloperTools => "developer-tools",
     }
 }
 
@@ -196,6 +197,19 @@ pub fn run(
     check: bool,
     tools: &[String],
 ) -> Result<()> {
+    if profile == Some(InstallProfile::DeveloperTools) {
+        println!();
+        println!("{}", "Basidiocarp Ecosystem Update".bold());
+        println!("{}", "─".repeat(75));
+        println!();
+        println!("Developer tools are not managed by stipe.");
+        println!(
+            "Use your package manager to update them, and run 'stipe doctor --developer' to audit what is installed."
+        );
+        println!();
+        return Ok(());
+    }
+
     println!();
     println!("{}", "Basidiocarp Ecosystem Update".bold());
     println!("{}", "─".repeat(75));

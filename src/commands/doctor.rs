@@ -1,6 +1,7 @@
 use anyhow::Result;
 use colored::Colorize;
 
+use super::developer_tools;
 use super::host;
 use super::host_policy;
 use super::repair::dedupe_repair_actions;
@@ -98,6 +99,11 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     }
 
     lines.push(String::new());
+
+    if let Some(developer_tools) = &report.developer_tools {
+        lines.extend(developer_tools::render_report(developer_tools));
+    }
+
     lines
 }
 
@@ -114,7 +120,7 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
-fn build_report() -> DoctorReport {
+fn build_report(include_developer_tools: bool) -> DoctorReport {
     let mut checks = tool_registry::doctor_specs()
         .into_iter()
         .map(check_tool)
@@ -141,11 +147,12 @@ fn build_report() -> DoctorReport {
         },
         checks,
         repair_actions,
+        developer_tools: include_developer_tools.then(developer_tools::doctor_report),
     }
 }
 
-pub fn run(json: bool) -> Result<()> {
-    let report = build_report();
+pub fn run(json: bool, developer: bool) -> Result<()> {
+    let report = build_report(developer);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -167,6 +174,7 @@ pub fn run(json: bool) -> Result<()> {
 mod tests {
     use super::*;
     use crate::commands::codex_notify;
+    use crate::commands::developer_tools::DeveloperToolTier;
     use crate::commands::repair::{RepairAction, RepairTier};
     use crate::commands::tool_registry::ToolProbe;
     use std::fs;
@@ -264,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_build_report_includes_host_inventory_checks() {
-        let report = build_report();
+        let report = build_report(false);
         let names = report
             .checks
             .iter()
@@ -334,6 +342,7 @@ mod tests {
                 &["init"],
                 RepairTier::Primary,
             )],
+            developer_tools: None,
         };
 
         assert!(!report.healthy);
@@ -360,6 +369,7 @@ mod tests {
                 &["install", "hyphae"],
                 RepairTier::Primary,
             )],
+            developer_tools: None,
         };
 
         assert_eq!(
@@ -377,6 +387,20 @@ mod tests {
                 "  - stipe install hyphae",
                 "",
             ]
+        );
+    }
+
+    #[test]
+    fn test_build_report_can_include_developer_tools() {
+        let report = build_report(true);
+        let developer_tools = report
+            .developer_tools
+            .expect("developer tools section should be present");
+        assert!(
+            developer_tools
+                .checks
+                .iter()
+                .any(|check| check.tier == DeveloperToolTier::Tier1)
         );
     }
 }

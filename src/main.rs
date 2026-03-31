@@ -87,6 +87,10 @@ enum Commands {
         /// Emit structured JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Include advisory developer tool checks
+        #[arg(long)]
+        developer: bool,
     },
 
     /// Remove ecosystem tools and configuration
@@ -131,7 +135,7 @@ fn main() -> Result<()> {
             json,
         } => commands::init::run(client.as_deref(), scope, dry_run, json),
         Commands::Host { command } => commands::host::run(command),
-        Commands::Doctor { json } => commands::doctor::run(json),
+        Commands::Doctor { json, developer } => commands::doctor::run(json, developer),
         Commands::Uninstall {
             all,
             dry_run,
@@ -177,6 +181,33 @@ mod tests {
                 commands::self_update::SelfCommand::Update { check } => assert!(check),
             },
             _ => panic!("expected self command"),
+        }
+    }
+
+    #[test]
+    fn test_doctor_accepts_developer_flag() {
+        let cli = Cli::try_parse_from(["stipe", "doctor", "--developer"])
+            .expect("doctor should accept developer flag");
+
+        match cli.command {
+            Commands::Doctor { developer, .. } => assert!(developer),
+            _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn test_install_accepts_developer_profile_alias() {
+        let cli = Cli::try_parse_from(["stipe", "install", "--profile", "developer"])
+            .expect("developer alias should parse");
+
+        match cli.command {
+            Commands::Install { profile, .. } => {
+                assert_eq!(
+                    profile,
+                    Some(commands::install::InstallProfile::DeveloperTools)
+                );
+            }
+            _ => panic!("expected install command"),
         }
     }
 }

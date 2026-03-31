@@ -1,3 +1,4 @@
+use crate::commands::developer_tools::DeveloperToolsReport;
 use crate::commands::repair::RepairAction;
 use serde::Serialize;
 
@@ -17,6 +18,8 @@ pub(super) struct DoctorReport {
     pub(super) summary: String,
     pub(super) checks: Vec<HealthCheck>,
     pub(super) repair_actions: Vec<RepairAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) developer_tools: Option<DeveloperToolsReport>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

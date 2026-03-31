@@ -35,6 +35,12 @@ fn test_profile_tools_cover_expected_sets() {
         full_stack,
         vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
     );
+
+    let developer_tools = tool_registry::specs_for_profile(InstallProfile::DeveloperTools)
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>();
+    assert!(developer_tools.is_empty());
 }
 
 #[test]
@@ -160,6 +166,10 @@ fn test_profile_mode_labels_make_codex_explicit() {
     assert_eq!(
         InstallProfile::ClaudeCode.mode_label(),
         "Claude Code operator mode"
+    );
+    assert_eq!(
+        InstallProfile::DeveloperTools.mode_label(),
+        "developer-tools profile"
     );
 }
 

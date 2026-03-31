@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] - 2026-03-31
+
+### Added
+
+- **Developer tool audit tier**: `stipe install --profile developer-tools` now prints advisory package-manager guidance for recommended third-party CLI tools, and `stipe doctor --developer` adds a separate developer-tools section without treating those tools as managed ecosystem dependencies.
+
 ## [0.5.1] - 2026-03-31
 
 ### Added

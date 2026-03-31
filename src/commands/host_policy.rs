@@ -313,6 +313,18 @@ pub fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
             &["install", "--profile", "full-stack"],
             RepairTier::Primary,
         ),
+        InstallProfile::DeveloperTools => RepairAction::manual(
+            "Review developer tool recommendations".to_string(),
+            "Inspect the advisory developer tool profile and install missing tools with your package manager."
+                .to_string(),
+            "stipe install --profile developer-tools".to_string(),
+            vec![
+                "install".to_string(),
+                "--profile".to_string(),
+                "developer-tools".to_string(),
+            ],
+            RepairTier::Manual,
+        ),
     }
 }
 

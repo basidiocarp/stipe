@@ -7,6 +7,8 @@ pub enum InstallProfile {
     Codex,
     Cursor,
     FullStack,
+    #[value(name = "developer-tools", alias = "developer")]
+    DeveloperTools,
 }
 
 impl InstallProfile {
@@ -18,6 +20,7 @@ impl InstallProfile {
             Self::Codex => super::super::host_policy::CODEX_HOST_MODE_LABEL,
             Self::Cursor => "Cursor profile",
             Self::FullStack => "full-stack profile",
+            Self::DeveloperTools => "developer-tools profile",
         }
     }
 }

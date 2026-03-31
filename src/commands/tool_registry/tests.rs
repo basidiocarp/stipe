@@ -70,6 +70,7 @@ fn test_install_profiles_only_reference_installable_tools() {
         InstallProfile::Codex,
         InstallProfile::Cursor,
         InstallProfile::FullStack,
+        InstallProfile::DeveloperTools,
     ] {
         for spec in specs_for_profile(profile) {
             assert!(

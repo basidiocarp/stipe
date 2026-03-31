@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::commands::bin_paths;
+use crate::commands::developer_tools;
 use crate::commands::github;
 use crate::commands::install::release::{
     download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
@@ -95,6 +96,25 @@ pub(crate) fn run(
     println!("{}", "Basidiocarp Ecosystem Installer".bold());
     println!("{}", "─".repeat(75));
     println!();
+
+    if profile == Some(InstallProfile::DeveloperTools) {
+        let unknown = developer_tools::unknown_requested_tools(tools);
+        let report = developer_tools::install_report(tools);
+
+        for line in developer_tools::render_install_advice(&report) {
+            println!("{line}");
+        }
+
+        if !unknown.is_empty() {
+            println!("Unknown developer tools:");
+            for name in unknown {
+                println!("  - {name}");
+            }
+            println!();
+        }
+
+        return Ok(());
+    }
 
     let tools_to_install = resolve_requested_tools(all, profile, tools);
 

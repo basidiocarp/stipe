@@ -48,6 +48,7 @@ Install profiles:
 - `codex` installs `mycelium`, `hyphae`, and `rhizome` for Codex host support
 - `cursor` installs `mycelium`, `hyphae`, and `rhizome`
 - `full-stack` installs `mycelium`, `hyphae`, `rhizome`, `canopy`, and `cortina`
+- `developer-tools` is advisory only: it checks recommended third-party CLI tools and prints package-manager install hints instead of installing them into the managed bin directory
 
 ## Commands
 
@@ -57,7 +58,7 @@ stipe host list                                                              Sho
 stipe host setup <claude-code|codex|cursor> [--scope <scope>] [--dry-run]   Install and initialize a named host
 stipe host doctor [<claude-code|codex|cursor>] [--json]                      Check one host, or all managed hosts, independently
 stipe init [--client <name>] [--scope <scope>] [--dry-run]                   Register MCP servers, install hooks and notify adapters, init databases
-stipe doctor                                                                 Health check across the full stack and installed host config
+stipe doctor [--developer]                                                   Health check across the full stack and installed host config, optionally including advisory developer tools
 stipe update [--all] [--check]                                               Update tools to latest versions
 stipe status                                                                 Show installed tools and versions
 stipe uninstall [--all] [--dry-run] [tools...]                               Remove tools and configuration
@@ -77,6 +78,8 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
 `stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption. Shared editor mechanics should continue to land in `spore`; `stipe` should consume those primitives rather than duplicating them.
+
+`stipe doctor --developer` adds an advisory developer-tools section. That surface checks third-party CLI utilities such as `jq`, `fd`, `shellcheck`, `tokei`, `bat`, `difftastic`, `just`, `cargo-nextest`, and related workflow tools, but it does not make them part of ecosystem health and it does not install or update them. Use `stipe install --profile developer-tools` when you want a package-manager hint list for the supported developer-tool tier set.
 
 Temporary Claude-specific shell helpers migrated from Lamella live under
 `scripts/claude/`. Treat them as fallback utilities while `stipe doctor`,
