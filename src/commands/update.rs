@@ -5,6 +5,7 @@ use std::process::Command;
 
 use super::install;
 use super::tool_registry;
+use super::tool_registry::InstallProfile;
 
 fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
@@ -125,43 +126,115 @@ fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
     Ok(())
 }
 
+fn unique_tools(base: Vec<String>, extras: &[String]) -> Vec<String> {
+    let mut ordered = base;
+    for tool in extras {
+        if !ordered.iter().any(|existing| existing == tool) {
+            ordered.push(tool.clone());
+        }
+    }
+    ordered
+}
+
+fn installed_profile_tools_with<F>(profile: InstallProfile, mut probe: F) -> Vec<String>
+where
+    F: FnMut(&tool_registry::ToolSpec) -> tool_registry::ToolProbe,
+{
+    tool_registry::specs_for_profile(profile)
+        .into_iter()
+        .filter_map(|spec| {
+            probe(spec)
+                .is_repairable_presence()
+                .then_some(spec.name.to_string())
+        })
+        .collect()
+}
+
+fn resolve_requested_tools(
+    all: bool,
+    profile: Option<InstallProfile>,
+    tools: &[String],
+) -> Option<Vec<String>> {
+    if all {
+        let installed = tool_registry::update_all_specs()
+            .into_iter()
+            .filter_map(|spec| {
+                tool_registry::probe(spec)
+                    .is_repairable_presence()
+                    .then_some(spec.name.to_string())
+            })
+            .collect::<Vec<_>>();
+        return Some(unique_tools(installed, tools));
+    }
+
+    if let Some(profile) = profile {
+        let installed = installed_profile_tools_with(profile, tool_registry::probe);
+        return Some(unique_tools(installed, tools));
+    }
+
+    if !tools.is_empty() {
+        return Some(tools.to_vec());
+    }
+
+    None
+}
+
+fn profile_flag_name(profile: InstallProfile) -> &'static str {
+    match profile {
+        InstallProfile::Minimal => "minimal",
+        InstallProfile::ClaudeCode => "claude-code",
+        InstallProfile::Codex => "codex",
+        InstallProfile::Cursor => "cursor",
+        InstallProfile::FullStack => "full-stack",
+    }
+}
+
 #[allow(clippy::unnecessary_wraps)]
-pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
+pub fn run(
+    all: bool,
+    profile: Option<InstallProfile>,
+    check: bool,
+    tools: &[String],
+) -> Result<()> {
     println!();
     println!("{}", "Basidiocarp Ecosystem Update".bold());
     println!("{}", "─".repeat(75));
     println!();
 
-    let tools_to_check: Vec<&str> = if all {
-        let all_tools = tool_registry::update_all_specs()
-            .into_iter()
-            .filter_map(|spec| {
-                tool_registry::probe(spec)
-                    .is_repairable_presence()
-                    .then_some(spec.name)
-            })
-            .collect::<Vec<_>>();
+    let tools_to_check: Vec<String> =
+        if let Some(requested) = resolve_requested_tools(all, profile, tools) {
+            if (all || profile.is_some()) && requested.is_empty() {
+                if let Some(profile) = profile {
+                    println!(
+                        "No installed tools found for {}. Run 'stipe install --profile {}' first.",
+                        profile.mode_label(),
+                        profile_flag_name(profile)
+                    );
+                } else {
+                    println!("No installed tools found. Run 'stipe install --all' first.");
+                }
+                println!();
+                return Ok(());
+            }
 
-        if all_tools.is_empty() {
-            println!("No installed tools found. Run 'stipe install --all' first.");
+            requested
+        } else {
+            if all {
+                println!("No installed tools found. Run 'stipe install --all' first.");
+            } else {
+                println!("Specify tools to update:");
+                println!("  {} stipe update mycelium", "→".dimmed());
+                println!("  {} stipe update hyphae rhizome canopy", "→".dimmed());
+                println!("  {} stipe update --profile claude-code", "→".dimmed());
+                println!("  {} stipe update --all", "→".dimmed());
+                println!();
+                println!("Check without installing:");
+                println!("  {} stipe update --check --profile codex", "→".dimmed());
+                println!("  {} stipe update --check --all", "→".dimmed());
+            }
             println!();
             return Ok(());
-        }
-
-        all_tools
-    } else if tools.is_empty() {
-        println!("Specify tools to update:");
-        println!("  {} stipe update mycelium", "→".dimmed());
-        println!("  {} stipe update hyphae rhizome canopy", "→".dimmed());
-        println!("  {} stipe update --all", "→".dimmed());
-        println!();
-        println!("Check without installing:");
-        println!("  {} stipe update --check --all", "→".dimmed());
-        println!();
-        return Ok(());
-    } else {
-        tools.iter().map(String::as_str).collect()
-    };
+        };
 
     let client = crate::commands::github::github_client()?;
 
@@ -219,4 +292,85 @@ pub fn run(all: bool, check: bool, tools: &[String]) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::tool_registry::{DoctorCoverage, ToolProbe, ToolSpec};
+
+    fn spec(name: &'static str, profiles: &'static [InstallProfile]) -> ToolSpec {
+        ToolSpec {
+            name,
+            binary_name: name,
+            release_repo: name,
+            description: "test tool",
+            installable: true,
+            include_in_update_all: true,
+            include_in_uninstall_all: true,
+            include_in_status: true,
+            include_in_ecosystem: true,
+            include_in_install_all: true,
+            doctor_coverage: DoctorCoverage::Required,
+            install_profiles: profiles,
+            missing_hint: None,
+        }
+    }
+
+    #[test]
+    fn installed_profile_tools_only_keep_installed_or_broken_members() {
+        let profile = InstallProfile::ClaudeCode;
+        let mycelium = spec("mycelium", &[InstallProfile::ClaudeCode]);
+        let hyphae = spec("hyphae", &[InstallProfile::ClaudeCode]);
+        let cortina = spec("cortina", &[InstallProfile::ClaudeCode]);
+
+        let specs = vec![&mycelium, &hyphae, &cortina];
+        let selected = specs
+            .into_iter()
+            .filter_map(|candidate| {
+                if !candidate.install_profiles.contains(&profile) {
+                    return None;
+                }
+                let probe = match candidate.name {
+                    "mycelium" => ToolProbe::Installed("0.8.0".to_string()),
+                    "hyphae" => ToolProbe::Broken,
+                    _ => ToolProbe::Missing,
+                };
+                probe
+                    .is_repairable_presence()
+                    .then_some(candidate.name.to_string())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected, vec!["mycelium".to_string(), "hyphae".to_string()]);
+    }
+
+    #[test]
+    fn installed_profile_tools_with_helper_keeps_only_present_tools() {
+        let selected =
+            installed_profile_tools_with(InstallProfile::ClaudeCode, |spec| match spec.name {
+                "mycelium" => ToolProbe::Installed("0.8.0".to_string()),
+                "hyphae" => ToolProbe::Broken,
+                _ => ToolProbe::Missing,
+            });
+
+        assert_eq!(selected, vec!["mycelium".to_string(), "hyphae".to_string()]);
+    }
+
+    #[test]
+    fn unique_tools_appends_explicit_extras_without_duplicates() {
+        let resolved = unique_tools(
+            vec!["mycelium".to_string(), "hyphae".to_string()],
+            &["hyphae".to_string(), "canopy".to_string()],
+        );
+
+        assert_eq!(
+            resolved,
+            vec![
+                "mycelium".to_string(),
+                "hyphae".to_string(),
+                "canopy".to_string()
+            ]
+        );
+    }
 }

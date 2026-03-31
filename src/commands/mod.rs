@@ -8,6 +8,7 @@ pub mod host_policy;
 pub mod init;
 pub mod install;
 pub mod repair;
+pub mod self_update;
 pub mod status;
 pub mod tool_registry;
 pub mod uninstall;

@@ -34,6 +34,10 @@ enum Commands {
 
     /// Update installed tools to latest versions
     Update {
+        /// Update tools from a predefined profile
+        #[arg(long, value_enum)]
+        profile: Option<commands::install::InstallProfile>,
+
         /// Update all installed tools
         #[arg(long)]
         all: bool,
@@ -44,6 +48,13 @@ enum Commands {
 
         /// Specific tools to update
         tools: Vec<String>,
+    },
+
+    /// Inspect or update the stipe binary itself
+    #[command(name = "self")]
+    SelfCmd {
+        #[command(subcommand)]
+        command: commands::self_update::SelfCommand,
     },
 
     /// Configure MCP clients, Codex notify adapters, hooks, and databases
@@ -106,7 +117,13 @@ fn main() -> Result<()> {
             dry_run,
             tools,
         } => commands::install::run(all, profile, dry_run, &tools),
-        Commands::Update { all, check, tools } => commands::update::run(all, check, &tools),
+        Commands::Update {
+            profile,
+            all,
+            check,
+            tools,
+        } => commands::update::run(all, profile, check, &tools),
+        Commands::SelfCmd { command } => commands::self_update::run(command),
         Commands::Init {
             client,
             scope,
@@ -135,5 +152,31 @@ mod tests {
             Err(err) => err,
         };
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn test_update_accepts_profile_flag() {
+        let cli = Cli::try_parse_from(["stipe", "update", "--profile", "claude-code"])
+            .expect("update should accept install profiles");
+
+        match cli.command {
+            Commands::Update { profile, .. } => {
+                assert_eq!(profile, Some(commands::install::InstallProfile::ClaudeCode));
+            }
+            _ => panic!("expected update command"),
+        }
+    }
+
+    #[test]
+    fn test_self_update_check_subcommand_parses() {
+        let cli = Cli::try_parse_from(["stipe", "self", "update", "--check"])
+            .expect("self update check should parse");
+
+        match cli.command {
+            Commands::SelfCmd { command } => match command {
+                commands::self_update::SelfCommand::Update { check } => assert!(check),
+            },
+            _ => panic!("expected self command"),
+        }
     }
 }

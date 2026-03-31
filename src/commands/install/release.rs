@@ -8,19 +8,19 @@ use std::process::Command;
 use crate::commands::tool_registry;
 
 #[derive(Debug)]
-pub(super) struct GitHubRelease {
-    pub(super) name: String,
-    pub(super) version: String,
-    pub(super) assets: Vec<ReleaseAsset>,
+pub(crate) struct GitHubRelease {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) assets: Vec<ReleaseAsset>,
 }
 
 #[derive(Debug)]
-pub(super) struct ReleaseAsset {
-    pub(super) name: String,
-    pub(super) download_url: String,
+pub(crate) struct ReleaseAsset {
+    pub(crate) name: String,
+    pub(crate) download_url: String,
 }
 
-pub(super) fn platform_key() -> &'static str {
+pub(crate) fn platform_key() -> &'static str {
     if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
         "aarch64-apple-darwin"
     } else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
@@ -40,7 +40,7 @@ fn release_repo(tool: &str) -> &str {
     tool_registry::find(tool).map_or(tool, |spec| spec.release_repo)
 }
 
-pub(super) fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHubRelease> {
+pub(crate) fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHubRelease> {
     let repo = release_repo(tool);
     let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
@@ -79,7 +79,7 @@ pub(super) fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHub
     })
 }
 
-pub(super) fn find_matching_asset<'a>(
+pub(crate) fn find_matching_asset<'a>(
     release: &'a GitHubRelease,
     platform_key: &str,
 ) -> Result<&'a ReleaseAsset> {
@@ -96,7 +96,7 @@ pub(super) fn find_matching_asset<'a>(
         })
 }
 
-pub(super) fn download_binary(
+pub(crate) fn download_binary(
     asset: &ReleaseAsset,
     progress: &ProgressBar,
     client: &Client,
@@ -123,7 +123,7 @@ pub(super) fn download_binary(
     Ok(bytes.to_vec())
 }
 
-pub(super) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
+pub(crate) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(dest_dir)
         .with_context(|| format!("Failed to create directory: {}", dest_dir.display()))?;
 
@@ -149,7 +149,7 @@ pub(super) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
     binary_path.ok_or_else(|| anyhow!("No binary found in archive"))
 }
 
-pub(super) fn verify_binary(path: &Path) -> Result<String> {
+pub(crate) fn verify_binary(path: &Path) -> Result<String> {
     let output = Command::new(path)
         .arg("--version")
         .output()

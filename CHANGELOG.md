@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.1] - 2026-03-31
+
+### Added
+
+- **Self-update command**: `stipe self update` can now check for and replace the running `stipe` binary using the published GitHub release artifact for the current platform.
+
+### Fixed
+
+- **Profile-aware updates**: `stipe update --profile <profile>` now works and updates the installed tools for the selected profile instead of failing CLI argument parsing.
+
 ## [0.5.0] - 2026-03-31
 
 ### Changed

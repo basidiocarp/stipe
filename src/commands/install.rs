@@ -1,6 +1,6 @@
 pub use super::tool_registry::InstallProfile;
 
-mod release;
+pub(crate) mod release;
 mod runner;
 mod selection;
 #[cfg(test)]
