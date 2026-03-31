@@ -7,6 +7,55 @@ use crate::commands::host_policy::{self, HostConfigScope};
 use super::clients::{self, McpClient};
 use super::status::build_ecosystem_servers;
 
+fn configure_mcp_client(
+    client: McpClient,
+    label: &str,
+    success_label: &str,
+    hyphae_installed: bool,
+    rhizome_installed: bool,
+    scope: HostConfigScope,
+    verbose: u8,
+) -> bool {
+    let servers = build_ecosystem_servers(hyphae_installed, rhizome_installed);
+
+    if servers.is_empty() {
+        return false;
+    }
+
+    println!();
+    println!("{}", format!("Configuring {label}...").bold());
+    println!();
+
+    match clients::register_servers(client, &servers, scope, verbose) {
+        Ok(true) => {
+            println!();
+            println!(
+                "  {} MCP servers registered for {success_label}:",
+                "\u{2713}".green()
+            );
+            for server in &servers {
+                println!("    - {}", server.name);
+            }
+            true
+        }
+        Ok(false) => {
+            eprintln!(
+                "  {} {success_label} registration returned false",
+                "!".yellow()
+            );
+            false
+        }
+        Err(e) => {
+            eprintln!(
+                "  {} {success_label} registration failed: {}",
+                "!".yellow(),
+                e
+            );
+            false
+        }
+    }
+}
+
 pub(super) fn configure_codex_cli(
     hyphae_installed: bool,
     rhizome_installed: bool,
@@ -26,40 +75,16 @@ pub(super) fn configure_codex_cli(
         return;
     }
 
-    let servers = build_ecosystem_servers(hyphae_installed, rhizome_installed);
-
-    if servers.is_empty() {
+    if !configure_mcp_client(
+        McpClient::CodexCli,
+        "Codex host mode",
+        "Codex host mode",
+        hyphae_installed,
+        rhizome_installed,
+        scope,
+        verbose,
+    ) {
         return;
-    }
-
-    println!();
-    println!("{}", "Configuring Codex host mode...".bold());
-    println!();
-
-    match clients::register_servers(McpClient::CodexCli, &servers, scope, verbose) {
-        Ok(true) => {
-            println!();
-            println!(
-                "  {} MCP servers registered for Codex host mode:",
-                "\u{2713}".green()
-            );
-            for server in &servers {
-                println!("    - {}", server.name);
-            }
-        }
-        Ok(false) => {
-            eprintln!(
-                "  {} Codex host mode registration returned false",
-                "!".yellow()
-            );
-        }
-        Err(e) => {
-            eprintln!(
-                "  {} Codex host mode registration failed: {}",
-                "!".yellow(),
-                e
-            );
-        }
     }
 
     if hyphae_installed {
@@ -69,6 +94,18 @@ pub(super) fn configure_codex_cli(
             Err(e) => eprintln!("  {} Codex notify installation failed: {}", "!".yellow(), e),
         }
     }
+}
+
+pub(super) fn configure_cursor_host(hyphae_installed: bool, rhizome_installed: bool, verbose: u8) {
+    let _ = configure_mcp_client(
+        McpClient::Cursor,
+        "Cursor mode",
+        "Cursor mode",
+        hyphae_installed,
+        rhizome_installed,
+        HostConfigScope::User,
+        verbose,
+    );
 }
 
 pub(super) fn initialize_hyphae_db_if_needed(hyphae_installed: bool) {

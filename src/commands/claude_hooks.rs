@@ -222,17 +222,9 @@ pub fn claude_hooks_detail(_configured: bool) -> String {
             host_policy::format_config_path_list(&configured)
         )
     } else if cortina_installed() {
-        let scope_hint = host_policy::supported_host_config_scopes(HostMode::ClaudeCode)
-            .iter()
-            .map(|scope| match scope {
-                HostConfigScope::User => "user",
-                HostConfigScope::Project => "project",
-                HostConfigScope::Local => "local",
-            })
-            .collect::<Vec<_>>()
-            .join("|");
         format!(
-            "Run `stipe init --client claude-code --scope <{scope_hint}>` to install Cortina Claude hooks in {}.",
+            "Run `stipe host setup claude-code --scope <{}>` to install Cortina Claude hooks in {}.",
+            host_policy::supported_scope_hint(HostMode::ClaudeCode),
             host_policy::format_config_path_list(&candidate_paths)
         )
     } else {

@@ -4,6 +4,8 @@ use crate::commands::codex_notify;
 use crate::commands::host_policy;
 use crate::commands::repair::{RepairAction, RepairTier, dedupe_repair_actions};
 
+const STIPE_INIT_PLAN_SCHEMA_VERSION: &str = "1.0";
+
 fn selected_mode_label(snapshot: &InitSnapshot) -> String {
     if !snapshot.selected_hosts.is_empty() {
         snapshot
@@ -189,9 +191,8 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
         actions.push(host_policy::install_profile_repair_action(install_profile));
     }
 
-    if !snapshot.tools.hyphae_db_exists
-        || snapshot.target_client.is_some()
-        || !snapshot.detected_clients.is_empty()
+    if snapshot.target_host_mode().is_none()
+        && (!snapshot.tools.hyphae_db_exists || !snapshot.detected_clients.is_empty())
     {
         actions.push(RepairAction::stipe(
             "init",
@@ -241,6 +242,7 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
 
 pub(super) fn build_plan(snapshot: &InitSnapshot, dry_run: bool) -> InitPlan {
     InitPlan {
+        schema_version: STIPE_INIT_PLAN_SCHEMA_VERSION.to_string(),
         dry_run,
         target_client: snapshot.target_client.clone(),
         selected_hosts: snapshot

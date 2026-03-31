@@ -259,11 +259,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(commands.contains(&"stipe host setup codex"));
-        assert!(
-            commands
-                .iter()
-                .any(|command| command.starts_with("stipe init --client codex"))
-        );
+        assert!(!commands.contains(&"stipe init"));
     }
 
     #[test]
@@ -405,6 +401,47 @@ mod tests {
             &["Codex CLI".to_string()]
         ));
         assert!(codex_notify::codex_notify_detail(true).contains("Codex host mode"));
+        assert_eq!(
+            codex_notify::codex_notify_repair_action().command,
+            "stipe host setup codex"
+        );
+    }
+
+    #[test]
+    fn test_targeted_claude_plan_does_not_pull_in_codex_repairs_from_detected_hosts() {
+        let snapshot = snapshot(SnapshotFixture {
+            target_client: Some("claude-code"),
+            selected_hosts: vec![HostMode::ClaudeCode],
+            detected_hosts: vec![HostMode::ClaudeCode, HostMode::Codex],
+            detected_clients: vec!["Claude Code", "Codex CLI"],
+            tools: ToolSnapshot {
+                hyphae_installed: true,
+                rhizome_installed: true,
+                cortina_installed: true,
+                hyphae_db_exists: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let plan = build_plan(&snapshot, true);
+
+        assert!(
+            plan.steps
+                .iter()
+                .any(|step| step.title == "install the Cortina Claude hooks")
+        );
+        assert!(
+            !plan
+                .steps
+                .iter()
+                .any(|step| step.title == "configure the Codex notify adapter")
+        );
+        assert!(
+            plan.repair_actions
+                .iter()
+                .all(|action| action.command != "stipe host setup codex")
+        );
     }
 
     #[test]

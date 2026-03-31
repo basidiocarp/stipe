@@ -14,6 +14,8 @@ use config_checks::check_mcp_config_drift;
 use model::{DoctorReport, HealthCheck};
 use tool_checks::{check_hyphae_db, check_tool};
 
+const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
+
 #[cfg(test)]
 use config_checks::{codex_notify_adapter_configured_at_path, config_mentions_servers};
 #[cfg(test)]
@@ -130,6 +132,7 @@ fn build_report() -> DoctorReport {
     );
 
     DoctorReport {
+        schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
         healthy,
         summary: if healthy {
             "All checks passed.".to_string()
@@ -309,6 +312,7 @@ mod tests {
     #[test]
     fn test_build_report_includes_repair_actions_for_failures() {
         let report = DoctorReport {
+            schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
             healthy: false,
             summary: "1 checks need attention.".to_string(),
             checks: vec![HealthCheck {
@@ -340,6 +344,7 @@ mod tests {
     #[test]
     fn test_render_report_snapshot_for_failure() {
         let report = DoctorReport {
+            schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
             healthy: false,
             summary: "1 checks need attention.".to_string(),
             checks: vec![HealthCheck {

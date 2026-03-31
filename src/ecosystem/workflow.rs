@@ -5,7 +5,8 @@ use crate::commands::host_policy::{HostConfigScope, HostMode};
 use crate::commands::tool_registry::{self, ToolProbe};
 
 use super::configure::{
-    configure_codex_cli, configure_detected_clients, initialize_hyphae_db_if_needed,
+    configure_codex_cli, configure_cursor_host, configure_detected_clients,
+    initialize_hyphae_db_if_needed,
 };
 use super::context::EcosystemContext;
 use super::mcp::register_mcp;
@@ -16,24 +17,56 @@ pub(super) fn execute(
     scope: HostConfigScope,
     verbose: u8,
 ) {
-    configure_claude_code(context, scope, verbose);
-    configure_other_hosts_and_clients(context, client, scope, verbose);
+    match context.target_host {
+        Some(HostMode::ClaudeCode) => {
+            configure_claude_code(context, scope, verbose, true);
+            initialize_hyphae_db_if_needed(context.hyphae_probe.is_installed());
+        }
+        Some(HostMode::Codex) => {
+            configure_codex_host(context, scope, verbose);
+            initialize_hyphae_db_if_needed(context.hyphae_probe.is_installed());
+        }
+        Some(HostMode::Cursor) => {
+            configure_cursor_host(
+                context.hyphae_probe.is_installed(),
+                context.rhizome_probe.is_installed(),
+                verbose,
+            );
+            initialize_hyphae_db_if_needed(context.hyphae_probe.is_installed());
+        }
+        None => {
+            configure_claude_code(context, scope, verbose, false);
+            configure_other_hosts_and_clients(context, client, scope, verbose);
+        }
+    }
     print_repair_hints(context);
     println!();
 }
 
-fn configure_claude_code(context: &EcosystemContext, scope: HostConfigScope, verbose: u8) {
-    if !(context
-        .target_host
-        .is_none_or(|mode| mode == HostMode::ClaudeCode)
-        && super::status::claude_is_available())
-    {
+fn configure_claude_code(
+    context: &EcosystemContext,
+    scope: HostConfigScope,
+    verbose: u8,
+    targeted: bool,
+) {
+    if !context.claude_runtime_relevant {
+        return;
+    }
+
+    if !super::status::claude_is_available() {
         println!(
             "  {} {} not found in PATH — skipping Claude Code configuration.",
             "!".yellow(),
             "claude".bold()
         );
-        println!("    Install Claude Code first, then re-run: stipe init");
+        println!(
+            "    Install Claude Code first, then re-run: {}",
+            if targeted {
+                "stipe host setup claude-code"
+            } else {
+                "stipe init"
+            }
+        );
         return;
     }
 
@@ -105,32 +138,31 @@ fn configure_claude_code(context: &EcosystemContext, scope: HostConfigScope, ver
     }
 }
 
+fn configure_codex_host(context: &EcosystemContext, scope: HostConfigScope, verbose: u8) {
+    if context.codex_version.is_some() {
+        configure_codex_cli(
+            context.hyphae_probe.is_installed(),
+            context.rhizome_probe.is_installed(),
+            scope,
+            verbose,
+        );
+    } else {
+        println!(
+            "  {} {} not found in PATH — skipping Codex host mode configuration.",
+            "!".yellow(),
+            "codex".bold()
+        );
+        println!("    Install Codex first, then re-run: stipe host setup codex");
+    }
+}
+
 fn configure_other_hosts_and_clients(
     context: &EcosystemContext,
     client: Option<&str>,
     scope: HostConfigScope,
     verbose: u8,
 ) {
-    if context.target_host == Some(HostMode::Codex) {
-        if context.codex_version.is_some() {
-            configure_codex_cli(
-                context.hyphae_probe.is_installed(),
-                context.rhizome_probe.is_installed(),
-                scope,
-                verbose,
-            );
-        } else {
-            println!(
-                "  {} {} not found in PATH — skipping Codex host mode configuration.",
-                "!".yellow(),
-                "codex".bold()
-            );
-            println!("    Install Codex first, then re-run: stipe init");
-        }
-        return;
-    }
-
-    if context.target_host.is_none() && context.codex_version.is_some() {
+    if context.codex_version.is_some() {
         configure_codex_cli(
             context.hyphae_probe.is_installed(),
             context.rhizome_probe.is_installed(),

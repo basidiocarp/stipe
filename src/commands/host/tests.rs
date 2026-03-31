@@ -26,7 +26,7 @@ fn test_codex_doctor_report_includes_notify_repair() {
         detected: true,
         configured: false,
         config_path: Some("/Users/test/.codex/config.toml".to_string()),
-        detail: "Run `stipe init --client codex` to install the Codex notify adapter.".to_string(),
+        detail: "Run `stipe host setup codex` to install the Codex notify adapter.".to_string(),
     };
 
     let checks = doctor_checks_for_entry(&entry);
@@ -37,10 +37,11 @@ fn test_codex_doctor_report_includes_notify_repair() {
             .collect(),
     );
 
-    assert!(repair_actions.iter().any(|action| {
-        action.command.contains("stipe init --client codex")
-            || action.command.contains("stipe host setup codex")
-    }));
+    assert!(
+        repair_actions
+            .iter()
+            .all(|action| action.command == "stipe host setup codex")
+    );
 }
 
 #[test]

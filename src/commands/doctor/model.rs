@@ -12,6 +12,7 @@ pub(super) struct HealthCheck {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub(super) struct DoctorReport {
+    pub(super) schema_version: String,
     pub(super) healthy: bool,
     pub(super) summary: String,
     pub(super) checks: Vec<HealthCheck>,

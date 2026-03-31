@@ -149,6 +149,22 @@ pub fn host_scope_supported(mode: HostMode, scope: HostConfigScope) -> bool {
     supported_host_config_scopes(mode).contains(&scope)
 }
 
+pub fn scope_name(scope: HostConfigScope) -> &'static str {
+    match scope {
+        HostConfigScope::User => "user",
+        HostConfigScope::Project => "project",
+        HostConfigScope::Local => "local",
+    }
+}
+
+pub fn supported_scope_hint(mode: HostMode) -> String {
+    supported_host_config_scopes(mode)
+        .iter()
+        .map(|scope| scope_name(*scope))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 pub fn claude_hook_settings_path(scope: HostConfigScope) -> Option<PathBuf> {
     match scope {
         HostConfigScope::User => dirs::home_dir().map(|home| home.join(".claude/settings.json")),
@@ -395,5 +411,15 @@ mod tests {
 
         assert_eq!(action.command, "stipe install --profile cursor");
         assert!(action.label.contains("Cursor"));
+    }
+
+    #[test]
+    fn test_supported_scope_hint_is_stable_for_host_modes() {
+        assert_eq!(
+            supported_scope_hint(HostMode::ClaudeCode),
+            "user|project|local"
+        );
+        assert_eq!(supported_scope_hint(HostMode::Codex), "user|project");
+        assert_eq!(supported_scope_hint(HostMode::Cursor), "user");
     }
 }

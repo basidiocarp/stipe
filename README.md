@@ -33,7 +33,13 @@ stipe host setup codex
 stipe host doctor codex
 ```
 
-`stipe host` is the multi-host surface. Use `stipe doctor` for the aggregate ecosystem view, then `stipe host doctor <host>` when you need to isolate one runtime. `stipe host <mode>` remains as a hidden compatibility alias for now, but new automation should use `list`, `setup`, and `doctor` explicitly.
+`stipe host` is the multi-host surface. Use `stipe doctor` for the aggregate ecosystem view, then `stipe host doctor <host>` when you need to isolate one runtime.
+
+Migration note:
+
+- If you previously used `mycelium init --ecosystem` or `mycelium init --onboard`, use `stipe init` for shared ecosystem setup and MCP/bootstrap repair.
+- If you previously used `mycelium init --client <host>` or are fixing one runtime at a time, use `stipe host setup <host>`.
+- Older single-level `stipe setup <host>` usage has been removed. Use `stipe host setup <host>`.
 
 Install profiles:
 
@@ -71,6 +77,11 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
 
 `stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption. Shared editor mechanics should continue to land in `spore`; `stipe` should consume those primitives rather than duplicating them.
+
+Temporary Claude-specific shell helpers migrated from Lamella live under
+`scripts/claude/`. Treat them as fallback utilities while `stipe doctor`,
+`stipe host doctor claude-code`, and future host repair flows absorb the
+remaining manual recovery cases.
 
 ## Why a Separate Tool
 

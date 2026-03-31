@@ -120,7 +120,8 @@ pub fn codex_notify_detail(_configured: bool) -> String {
         )
     } else if hyphae_installed() {
         format!(
-            "Run `stipe init --client codex --scope <user|project>` to install Hyphae notify for Codex host mode in {}.",
+            "Run `stipe host setup codex --scope <{}>` to install Hyphae notify for Codex host mode in {}.",
+            host_policy::supported_scope_hint(crate::commands::host_policy::HostMode::Codex),
             host_policy::format_config_path_list(&candidate_paths)
         )
     } else {
@@ -135,14 +136,8 @@ pub fn codex_notify_repair_action() -> RepairAction {
             "Write notify = [\"hyphae\", \"codex-notify\"] to one of {} and complete Codex host mode.",
             host_policy::format_config_path_list(&host_policy::codex_notify_config_paths())
         ),
-        "stipe init --client codex --scope user".to_string(),
-        vec![
-            "init".to_string(),
-            "--client".to_string(),
-            "codex".to_string(),
-            "--scope".to_string(),
-            "user".to_string(),
-        ],
+        "stipe host setup codex".to_string(),
+        vec!["host".to_string(), "setup".to_string(), "codex".to_string()],
         RepairTier::Primary,
     )
 }
@@ -199,5 +194,13 @@ mod tests {
         assert!(content.contains("hyphae"));
         assert!(content.contains("codex-notify"));
         assert!(codex_notify_configured_at_path(&config_path));
+    }
+
+    #[test]
+    fn test_codex_notify_repair_action_points_at_host_setup() {
+        let action = codex_notify_repair_action();
+
+        assert_eq!(action.command, "stipe host setup codex");
+        assert_eq!(action.args, vec!["host", "setup", "codex"]);
     }
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-03-31
+
+### Changed
+
+- **Single setup owner**: Stipe is now the explicit owner of shared ecosystem setup, onboarding, host mutation, and repair flows across the active toolchain.
+- **Host-specific setup boundary**: `stipe init --client ...` and `stipe host setup ...` now stay scoped to the requested host instead of leaking Claude-specific behavior into Codex paths.
+- **Published Spore discovery**: Stipe now consumes the released `spore v0.4.6` tool registry, including Canopy and Cortina discovery.
+
+### Fixed
+
+- **Legacy setup drift**: Compatibility setup paths that kept Mycelium and Stipe overlap alive are removed, which prevents the old dual-owner setup model from reappearing.
+
 ## [0.4.7] - 2026-03-29
 
 ### Changed

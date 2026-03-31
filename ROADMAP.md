@@ -12,8 +12,14 @@ This page is the Stipe-specific backlog. The workspace [ROADMAP.md](../ROADMAP.m
 - More portable repair guidance and config-path handling across macOS, Linux, and Windows.
 - Better convergence with `spore` for editor detection and MCP registration.
 - A narrower `spore` boundary: editor primitives stay in `spore`, while tool policy and orchestration stay in `stipe`.
+- Lamella's remaining Claude host shell helpers now live under `scripts/claude/` in Stipe as a temporary bridge while host doctor and repair flows keep absorbing manual recovery tasks.
 
 ## Next
+
+### Legacy burn-down
+
+Remove temporary CLI compatibility shims once the ecosystem docs and local
+automation have converged on `stipe init` and `stipe host setup`.
 
 ### Drift detection and repair
 

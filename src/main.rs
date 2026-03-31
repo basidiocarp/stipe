@@ -12,7 +12,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
     /// Install ecosystem tools (mycelium, hyphae, rhizome, canopy, cortina)
     Install {
@@ -121,5 +121,19 @@ fn main() -> Result<()> {
             tools,
         } => commands::uninstall::run(all, dry_run, &tools),
         Commands::Status => commands::status::run(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_removed_setup_shim_is_rejected() {
+        let err = match Cli::try_parse_from(["stipe", "setup", "codex"]) {
+            Ok(_) => panic!("expected parse failure"),
+            Err(err) => err,
+        };
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
 }
