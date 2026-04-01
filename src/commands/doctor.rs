@@ -13,7 +13,7 @@ mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
 use model::{DoctorReport, HealthCheck};
-use tool_checks::{check_hyphae_db, check_tool};
+use tool_checks::{check_hyphae_db, check_mcp_startups, check_tool};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
 
@@ -126,6 +126,7 @@ fn build_report(include_developer_tools: bool) -> DoctorReport {
         .map(check_tool)
         .collect::<Vec<_>>();
     checks.extend([check_hyphae_db(), check_mcp_config_drift()]);
+    checks.extend(check_mcp_startups());
     checks.extend(host_health_checks());
 
     let healthy = checks.iter().all(|check| check.passed);

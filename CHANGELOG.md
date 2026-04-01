@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.5.3] - 2026-04-01
+
+### Fixed
+
+- **Claude host setup completeness**: `stipe host setup claude-code` now installs Cortina's `statusLine.command` alongside the existing Claude hooks instead of leaving statusline wiring as a separate manual settings step.
+- **Live MCP startup checks**: `stipe doctor` now probes Hyphae and Rhizome with a real MCP `initialize` handshake so broken startup paths show up as health failures instead of looking healthy from static config alone.
+
 ## [0.5.2] - 2026-03-31
 
 ### Added

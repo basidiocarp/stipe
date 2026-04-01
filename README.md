@@ -71,7 +71,7 @@ This first multi-host slice focuses on shared host descriptors, inventory, and p
 1. Discovers installed tools via the shared `stipe` tool registry
 2. Registers Hyphae and Rhizome as MCP servers with your editor
 3. Installs the Codex notify adapter by adding Hyphae's notify command to `~/.codex/config.toml` or `.codex/config.toml`
-4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) in `~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`
+4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) plus `statusLine.command = "cortina statusline"` in `~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`
 5. Creates the Hyphae database if missing
 6. Patches CLAUDE.md with ecosystem instructions
 

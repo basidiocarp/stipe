@@ -39,6 +39,8 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 3] = [
     },
 ];
 
+const CORTINA_STATUSLINE_COMMAND: &str = "cortina statusline";
+
 pub fn cortina_installed() -> bool {
     Command::new("cortina")
         .arg("--version")
@@ -132,6 +134,34 @@ fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str
     event_hooks.push(serde_json::Value::Object(entry));
 }
 
+fn statusline_configured(root: &serde_json::Value) -> bool {
+    root.get("statusLine").is_some_and(|status_line| {
+        status_line.get("type").and_then(serde_json::Value::as_str) == Some("command")
+            && status_line
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|existing| command_matches(existing, CORTINA_STATUSLINE_COMMAND))
+    })
+}
+
+fn install_statusline(root: &mut serde_json::Value) {
+    let root_obj = if let Some(obj) = root.as_object_mut() {
+        obj
+    } else {
+        *root = json!({});
+        root.as_object_mut()
+            .expect("fresh object must be present after initialization")
+    };
+
+    root_obj.insert(
+        "statusLine".to_string(),
+        json!({
+            "type": "command",
+            "command": CORTINA_STATUSLINE_COMMAND,
+        }),
+    );
+}
+
 fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
     if settings_path.exists() {
         let content = fs::read_to_string(settings_path)
@@ -172,6 +202,11 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
         }
     }
 
+    if !statusline_configured(&root) {
+        install_statusline(&mut root);
+        changed = true;
+    }
+
     if changed {
         write_settings(settings_path, &root)?;
     }
@@ -187,7 +222,7 @@ fn claude_hooks_configured_at_path(settings_path: &Path) -> bool {
     CLAUDE_HOOK_SPECS.iter().copied().all(|spec| {
         let command = hook_command(spec);
         hook_entry_present(&root, spec, &command)
-    })
+    }) && statusline_configured(&root)
 }
 
 pub fn claude_hooks_configured() -> bool {
@@ -218,12 +253,12 @@ pub fn claude_hooks_detail(_configured: bool) -> String {
     let candidate_paths = host_policy::claude_hook_settings_paths();
     if !configured.is_empty() {
         format!(
-            "Claude Code hooks are installed in {}.",
+            "Claude Code hooks and Cortina statusline are installed in {}.",
             host_policy::format_config_path_list(&configured)
         )
     } else if cortina_installed() {
         format!(
-            "Run `stipe host setup claude-code --scope <{}>` to install Cortina Claude hooks in {}.",
+            "Run `stipe host setup claude-code --scope <{}>` to install Cortina Claude hooks and statusline in {}.",
             host_policy::supported_scope_hint(HostMode::ClaudeCode),
             host_policy::format_config_path_list(&candidate_paths)
         )
@@ -269,6 +304,7 @@ mod tests {
             CLAUDE_HOOK_SPECS[2],
             &hook_command(CLAUDE_HOOK_SPECS[2]),
         ));
+        assert!(statusline_configured(&root));
 
         let _ = fs::remove_file(settings_path);
     }
@@ -294,6 +330,22 @@ mod tests {
             .to_string(),
         )
         .unwrap();
+
+        assert!(!claude_hooks_configured_at_path(&settings_path));
+        let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_claude_hooks_configured_at_path_detects_missing_statusline() {
+        let settings_path = test_settings_path("hooks-missing-statusline");
+        install_claude_hooks_at_path(&settings_path).unwrap();
+
+        let mut root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+        root.as_object_mut()
+            .expect("settings root object")
+            .remove("statusLine");
+        fs::write(&settings_path, serde_json::to_string_pretty(&root).unwrap()).unwrap();
 
         assert!(!claude_hooks_configured_at_path(&settings_path));
         let _ = fs::remove_file(settings_path);
