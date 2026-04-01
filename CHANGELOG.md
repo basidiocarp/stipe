@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-04-01
+
+### Added
+
+- **Deep runtime verification**: `stipe` now supports tiered binary verification with functional smoke tests and MCP initialize handshakes instead of relying on `--version` alone.
+- **Doctor deep mode**: `stipe doctor --deep` now runs per-tool functional checks and MCP startup validation for managed MCP servers.
+
+### Changed
+
+- **Install verification**: managed binary installs now run tool-specific smoke tests after the version probe and warn when a binary installs successfully but fails its runtime path.
+- **Shared verification plumbing**: install, tool probing, doctor, and ecosystem MCP registration now reuse one shared set of timeout-backed runtime verification helpers.
+
 ## [0.5.3] - 2026-04-01
 
 ### Fixed
