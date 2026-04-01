@@ -71,6 +71,16 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
             .with_context(|| format!("Failed to make {} executable", install_path.display()))?;
     }
 
+    // macOS requires ad-hoc re-signing after copying a binary to a new location.
+    // Without this, the linker signature is invalidated and macOS kills the binary
+    // with SIGKILL (exit 137) on execution.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("codesign")
+            .args(["--force", "--sign", "-", install_path.to_str().unwrap_or("")])
+            .output();
+    }
+
     match verify_functional(&install_path, spec) {
         Ok(()) => {
             if spec.smoke_test_args.is_some() {
