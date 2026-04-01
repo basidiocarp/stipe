@@ -11,12 +11,14 @@ use crate::commands::developer_tools;
 use crate::commands::github;
 use crate::commands::install::release::{
     download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
-    verify_binary,
+    verify_binary, verify_functional,
 };
 use crate::commands::install::selection::{print_install_preview, resolve_requested_tools};
 use crate::commands::tool_registry::{self, InstallProfile};
 
 pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> Result<()> {
+    let spec = tool_registry::find(tool).ok_or_else(|| anyhow!("Unknown tool: {tool}"))?;
+
     println!("  {} Fetching release information...", "⏳".yellow());
 
     let release = fetch_latest_release(tool, client)?;
@@ -67,6 +69,24 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&install_path, fs::Permissions::from_mode(0o755))
             .with_context(|| format!("Failed to make {} executable", install_path.display()))?;
+    }
+
+    match verify_functional(&install_path, spec) {
+        Ok(()) => {
+            if spec.smoke_test_args.is_some() {
+                println!("  {} {} functional check passed", "✓".green(), tool);
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "  {} {} functional check failed: {}",
+                "!".yellow(),
+                tool,
+                error
+            );
+            eprintln!("    The binary installed but may not work correctly at runtime.");
+            eprintln!("    Reinstall with: stipe install {tool} --force");
+        }
     }
 
     println!(

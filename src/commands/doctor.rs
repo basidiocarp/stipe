@@ -120,13 +120,15 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
-fn build_report(include_developer_tools: bool) -> DoctorReport {
+fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
     let mut checks = tool_registry::doctor_specs()
         .into_iter()
-        .map(check_tool)
+        .map(|spec| check_tool(spec, deep))
         .collect::<Vec<_>>();
     checks.extend([check_hyphae_db(), check_mcp_config_drift()]);
-    checks.extend(check_mcp_startups());
+    if deep {
+        checks.extend(check_mcp_startups());
+    }
     checks.extend(host_health_checks());
 
     let healthy = checks.iter().all(|check| check.passed);
@@ -152,8 +154,8 @@ fn build_report(include_developer_tools: bool) -> DoctorReport {
     }
 }
 
-pub fn run(json: bool, developer: bool) -> Result<()> {
-    let report = build_report(developer);
+pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
+    let report = build_report(developer, deep);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -273,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_build_report_includes_host_inventory_checks() {
-        let report = build_report(false);
+        let report = build_report(false, false);
         let names = report
             .checks
             .iter()
@@ -308,7 +310,7 @@ mod tests {
     #[test]
     fn test_optional_canopy_missing_is_not_a_failure() {
         let canopy = tool_registry::find("canopy").expect("canopy spec should exist");
-        let check = check_tool(canopy);
+        let check = check_tool(canopy, false);
 
         if !matches!(tool_registry::probe(canopy), ToolProbe::Missing) {
             return;
@@ -393,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_build_report_can_include_developer_tools() {
-        let report = build_report(true);
+        let report = build_report(true, false);
         let developer_tools = report
             .developer_tools
             .expect("developer tools section should be present");

@@ -125,3 +125,37 @@ fn test_optional_doctor_tools_have_install_hints() {
         }
     }
 }
+
+#[test]
+fn test_smoke_test_specs_match_expected_tools() {
+    let hyphae = find("hyphae").expect("hyphae spec");
+    assert_eq!(hyphae.smoke_test_args, Some(&["doctor"][..]));
+    assert_eq!(hyphae.smoke_test_expect, None);
+
+    let mycelium = find("mycelium").expect("mycelium spec");
+    assert_eq!(
+        mycelium.smoke_test_args,
+        Some(&["proxy", "echo", "stipe-verify"][..])
+    );
+    assert_eq!(mycelium.smoke_test_expect, Some("stipe-verify"));
+
+    let canopy = find("canopy").expect("canopy spec");
+    assert_eq!(canopy.smoke_test_args, Some(&["task", "list"][..]));
+}
+
+#[test]
+fn test_mcp_serve_specs_match_expected_tools() {
+    let hyphae = find("hyphae").expect("hyphae spec");
+    assert_eq!(hyphae.mcp_serve_args, Some(&["serve"][..]));
+
+    let rhizome = find("rhizome").expect("rhizome spec");
+    assert_eq!(rhizome.mcp_serve_args, Some(&["serve", "--expanded"][..]));
+
+    for tool in ["mycelium", "canopy", "cortina", "cap", "stipe"] {
+        let spec = find(tool).expect("spec should exist");
+        assert_eq!(
+            spec.mcp_serve_args, None,
+            "{tool} should not expose MCP args"
+        );
+    }
+}

@@ -78,4 +78,7 @@ pub struct ToolSpec {
     pub doctor_coverage: DoctorCoverage,
     pub install_profiles: &'static [InstallProfile],
     pub missing_hint: Option<&'static str>,
+    pub smoke_test_args: Option<&'static [&'static str]>,
+    pub smoke_test_expect: Option<&'static str>,
+    pub mcp_serve_args: Option<&'static [&'static str]>,
 }

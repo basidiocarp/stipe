@@ -11,7 +11,7 @@ use super::install::release::{
     verify_binary,
 };
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Clone, Copy, Subcommand)]
 pub enum SelfCommand {
     /// Update the stipe binary in place
     Update {

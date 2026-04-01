@@ -1,8 +1,17 @@
-use std::process::Command;
+use std::path::PathBuf;
 
 use spore::{Tool, discover};
 
+use crate::commands::install::release::{verify_binary, verify_functional, verify_mcp_handshake};
+
 use super::{ToolProbe, ToolSpec};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum VerifyLevel {
+    Version,
+    Functional,
+    McpHandshake,
+}
 
 fn spore_tool(binary_name: &str) -> Option<Tool> {
     match binary_name {
@@ -17,27 +26,38 @@ fn spore_tool(binary_name: &str) -> Option<Tool> {
 }
 
 #[must_use]
+pub fn resolve_binary_path(spec: &ToolSpec) -> Option<PathBuf> {
+    if let Some(tool) = spore_tool(spec.binary_name) {
+        return discover(tool).map(|info| info.binary_path);
+    }
+
+    which::which(spec.binary_name).ok()
+}
+
+#[must_use]
 pub fn probe(spec: &ToolSpec) -> ToolProbe {
-    let binary_path = if let Some(tool) = spore_tool(spec.binary_name) {
-        let Some(info) = discover(tool) else {
-            return ToolProbe::Missing;
-        };
-        info.binary_path
-    } else {
-        let Ok(binary_path) = which::which(spec.binary_name) else {
-            return ToolProbe::Missing;
-        };
-        binary_path
+    probe_with_level(spec, VerifyLevel::Version)
+}
+
+#[must_use]
+pub fn probe_with_level(spec: &ToolSpec, level: VerifyLevel) -> ToolProbe {
+    let Some(binary_path) = resolve_binary_path(spec) else {
+        return ToolProbe::Missing;
     };
 
-    match Command::new(&binary_path).arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let version = parse_version(&stdout);
-            ToolProbe::Installed(version)
-        }
-        Ok(_) | Err(_) => ToolProbe::Broken,
+    let Ok(version_output) = verify_binary(&binary_path) else {
+        return ToolProbe::Broken;
+    };
+
+    if level >= VerifyLevel::Functional && verify_functional(&binary_path, spec).is_err() {
+        return ToolProbe::Broken;
     }
+
+    if level >= VerifyLevel::McpHandshake && verify_mcp_handshake(&binary_path, spec).is_err() {
+        return ToolProbe::Broken;
+    }
+
+    ToolProbe::Installed(parse_version(&version_output))
 }
 
 #[must_use]
@@ -52,7 +72,7 @@ pub fn parse_version(output: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::spore_tool;
+    use super::{VerifyLevel, spore_tool};
 
     #[test]
     fn supported_ecosystem_binaries_map_to_spore_tools() {
@@ -67,5 +87,11 @@ mod tests {
     #[test]
     fn unmanaged_binaries_stay_outside_spore_mapping() {
         assert_eq!(spore_tool("stipe"), None);
+    }
+
+    #[test]
+    fn verify_levels_are_ordered_from_shallow_to_deep() {
+        assert!(VerifyLevel::Version < VerifyLevel::Functional);
+        assert!(VerifyLevel::Functional < VerifyLevel::McpHandshake);
     }
 }

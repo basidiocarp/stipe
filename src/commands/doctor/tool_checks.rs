@@ -1,18 +1,11 @@
-use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
 
 use super::model::HealthCheck;
 use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
 use crate::commands::host_policy;
+use crate::commands::install::release::{probe_mcp_server, verify_functional};
 use crate::commands::repair::{RepairAction, RepairTier, cargo_install_action};
 use crate::ecosystem::clients::{self, McpClient};
-
-const MCP_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
-const MCP_INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"stipe-doctor","version":"1.0"}}}"#;
 
 fn codex_cli_installed() -> bool {
     std::process::Command::new("codex")
@@ -126,155 +119,66 @@ fn mcp_startup_actions(tool_name: &'static str) -> Vec<RepairAction> {
     actions
 }
 
-fn parse_initialize_response(line: &str, expected_server: &'static str) -> Result<(), String> {
-    let value: serde_json::Value =
-        serde_json::from_str(line).map_err(|err| format!("invalid JSON-RPC response: {err}"))?;
-
-    if let Some(error) = value.get("error") {
-        return Err(format!("initialize returned error: {error}"));
-    }
-
-    let result = value
-        .get("result")
-        .ok_or_else(|| "initialize returned no result".to_string())?;
-    let server_name = result
-        .get("serverInfo")
-        .and_then(|server| server.get("name"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "initialize response missing serverInfo.name".to_string())?;
-
-    if server_name != expected_server {
-        return Err(format!(
-            "initialize returned server `{server_name}` instead of `{expected_server}`"
-        ));
-    }
-
-    Ok(())
-}
-
-fn probe_mcp_server(
-    command: &str,
-    args: &[&str],
-    expected_server: &'static str,
-    timeout: Duration,
-) -> Result<(), String> {
-    let mut child = Command::new(command)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to spawn `{command}`: {err}"))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(MCP_INITIALIZE_REQUEST.as_bytes())
-            .map_err(|err| format!("failed to write initialize request: {err}"))?;
-        stdin
-            .write_all(b"\n")
-            .map_err(|err| format!("failed to terminate initialize request: {err}"))?;
-        stdin
-            .flush()
-            .map_err(|err| format!("failed to flush initialize request: {err}"))?;
-    } else {
-        return Err("child stdin unavailable".to_string());
-    }
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "child stdout unavailable".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "child stderr unavailable".to_string())?;
-
-    let (stdout_tx, stdout_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        let result = match reader.read_line(&mut line) {
-            Ok(0) => Err("connection closed before initialize response".to_string()),
-            Ok(_) => Ok(line),
-            Err(err) => Err(format!("failed reading initialize response: {err}")),
-        };
-        let _ = stdout_tx.send(result);
-    });
-
-    let (stderr_tx, stderr_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stderr);
-        let mut output = String::new();
-        let _ = std::io::Read::read_to_string(&mut reader, &mut output);
-        let _ = stderr_tx.send(output);
-    });
-
-    let response = match stdout_rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("initialize timed out after {}s", timeout.as_secs()));
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("initialize response channel disconnected".to_string());
-        }
-    };
-
-    let _ = child.kill();
-    let _ = child.wait();
-
-    response.and_then(|line| {
-        parse_initialize_response(&line, expected_server).map_err(|err| {
-            let stderr_output = stderr_rx
-                .recv_timeout(Duration::from_millis(200))
-                .unwrap_or_default();
-            if stderr_output.trim().is_empty() {
-                err
-            } else {
-                format!("{err}; stderr: {}", stderr_output.trim())
-            }
-        })
-    })
-}
-
-fn check_mcp_startup(tool_name: &'static str, command: &str, args: &[&str]) -> Option<HealthCheck> {
-    let spec = tool_registry::find(tool_name)?;
-    let ToolProbe::Installed(_) = tool_registry::probe(spec) else {
+fn check_mcp_startup(spec: &ToolSpec) -> Option<HealthCheck> {
+    let args = spec.mcp_serve_args?;
+    let ToolProbe::Installed(_) =
+        tool_registry::probe_with_level(spec, tool_registry::VerifyLevel::Version)
+    else {
         return None;
     };
+    let binary_path = tool_registry::resolve_binary_path(spec)?;
 
     Some(
-        match probe_mcp_server(command, args, tool_name, MCP_STARTUP_TIMEOUT) {
+        match probe_mcp_server(
+            &binary_path,
+            args,
+            spec.binary_name,
+            crate::commands::install::release::MCP_HANDSHAKE_TIMEOUT,
+        ) {
             Ok(()) => HealthCheck {
-                name: format!("{tool_name} MCP startup"),
+                name: format!("{} MCP startup", spec.name),
                 passed: true,
                 message: format!(
                     "responds to initialize within {}s",
-                    MCP_STARTUP_TIMEOUT.as_secs()
+                    crate::commands::install::release::MCP_HANDSHAKE_TIMEOUT.as_secs()
                 ),
                 repair_actions: Vec::new(),
             },
             Err(message) => HealthCheck {
-                name: format!("{tool_name} MCP startup"),
+                name: format!("{} MCP startup", spec.name),
                 passed: false,
                 message,
-                repair_actions: mcp_startup_actions(tool_name),
+                repair_actions: mcp_startup_actions(spec.name),
             },
         },
     )
 }
 
-pub(super) fn check_tool(spec: &ToolSpec) -> HealthCheck {
-    match (spec.doctor_coverage, tool_registry::probe(spec)) {
-        (_, ToolProbe::Installed(version)) => HealthCheck {
-            name: spec.name.to_string(),
-            passed: true,
-            message: format!("v{version} installed and working"),
-            repair_actions: Vec::new(),
-        },
+pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
+    match (
+        spec.doctor_coverage,
+        tool_registry::probe_with_level(spec, tool_registry::VerifyLevel::Version),
+    ) {
+        (_, ToolProbe::Installed(version)) => {
+            if deep
+                && let Some(binary_path) = tool_registry::resolve_binary_path(spec)
+                && let Err(error) = verify_functional(&binary_path, spec)
+            {
+                return HealthCheck {
+                    name: spec.name.to_string(),
+                    passed: false,
+                    message: format!("v{version} installed but functional check failed: {error}"),
+                    repair_actions: missing_tool_actions(spec),
+                };
+            }
+
+            HealthCheck {
+                name: spec.name.to_string(),
+                passed: true,
+                message: format!("v{version} installed and working"),
+                repair_actions: Vec::new(),
+            }
+        }
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
             name: spec.name.to_string(),
             passed: true,
@@ -341,49 +245,36 @@ pub(super) fn check_hyphae_db_at_path(db_path: &Path) -> HealthCheck {
 }
 
 pub(super) fn check_mcp_startups() -> Vec<HealthCheck> {
-    let mut checks = Vec::new();
-
-    if let Some(check) = check_mcp_startup("hyphae", "hyphae", &["serve"]) {
-        checks.push(check);
-    }
-    if let Some(check) = check_mcp_startup("rhizome", "rhizome", &["serve", "--expanded"]) {
-        checks.push(check);
-    }
-
-    checks
+    tool_registry::doctor_specs()
+        .into_iter()
+        .filter_map(check_mcp_startup)
+        .collect()
 }
 
 pub(super) fn installed_mcp_servers() -> Vec<&'static str> {
-    let mut servers = Vec::new();
-
-    if tool_registry::find("hyphae")
-        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
-    {
-        servers.push("hyphae");
-    }
-    if tool_registry::find("rhizome")
-        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
-    {
-        servers.push("rhizome");
-    }
-
-    servers
+    tool_registry::doctor_specs()
+        .into_iter()
+        .filter(|spec| spec.mcp_serve_args.is_some())
+        .filter(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
+        .map(|spec| spec.name)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::install::release::parse_initialize_response;
     use std::fs;
 
     #[test]
     fn parse_initialize_response_accepts_expected_server() {
-        let line = r#"{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"hyphae"}}}"#;
+        let line = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"hyphae"}}}"#;
         assert!(parse_initialize_response(line, "hyphae").is_ok());
     }
 
     #[test]
     fn parse_initialize_response_rejects_wrong_server() {
-        let line = r#"{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"rhizome"}}}"#;
+        let line = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"rhizome"}}}"#;
         let error = parse_initialize_response(line, "hyphae").unwrap_err();
         assert!(error.contains("instead of `hyphae`"));
     }
@@ -400,7 +291,7 @@ mod tests {
         let script = dir.join("fake-mcp.sh");
         fs::write(
             &script,
-            "#!/bin/sh\nread line\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"serverInfo\":{\"name\":\"hyphae\"}}}'\n",
+            "#!/bin/sh\nread line\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"hyphae\"}}}'\n",
         )
         .unwrap();
         let mut perms = fs::metadata(&script).unwrap().permissions();
@@ -409,10 +300,10 @@ mod tests {
 
         assert!(
             probe_mcp_server(
-                script.to_str().unwrap(),
+                &script,
                 &[],
                 "hyphae",
-                Duration::from_secs(1)
+                crate::commands::install::release::MCP_HANDSHAKE_TIMEOUT
             )
             .is_ok()
         );
@@ -439,10 +330,10 @@ mod tests {
         fs::set_permissions(&script, perms).unwrap();
 
         let error = probe_mcp_server(
-            script.to_str().unwrap(),
+            &script,
             &[],
             "hyphae",
-            Duration::from_millis(100),
+            std::time::Duration::from_millis(100),
         )
         .unwrap_err();
         assert!(error.contains("timed out"));

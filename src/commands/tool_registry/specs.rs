@@ -21,6 +21,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
             InstallProfile::FullStack,
         ],
         missing_hint: None,
+        smoke_test_args: Some(&["proxy", "echo", "stipe-verify"]),
+        smoke_test_expect: Some("stipe-verify"),
+        mcp_serve_args: None,
     },
     ToolSpec {
         name: "hyphae",
@@ -43,6 +46,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         missing_hint: Some(
             "cargo install --git https://github.com/basidiocarp/hyphae hyphae-cli --no-default-features",
         ),
+        smoke_test_args: Some(&["doctor"]),
+        smoke_test_expect: None,
+        mcp_serve_args: Some(&["serve"]),
     },
     ToolSpec {
         name: "rhizome",
@@ -65,6 +71,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         missing_hint: Some(
             "cargo install --git https://github.com/basidiocarp/rhizome rhizome-cli",
         ),
+        smoke_test_args: None,
+        smoke_test_expect: None,
+        mcp_serve_args: Some(&["serve", "--expanded"]),
     },
     ToolSpec {
         name: "canopy",
@@ -80,6 +89,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         doctor_coverage: DoctorCoverage::Optional,
         install_profiles: &[InstallProfile::FullStack],
         missing_hint: Some("stipe install canopy"),
+        smoke_test_args: Some(&["task", "list"]),
+        smoke_test_expect: None,
+        mcp_serve_args: None,
     },
     ToolSpec {
         name: "cortina",
@@ -95,6 +107,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         doctor_coverage: DoctorCoverage::Ignore,
         install_profiles: &[InstallProfile::ClaudeCode, InstallProfile::FullStack],
         missing_hint: Some("stipe install cortina"),
+        smoke_test_args: None,
+        smoke_test_expect: None,
+        mcp_serve_args: None,
     },
     ToolSpec {
         name: "cap",
@@ -112,6 +127,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         missing_hint: Some(
             "git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all",
         ),
+        smoke_test_args: None,
+        smoke_test_expect: None,
+        mcp_serve_args: None,
     },
     ToolSpec {
         name: "stipe",
@@ -127,6 +145,9 @@ const TOOL_SPECS: &[ToolSpec] = &[
         doctor_coverage: DoctorCoverage::Ignore,
         install_profiles: &[],
         missing_hint: None,
+        smoke_test_args: None,
+        smoke_test_expect: None,
+        mcp_serve_args: None,
     },
 ];
 

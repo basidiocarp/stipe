@@ -190,6 +190,96 @@ fn profile_flag_name(profile: InstallProfile) -> &'static str {
     }
 }
 
+fn print_update_header() {
+    println!();
+    println!("{}", "Basidiocarp Ecosystem Update".bold());
+    println!("{}", "─".repeat(75));
+    println!();
+}
+
+fn print_update_usage(all: bool) {
+    if all {
+        println!("No installed tools found. Run 'stipe install --all' first.");
+    } else {
+        println!("Specify tools to update:");
+        println!("  {} stipe update mycelium", "→".dimmed());
+        println!("  {} stipe update hyphae rhizome canopy", "→".dimmed());
+        println!("  {} stipe update --profile claude-code", "→".dimmed());
+        println!("  {} stipe update --all", "→".dimmed());
+        println!();
+        println!("Check without installing:");
+        println!("  {} stipe update --check --profile codex", "→".dimmed());
+        println!("  {} stipe update --check --all", "→".dimmed());
+    }
+    println!();
+}
+
+fn resolve_tools_to_check(
+    all: bool,
+    profile: Option<InstallProfile>,
+    tools: &[String],
+) -> Option<Vec<String>> {
+    let requested = resolve_requested_tools(all, profile, tools)?;
+
+    if (all || profile.is_some()) && requested.is_empty() {
+        if let Some(profile) = profile {
+            println!(
+                "No installed tools found for {}. Run 'stipe install --profile {}' first.",
+                profile.mode_label(),
+                profile_flag_name(profile)
+            );
+        } else {
+            println!("No installed tools found. Run 'stipe install --all' first.");
+        }
+        println!();
+        return None;
+    }
+
+    Some(requested)
+}
+
+fn handle_update_result(tool: &str, info: &UpdateInfo, check: bool, client: &Client) {
+    if check {
+        if info.needs_reinstall {
+            println!(
+                "  {} {} is installed but broken → reinstall {}",
+                "!".yellow(),
+                tool,
+                info.latest
+            );
+        } else if info.update_available {
+            println!(
+                "  {} {} {} → {}",
+                "↑".cyan(),
+                tool,
+                info.installed,
+                info.latest
+            );
+        } else {
+            println!(
+                "  {} {} is up to date ({})",
+                "✓".green(),
+                tool,
+                info.installed
+            );
+        }
+        return;
+    }
+
+    if info.update_available {
+        if let Err(error) = update_tool(tool, client) {
+            eprintln!("  {} Failed to update {}: {}", "!".red(), tool, error);
+        }
+    } else {
+        println!(
+            "  {} {} is up to date ({})",
+            "✓".green(),
+            tool,
+            info.installed
+        );
+    }
+}
+
 #[allow(clippy::unnecessary_wraps)]
 pub fn run(
     all: bool,
@@ -198,10 +288,7 @@ pub fn run(
     tools: &[String],
 ) -> Result<()> {
     if profile == Some(InstallProfile::DeveloperTools) {
-        println!();
-        println!("{}", "Basidiocarp Ecosystem Update".bold());
-        println!("{}", "─".repeat(75));
-        println!();
+        print_update_header();
         println!("Developer tools are not managed by stipe.");
         println!(
             "Use your package manager to update them, and run 'stipe doctor --developer' to audit what is installed."
@@ -210,94 +297,26 @@ pub fn run(
         return Ok(());
     }
 
-    println!();
-    println!("{}", "Basidiocarp Ecosystem Update".bold());
-    println!("{}", "─".repeat(75));
-    println!();
+    print_update_header();
 
-    let tools_to_check: Vec<String> =
-        if let Some(requested) = resolve_requested_tools(all, profile, tools) {
-            if (all || profile.is_some()) && requested.is_empty() {
-                if let Some(profile) = profile {
-                    println!(
-                        "No installed tools found for {}. Run 'stipe install --profile {}' first.",
-                        profile.mode_label(),
-                        profile_flag_name(profile)
-                    );
-                } else {
-                    println!("No installed tools found. Run 'stipe install --all' first.");
-                }
-                println!();
-                return Ok(());
-            }
-
-            requested
-        } else {
-            if all {
-                println!("No installed tools found. Run 'stipe install --all' first.");
-            } else {
-                println!("Specify tools to update:");
-                println!("  {} stipe update mycelium", "→".dimmed());
-                println!("  {} stipe update hyphae rhizome canopy", "→".dimmed());
-                println!("  {} stipe update --profile claude-code", "→".dimmed());
-                println!("  {} stipe update --all", "→".dimmed());
-                println!();
-                println!("Check without installing:");
-                println!("  {} stipe update --check --profile codex", "→".dimmed());
-                println!("  {} stipe update --check --all", "→".dimmed());
-            }
-            println!();
-            return Ok(());
-        };
+    let Some(tools_to_check) = resolve_tools_to_check(all, profile, tools) else {
+        if resolve_requested_tools(all, profile, tools).is_none() {
+            print_update_usage(all);
+        }
+        return Ok(());
+    };
 
     let client = crate::commands::github::github_client()?;
 
     for tool in &tools_to_check {
         match check_tool_update(tool, &client) {
-            Ok(info) => {
-                if check {
-                    if info.needs_reinstall {
-                        println!(
-                            "  {} {} is installed but broken → reinstall {}",
-                            "!".yellow(),
-                            tool,
-                            info.latest
-                        );
-                    } else if info.update_available {
-                        println!(
-                            "  {} {} {} → {}",
-                            "↑".cyan(),
-                            tool,
-                            info.installed,
-                            info.latest
-                        );
-                    } else {
-                        println!(
-                            "  {} {} is up to date ({})",
-                            "✓".green(),
-                            tool,
-                            info.installed
-                        );
-                    }
-                } else if info.update_available {
-                    if let Err(e) = update_tool(tool, &client) {
-                        eprintln!("  {} Failed to update {}: {}", "!".red(), tool, e);
-                    }
-                } else {
-                    println!(
-                        "  {} {} is up to date ({})",
-                        "✓".green(),
-                        tool,
-                        info.installed
-                    );
-                }
-            }
-            Err(e) => {
+            Ok(info) => handle_update_result(tool, &info, check, &client),
+            Err(error) => {
                 eprintln!(
                     "  {} Failed to check {} for updates: {}",
                     "!".red(),
                     tool,
-                    e
+                    error
                 );
             }
         }
@@ -328,6 +347,9 @@ mod tests {
             doctor_coverage: DoctorCoverage::Required,
             install_profiles: profiles,
             missing_hint: None,
+            smoke_test_args: None,
+            smoke_test_expect: None,
+            mcp_serve_args: None,
         }
     }
 

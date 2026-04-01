@@ -2,6 +2,7 @@ use colored::Colorize;
 
 use crate::commands::claude_hooks;
 use crate::commands::host_policy::{HostConfigScope, HostMode};
+use crate::commands::install::release::verify_mcp_handshake;
 use crate::commands::tool_registry::{self, ToolProbe};
 
 use super::configure::{
@@ -39,8 +40,40 @@ pub(super) fn execute(
             configure_other_hosts_and_clients(context, client, scope, verbose);
         }
     }
+    verify_registered_mcp_servers(context);
     print_repair_hints(context);
     println!();
+}
+
+fn verify_registered_mcp_servers(context: &EcosystemContext) {
+    for tool_name in ["hyphae", "rhizome"] {
+        let Some(probe) = context.probe_for_tool(tool_name) else {
+            continue;
+        };
+        if !probe.is_installed() {
+            continue;
+        }
+
+        let Some(spec) = tool_registry::find(tool_name) else {
+            continue;
+        };
+        let Some(binary_path) = tool_registry::resolve_binary_path(spec) else {
+            continue;
+        };
+
+        match verify_mcp_handshake(&binary_path, spec) {
+            Ok(()) => println!("  {} {} MCP handshake verified", "✓".green(), tool_name),
+            Err(error) => {
+                eprintln!(
+                    "  {} {} MCP handshake failed: {}",
+                    "!".yellow(),
+                    tool_name,
+                    error
+                );
+                eprintln!("    Reinstall with: stipe install {tool_name} --force");
+            }
+        }
+    }
 }
 
 fn configure_claude_code(

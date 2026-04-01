@@ -91,6 +91,10 @@ enum Commands {
         /// Include advisory developer tool checks
         #[arg(long)]
         developer: bool,
+
+        /// Run deep verification, including functional smoke tests and MCP handshakes
+        #[arg(long)]
+        deep: bool,
     },
 
     /// Remove ecosystem tools and configuration
@@ -135,7 +139,11 @@ fn main() -> Result<()> {
             json,
         } => commands::init::run(client.as_deref(), scope, dry_run, json),
         Commands::Host { command } => commands::host::run(command),
-        Commands::Doctor { json, developer } => commands::doctor::run(json, developer),
+        Commands::Doctor {
+            json,
+            developer,
+            deep,
+        } => commands::doctor::run(json, developer, deep),
         Commands::Uninstall {
             all,
             dry_run,
@@ -151,9 +159,8 @@ mod tests {
 
     #[test]
     fn test_removed_setup_shim_is_rejected() {
-        let err = match Cli::try_parse_from(["stipe", "setup", "codex"]) {
-            Ok(_) => panic!("expected parse failure"),
-            Err(err) => err,
+        let Err(err) = Cli::try_parse_from(["stipe", "setup", "codex"]) else {
+            panic!("expected parse failure");
         };
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
@@ -191,6 +198,17 @@ mod tests {
 
         match cli.command {
             Commands::Doctor { developer, .. } => assert!(developer),
+            _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn test_doctor_accepts_deep_flag() {
+        let cli = Cli::try_parse_from(["stipe", "doctor", "--deep"])
+            .expect("doctor should accept deep flag");
+
+        match cli.command {
+            Commands::Doctor { deep, .. } => assert!(deep),
             _ => panic!("expected doctor command"),
         }
     }

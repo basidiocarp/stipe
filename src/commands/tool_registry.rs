@@ -5,7 +5,7 @@ mod specs;
 mod tests;
 
 pub use model::{DoctorCoverage, InstallProfile, ToolProbe, ToolSpec};
-pub use probe::probe;
+pub use probe::{VerifyLevel, probe, probe_with_level, resolve_binary_path};
 pub use specs::{
     doctor_specs, ecosystem_specs, find, install_all_specs, installable_specs,
     release_archive_binaries, specs_for_profile, status_specs, uninstall_all_specs,
