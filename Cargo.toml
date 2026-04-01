@@ -1,6 +1,6 @@
 [package]
 name = "stipe"
-version = "0.5.5"
+version = "0.5.6"
 edition = "2024"
 rust-version = "1.85"
 authors = ["William Newton"]
@@ -23,9 +23,9 @@ flate2 = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.6" }
+spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.7" }
 tar = "0.4"
-toml = "0.8"
+toml = "1.1"
 which = "7"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 indicatif = "0.17"
