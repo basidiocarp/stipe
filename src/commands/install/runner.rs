@@ -14,7 +14,7 @@ use crate::commands::install::release::{
     verify_binary, verify_functional,
 };
 use crate::commands::install::selection::{print_install_preview, resolve_requested_tools};
-use crate::commands::tool_registry::{self, InstallProfile};
+use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 
 pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> Result<()> {
     let spec = tool_registry::find(tool).ok_or_else(|| anyhow!("Unknown tool: {tool}"))?;
@@ -110,14 +110,103 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
     Ok(())
 }
 
+/// Default root directory for local source checkouts.
+fn default_monorepo_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("projects")
+        .join("claude-mycelium")
+}
+
+/// Resolve the cargo install path for a tool inside the monorepo.
+///
+/// Some tools live inside workspace sub-crates (e.g. `hyphae-cli` inside
+/// the hyphae workspace). This function maps tool names to their `--path`
+/// argument for `cargo install`.
+fn source_install_path(tool_name: &str, source_dir: &Path) -> PathBuf {
+    match tool_name {
+        "hyphae" => source_dir.join("crates").join("hyphae-cli"),
+        "rhizome" => source_dir.join("crates").join("rhizome-cli"),
+        _ => source_dir.to_path_buf(),
+    }
+}
+
+/// Build and install a tool from local source using `cargo install --path`.
+pub(crate) fn install_from_source(
+    tool_name: &str,
+    spec: &ToolSpec,
+    source_dir: &Path,
+) -> Result<String> {
+    let cargo_toml = source_dir.join("Cargo.toml");
+    if !cargo_toml.exists() {
+        anyhow::bail!(
+            "No Cargo.toml found at {} — verify the source directory exists",
+            source_dir.display()
+        );
+    }
+
+    let install_path = source_install_path(tool_name, source_dir);
+
+    println!(
+        "  {} Building {} from source ({})",
+        "⏳".yellow(),
+        tool_name,
+        install_path.display()
+    );
+
+    let status = std::process::Command::new("cargo")
+        .args(["install", "--path"])
+        .arg(&install_path)
+        .status()
+        .with_context(|| format!("Failed to run cargo install for {tool_name}"))?;
+
+    if !status.success() {
+        anyhow::bail!("cargo install failed for {tool_name}");
+    }
+
+    let binary = which::which(tool_name)
+        .with_context(|| format!("{tool_name} not found in PATH after cargo install"))?;
+    let version = verify_binary(&binary)?;
+
+    match verify_functional(&binary, spec) {
+        Ok(()) => {
+            if spec.smoke_test_args.is_some() {
+                println!("  {} {} functional check passed", "✓".green(), tool_name);
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "  {} {} functional check failed: {}",
+                "!".yellow(),
+                tool_name,
+                error
+            );
+            eprintln!("    The binary built but may not work correctly at runtime.");
+        }
+    }
+
+    println!(
+        "  {} {} installed from source: {} → {}",
+        "✓".green(),
+        tool_name,
+        version,
+        binary.display()
+    );
+
+    Ok(version)
+}
+
 pub(crate) fn install_bin_dir() -> Result<PathBuf> {
     bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn run(
     all: bool,
     profile: Option<InstallProfile>,
     dry_run: bool,
+    from_source: bool,
+    source_dir: Option<PathBuf>,
     tools: &[String],
 ) -> Result<()> {
     let prefix = install_bin_dir()?;
@@ -209,13 +298,32 @@ pub(crate) fn run(
 
     println!();
 
-    let client = github::github_client()?;
+    if from_source {
+        let monorepo_root = source_dir.unwrap_or_else(default_monorepo_root);
 
-    for tool in &tools_to_install {
-        match install_tool(tool, &prefix, false, &client) {
-            Ok(()) => {}
-            Err(error) => {
-                eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
+        for tool in &tools_to_install {
+            let tool_source = monorepo_root.join(tool);
+            let spec = tool_registry::find(tool);
+            let Some(spec) = spec else {
+                eprintln!("  {} Unknown tool: {}", "!".red(), tool);
+                continue;
+            };
+            match install_from_source(tool, spec, &tool_source) {
+                Ok(_version) => {}
+                Err(error) => {
+                    eprintln!("  {} Failed to build {} from source: {}", "!".red(), tool, error);
+                }
+            }
+        }
+    } else {
+        let client = github::github_client()?;
+
+        for tool in &tools_to_install {
+            match install_tool(tool, &prefix, false, &client) {
+                Ok(()) => {}
+                Err(error) => {
+                    eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
+                }
             }
         }
     }

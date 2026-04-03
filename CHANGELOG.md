@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-04-03
+
+### Added
+
+- **From-source install fallback**: `stipe install --from-source` builds ecosystem tools from source via `cargo install` when pre-built binaries are unavailable
+- **Install scripts**: Added helper scripts for from-source installation workflow
+
+### Changed
+
+- Updated README and host render output
+- Bumped lockfile dependencies
+
 ## [0.5.4] - 2026-04-01
 
 ### Added

@@ -28,6 +28,14 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
 
+        /// Build from local source instead of downloading release binary
+        #[arg(long)]
+        from_source: bool,
+
+        /// Path to local source directory (default: ~/projects/claude-mycelium/{tool})
+        #[arg(long)]
+        source_dir: Option<std::path::PathBuf>,
+
         /// Specific tools to install
         tools: Vec<String>,
     },
@@ -123,8 +131,10 @@ fn main() -> Result<()> {
             profile,
             all,
             dry_run,
+            from_source,
+            source_dir,
             tools,
-        } => commands::install::run(all, profile, dry_run, &tools),
+        } => commands::install::run(all, profile, dry_run, from_source, source_dir, &tools),
         Commands::Update {
             profile,
             all,

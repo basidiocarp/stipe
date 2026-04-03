@@ -6,8 +6,6 @@ Stipe now uses a shared tool registry plus a host inventory model: tool metadata
 
 Boundary note: `spore` stays responsible for editor primitives such as detection, config paths, MCP config writes, and editor capability differences. `stipe` stays responsible for ecosystem policy such as managed tool inventory, install profiles, doctor severity, release mapping, and cross-tool orchestration.
 
-Named after the mushroom's stem—the structural support connecting all parts.
-
 Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 
 ## Quick Start
@@ -16,7 +14,7 @@ Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
 ```
 
-The bootstrap script installs all ecosystem tools (stipe, mycelium, hyphae, rhizome, canopy, cortina) and configures your editor's MCP servers. `canopy` is optional coordination-runtime coverage and only part of the `full-stack` profile. After that, use stipe to manage updates and health checks:
+The bootstrap script installs core ecosystem tools (stipe, mycelium, hyphae, rhizome, cortina) and configures your editor's MCP servers. `canopy` (multi-agent coordination) is included only in the `full-stack` profile. After that, use stipe to manage updates and health checks:
 
 ```bash
 stipe doctor       # verify everything is configured
@@ -64,7 +62,7 @@ stipe status                                                                 Sho
 stipe uninstall [--all] [--dry-run] [tools...]                               Remove tools and configuration
 ```
 
-This first multi-host slice focuses on shared host descriptors, inventory, and per-host setup/doctor flows. Platform-aware path and shell differences will expand from here rather than landing in one pass.
+This first multi-host slice covers shared host descriptors, inventory, and per-host setup/doctor flows. Platform-aware path and shell differences will expand from here rather than landing in one pass.
 
 ## What `init` Does
 
@@ -88,7 +86,7 @@ remaining manual recovery cases.
 
 ## Why a Separate Tool
 
-Mycelium compresses command output. That's its job. Ecosystem management was bolted on via `init --ecosystem` and grew into something unrelated to filtering. Stipe takes that responsibility so each tool stays focused.
+Mycelium compresses command output. Ecosystem management was bolted onto it via `init --ecosystem` and grew into something unrelated to filtering. Stipe takes that responsibility so each tool stays focused.
 
 ## Development
 
