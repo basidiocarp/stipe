@@ -1,9 +1,9 @@
 use serde_json::Value;
 use std::path::PathBuf;
 
-use crate::commands::init::baseline;
 use super::host_policy;
 use super::model::{ConfigFormat, DriftReport, HealthCheck};
+use crate::commands::init::baseline;
 use crate::commands::repair::{RepairAction, RepairTier};
 
 pub(super) struct ConfigDriftState {
@@ -11,6 +11,7 @@ pub(super) struct ConfigDriftState {
     pub(super) report: Option<DriftReport>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn config_mentions_servers(
     content: &str,
     required_servers: &[&str],

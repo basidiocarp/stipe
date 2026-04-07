@@ -1,9 +1,12 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::model::HealthCheck;
 use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
 use crate::commands::host_policy;
 use crate::commands::install::release::{probe_mcp_server, verify_functional};
+use crate::commands::install::{
+    InstallProfile, ManualProfileMember, expected_profile_tools, manual_member,
+};
 use crate::commands::repair::{RepairAction, RepairTier, cargo_install_action};
 use crate::ecosystem::clients::{self, McpClient};
 
@@ -216,6 +219,138 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
     }
 }
 
+fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> HealthCheck {
+    match tool_registry::probe_with_level(spec, tool_registry::VerifyLevel::Version) {
+        ToolProbe::Installed(version) => {
+            if deep
+                && let Some(binary_path) = tool_registry::resolve_binary_path(spec)
+                && let Err(error) = verify_functional(&binary_path, spec)
+            {
+                return HealthCheck {
+                    name: spec.name.to_string(),
+                    passed: false,
+                    message: format!(
+                        "v{version} installed but functional check failed: {error} (expected by {})",
+                        profile.mode_label()
+                    ),
+                    repair_actions: missing_tool_actions(spec),
+                };
+            }
+
+            HealthCheck {
+                name: spec.name.to_string(),
+                passed: true,
+                message: format!(
+                    "v{version} installed (expected by {})",
+                    profile.mode_label()
+                ),
+                repair_actions: Vec::new(),
+            }
+        }
+        ToolProbe::Broken => HealthCheck {
+            name: spec.name.to_string(),
+            passed: false,
+            message: format!(
+                "Binary found but failed to run (expected by {})",
+                profile.mode_label()
+            ),
+            repair_actions: missing_tool_actions(spec),
+        },
+        ToolProbe::Missing => HealthCheck {
+            name: spec.name.to_string(),
+            passed: false,
+            message: format!("Not installed (expected by {})", profile.mode_label()),
+            repair_actions: missing_tool_actions(spec),
+        },
+    }
+}
+
+fn push_candidate_root(roots: &mut Vec<PathBuf>, candidate: Option<PathBuf>) {
+    if let Some(candidate) = candidate
+        && !roots.iter().any(|existing| existing == &candidate)
+    {
+        roots.push(candidate);
+    }
+}
+
+fn candidate_workspace_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let project_root = spore::paths::find_project_root(&cwd).unwrap_or(cwd.clone());
+        push_candidate_root(&mut roots, Some(project_root.clone()));
+        push_candidate_root(&mut roots, project_root.parent().map(Path::to_path_buf));
+    }
+
+    push_candidate_root(
+        &mut roots,
+        dirs::home_dir().map(|home| home.join("projects").join("claude-mycelium")),
+    );
+
+    roots
+}
+
+fn lamella_root_installed(path: &Path) -> bool {
+    path.join("lamella").exists() && path.join("resources").exists()
+}
+
+fn cap_root_installed(path: &Path) -> bool {
+    path.join("package.json").exists()
+}
+
+fn manual_tool_installed_in_roots(member: ManualProfileMember, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| match member.name {
+        "lamella" => lamella_root_installed(root) || lamella_root_installed(&root.join("lamella")),
+        "cap" => cap_root_installed(root) || cap_root_installed(&root.join("cap")),
+        _ => false,
+    })
+}
+
+fn manual_tool_installed(member: ManualProfileMember) -> bool {
+    manual_tool_installed_in_roots(member, &candidate_workspace_roots())
+}
+
+fn manual_tool_action(member: ManualProfileMember) -> RepairAction {
+    RepairAction::manual(
+        format!("Install {}", member.name),
+        format!("Install {} for the selected profile.", member.name),
+        member.install_hint.to_string(),
+        vec![member.install_hint.to_string()],
+        RepairTier::Manual,
+    )
+}
+
+fn check_manual_profile_tool(member: ManualProfileMember, profile: InstallProfile) -> HealthCheck {
+    if manual_tool_installed(member) {
+        HealthCheck {
+            name: member.name.to_string(),
+            passed: true,
+            message: format!("installed (expected by {})", profile.mode_label()),
+            repair_actions: Vec::new(),
+        }
+    } else {
+        HealthCheck {
+            name: member.name.to_string(),
+            passed: false,
+            message: format!("Not installed (expected by {})", profile.mode_label()),
+            repair_actions: vec![manual_tool_action(member)],
+        }
+    }
+}
+
+pub(super) fn check_profile_tools(profile: InstallProfile, deep: bool) -> Vec<HealthCheck> {
+    expected_profile_tools(profile)
+        .into_iter()
+        .filter_map(|tool_name| {
+            if let Some(member) = manual_member(&tool_name) {
+                Some(check_manual_profile_tool(member, profile))
+            } else {
+                tool_registry::find(&tool_name).map(|spec| check_expected_tool(spec, profile, deep))
+            }
+        })
+        .collect()
+}
+
 pub(super) fn check_hyphae_db() -> HealthCheck {
     if let Some(data_dir) = dirs::data_dir() {
         check_hyphae_db_at_path(&data_dir.join("hyphae").join("hyphae.db"))
@@ -367,5 +502,58 @@ mod tests {
                 .iter()
                 .any(|action| action.command == "stipe install volva")
         );
+    }
+
+    #[test]
+    fn manual_tools_detect_standalone_repo_roots() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "stipe-manual-tool-standalone-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let lamella_root = temp_dir.join("lamella");
+        fs::create_dir_all(lamella_root.join("resources")).unwrap();
+        fs::write(lamella_root.join("lamella"), "").unwrap();
+
+        let cap_root = temp_dir.join("cap");
+        fs::create_dir_all(&cap_root).unwrap();
+        fs::write(cap_root.join("package.json"), "{}").unwrap();
+
+        assert!(manual_tool_installed_in_roots(
+            manual_member("lamella").expect("lamella member"),
+            std::slice::from_ref(&lamella_root)
+        ));
+        assert!(manual_tool_installed_in_roots(
+            manual_member("cap").expect("cap member"),
+            std::slice::from_ref(&cap_root)
+        ));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn manual_tools_detect_workspace_sibling_repos() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "stipe-manual-tool-workspace-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let workspace_root = temp_dir.join("claude-mycelium");
+        let stipe_root = workspace_root.join("stipe");
+        fs::create_dir_all(&stipe_root).unwrap();
+        fs::write(stipe_root.join("Cargo.toml"), "[package]\nname = \"stipe\"\n").unwrap();
+
+        let lamella_root = workspace_root.join("lamella");
+        fs::create_dir_all(lamella_root.join("resources")).unwrap();
+        fs::write(lamella_root.join("lamella"), "").unwrap();
+
+        assert!(manual_tool_installed_in_roots(
+            manual_member("lamella").expect("lamella member"),
+            &[stipe_root, workspace_root]
+        ));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

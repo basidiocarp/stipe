@@ -1,9 +1,11 @@
 use anyhow::Result;
 use colored::Colorize;
 
+use super::claude_hooks;
 use super::developer_tools;
 use super::host;
 use super::host_policy;
+use super::install;
 use super::repair::dedupe_repair_actions;
 use super::tool_registry;
 
@@ -12,8 +14,8 @@ mod model;
 mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
-use model::{DoctorReport, DriftFinding, DriftReport, HealthCheck};
-use tool_checks::{check_hyphae_db, check_mcp_startups, check_tool};
+use model::{DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary};
+use tool_checks::{check_hyphae_db, check_mcp_startups, check_profile_tools, check_tool};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
 
@@ -127,13 +129,11 @@ fn render_drift_report(report: &DriftReport, colorize: bool) -> Vec<String> {
         return Vec::new();
     }
 
-    let mut lines = vec![
-        if colorize {
-            "Config drift detected:".bold().to_string()
-        } else {
-            "Config drift detected:".to_string()
-        },
-    ];
+    let mut lines = vec![if colorize {
+        "Config drift detected:".bold().to_string()
+    } else {
+        "Config drift detected:".to_string()
+    }];
 
     for finding in &report.findings {
         let (line, hint) = render_drift_finding(finding, colorize);
@@ -143,6 +143,40 @@ fn render_drift_report(report: &DriftReport, colorize: bool) -> Vec<String> {
         } else {
             format!("    {hint}")
         });
+    }
+
+    lines
+}
+
+fn render_hook_paths(hook_paths: &[claude_hooks::HookPathSnapshot], colorize: bool) -> Vec<String> {
+    if hook_paths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![if colorize {
+        "Hooks:".bold().to_string()
+    } else {
+        "Hooks:".to_string()
+    }];
+
+    for hook in hook_paths {
+        let symbol = if hook.passed { "✓" } else { "✗" };
+        let path = if colorize {
+            if hook.passed {
+                hook.path.display().to_string().green().to_string()
+            } else {
+                hook.path.display().to_string().red().to_string()
+            }
+        } else {
+            hook.path.display().to_string()
+        };
+
+        let line = if hook.passed {
+            format!("  {symbol} {}: {path}", hook.event)
+        } else {
+            format!("  {symbol} {}: {path} (not found)", hook.event)
+        };
+        lines.push(line);
     }
 
     lines
@@ -160,6 +194,15 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
         String::new(),
     ];
 
+    if let Some(profile) = &report.install_profile {
+        lines.push(format!(
+            "Install profile: {} ({})",
+            profile.profile,
+            host_policy::format_user_path(&profile.config_path)
+        ));
+        lines.push(String::new());
+    }
+
     lines.extend(
         report
             .checks
@@ -167,6 +210,11 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
             .map(|check| render_check_line(check, colorize)),
     );
     lines.push(String::new());
+
+    lines.extend(render_hook_paths(&report.hook_paths, colorize));
+    if !report.hook_paths.is_empty() {
+        lines.push(String::new());
+    }
 
     if let Some(drift) = &report.drift
         && !drift.findings.is_empty()
@@ -225,11 +273,20 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
-fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
-    let mut checks = tool_registry::doctor_specs()
-        .into_iter()
-        .map(|spec| check_tool(spec, deep))
-        .collect::<Vec<_>>();
+fn build_report_with_saved_profile(
+    saved_profile: Option<install::SavedInstallProfile>,
+    include_developer_tools: bool,
+    deep: bool,
+) -> DoctorReport {
+    let mut checks = if let Some(saved_profile) = &saved_profile {
+        check_profile_tools(saved_profile.profile, deep)
+    } else {
+        tool_registry::doctor_specs()
+            .into_iter()
+            .map(|spec| check_tool(spec, deep))
+            .collect::<Vec<_>>()
+    };
+    let hook_paths = claude_hooks::hook_path_snapshots();
     let drift_state = check_mcp_config_drift();
     checks.extend([check_hyphae_db(), drift_state.check.clone()]);
     if deep {
@@ -237,8 +294,9 @@ fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
     }
     checks.extend(host_health_checks());
 
-    let healthy = checks.iter().all(|check| check.passed);
-    let failing = checks.iter().filter(|check| !check.passed).count();
+    let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
+    let healthy = checks.iter().all(|check| check.passed) && hook_failures == 0;
+    let failing = checks.iter().filter(|check| !check.passed).count() + hook_failures;
     let repair_actions = dedupe_repair_actions(
         checks
             .iter()
@@ -254,11 +312,20 @@ fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
         } else {
             format!("{failing} checks need attention.")
         },
+        install_profile: saved_profile.map(|saved| InstallProfileSummary {
+            profile: saved.profile.mode_label().to_string(),
+            config_path: saved.path,
+        }),
         checks,
+        hook_paths,
         repair_actions,
         drift: drift_state.report,
         developer_tools: include_developer_tools.then(developer_tools::doctor_report),
     }
+}
+
+fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
+    build_report_with_saved_profile(install::load_saved_profile(), include_developer_tools, deep)
 }
 
 pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
@@ -382,7 +449,7 @@ mod tests {
 
     #[test]
     fn test_build_report_includes_host_inventory_checks() {
-        let report = build_report(false, false);
+        let report = build_report_with_saved_profile(None, false, false);
         let names = report
             .checks
             .iter()
@@ -433,6 +500,7 @@ mod tests {
             schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
             healthy: false,
             summary: "1 checks need attention.".to_string(),
+            install_profile: None,
             checks: vec![HealthCheck {
                 name: "hyphae database".to_string(),
                 passed: false,
@@ -445,6 +513,7 @@ mod tests {
                     RepairTier::Primary,
                 )],
             }],
+            hook_paths: vec![],
             repair_actions: vec![RepairAction::stipe(
                 "init",
                 "Initialize the ecosystem",
@@ -467,12 +536,14 @@ mod tests {
             schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
             healthy: false,
             summary: "1 checks need attention.".to_string(),
+            install_profile: None,
             checks: vec![HealthCheck {
                 name: "hyphae".to_string(),
                 passed: false,
                 message: "not found in PATH".to_string(),
                 repair_actions: vec![],
             }],
+            hook_paths: vec![],
             repair_actions: vec![RepairAction::stipe(
                 "install hyphae",
                 "Install hyphae",
@@ -503,11 +574,44 @@ mod tests {
     }
 
     #[test]
+    fn test_render_report_includes_hook_paths_section() {
+        let report = DoctorReport {
+            schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
+            healthy: false,
+            summary: "1 checks need attention.".to_string(),
+            install_profile: None,
+            checks: vec![HealthCheck {
+                name: "hyphae".to_string(),
+                passed: true,
+                message: "installed".to_string(),
+                repair_actions: vec![],
+            }],
+            hook_paths: vec![claude_hooks::HookPathSnapshot {
+                event: "PostToolUse".to_string(),
+                path: std::path::PathBuf::from("/tmp/missing-hook.js"),
+                passed: false,
+            }],
+            repair_actions: Vec::new(),
+            drift: None,
+            developer_tools: None,
+        };
+
+        let lines = render_report(&report, false);
+        assert!(lines.iter().any(|line| line == "Hooks:"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("PostToolUse: /tmp/missing-hook.js (not found)"))
+        );
+    }
+
+    #[test]
     fn test_render_report_includes_drift_section() {
         let report = DoctorReport {
             schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
             healthy: false,
             summary: "1 checks need attention.".to_string(),
+            install_profile: None,
             checks: vec![HealthCheck {
                 name: "config drift".to_string(),
                 passed: false,
@@ -520,6 +624,7 @@ mod tests {
                     RepairTier::Primary,
                 )],
             }],
+            hook_paths: vec![],
             repair_actions: vec![RepairAction::stipe(
                 "repair-init",
                 "Repair the init baseline",
@@ -540,14 +645,26 @@ mod tests {
         };
 
         let lines = render_report(&report, false);
-        assert!(lines.iter().any(|line| line.contains("Config drift detected:")));
-        assert!(lines.iter().any(|line| line.contains("modified since last init")));
-        assert!(lines.iter().any(|line| line.contains("stipe init --repair")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("Config drift detected:"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("modified since last init"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("stipe init --repair"))
+        );
     }
 
     #[test]
     fn test_build_report_can_include_developer_tools() {
-        let report = build_report(true, false);
+        let report = build_report_with_saved_profile(None, true, false);
         let developer_tools = report
             .developer_tools
             .expect("developer tools section should be present");

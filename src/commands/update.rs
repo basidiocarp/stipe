@@ -182,10 +182,11 @@ fn resolve_requested_tools(
 fn profile_flag_name(profile: InstallProfile) -> &'static str {
     match profile {
         InstallProfile::Minimal => "minimal",
+        InstallProfile::Standard => "standard",
         InstallProfile::ClaudeCode => "claude-code",
         InstallProfile::Codex => "codex",
         InstallProfile::Cursor => "cursor",
-        InstallProfile::FullStack => "full-stack",
+        InstallProfile::FullStack => "full",
         InstallProfile::DeveloperTools => "developer-tools",
     }
 }

@@ -3,9 +3,11 @@ use clap::ValueEnum;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum InstallProfile {
     Minimal,
+    Standard,
     ClaudeCode,
     Codex,
     Cursor,
+    #[value(name = "full", alias = "full-stack")]
     FullStack,
     #[value(name = "developer-tools", alias = "developer")]
     DeveloperTools,
@@ -16,11 +18,39 @@ impl InstallProfile {
     pub fn mode_label(self) -> &'static str {
         match self {
             Self::Minimal => "minimal profile",
+            Self::Standard => "standard profile",
             Self::ClaudeCode => super::super::host_policy::CLAUDE_CODE_HOST_MODE_LABEL,
             Self::Codex => super::super::host_policy::CODEX_HOST_MODE_LABEL,
             Self::Cursor => "Cursor profile",
-            Self::FullStack => "full-stack profile",
+            Self::FullStack => "full profile",
             Self::DeveloperTools => "developer-tools profile",
+        }
+    }
+
+    #[must_use]
+    pub fn profile_name(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Standard => "standard",
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+            Self::Cursor => "cursor",
+            Self::FullStack => "full",
+            Self::DeveloperTools => "developer-tools",
+        }
+    }
+
+    #[must_use]
+    pub fn from_profile_name(value: &str) -> Option<Self> {
+        match value {
+            "minimal" => Some(Self::Minimal),
+            "standard" => Some(Self::Standard),
+            "claude-code" => Some(Self::ClaudeCode),
+            "codex" => Some(Self::Codex),
+            "cursor" => Some(Self::Cursor),
+            "full" | "full-stack" => Some(Self::FullStack),
+            "developer-tools" | "developer" => Some(Self::DeveloperTools),
+            _ => None,
         }
     }
 }

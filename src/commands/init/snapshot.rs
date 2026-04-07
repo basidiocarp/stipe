@@ -23,11 +23,7 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
             return Err(anyhow!(
                 "{} does not support the '{}' scope",
                 mode.label(),
-                match scope {
-                    HostConfigScope::User => "user",
-                    HostConfigScope::Project => "project",
-                    HostConfigScope::Local => "local",
-                }
+                host_policy::scope_name(scope)
             ));
         }
     }

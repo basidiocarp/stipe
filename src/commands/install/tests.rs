@@ -7,7 +7,13 @@ fn test_profile_tools_cover_expected_sets() {
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(minimal, vec!["mycelium"]);
+    assert_eq!(minimal, vec!["mycelium", "hyphae"]);
+
+    let standard = tool_registry::specs_for_profile(InstallProfile::Standard)
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>();
+    assert_eq!(standard, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
 
     let claude = tool_registry::specs_for_profile(InstallProfile::ClaudeCode)
         .into_iter()
@@ -33,7 +39,9 @@ fn test_profile_tools_cover_expected_sets() {
         .collect::<Vec<_>>();
     assert_eq!(
         full_stack,
-        vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva"]
+        vec![
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva"
+        ]
     );
 
     let developer_tools = tool_registry::specs_for_profile(InstallProfile::DeveloperTools)
@@ -76,6 +84,23 @@ fn test_resolve_requested_tools_handles_all_mode() {
             "canopy".to_string(),
             "cortina".to_string(),
             "volva".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_resolve_requested_tools_includes_manual_profile_members() {
+    let resolved = resolve_requested_tools(false, Some(InstallProfile::Standard), &[])
+        .expect("standard profile should resolve");
+
+    assert_eq!(
+        resolved,
+        vec![
+            "mycelium".to_string(),
+            "hyphae".to_string(),
+            "rhizome".to_string(),
+            "cortina".to_string(),
+            "lamella".to_string(),
         ]
     );
 }
@@ -163,7 +188,51 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
 }
 
 #[test]
+fn test_split_requested_tools_keeps_manual_members_out_of_managed_installs() {
+    let (managed, manual) = split_requested_tools(&[
+        "mycelium".to_string(),
+        "lamella".to_string(),
+        "cap".to_string(),
+    ]);
+
+    assert_eq!(managed, vec!["mycelium".to_string()]);
+    assert_eq!(
+        manual.iter().map(|member| member.name).collect::<Vec<_>>(),
+        vec!["lamella", "cap"]
+    );
+}
+
+#[test]
+fn test_render_profile_install_preview_snapshot() {
+    let preview = render_profile_install_preview(
+        std::path::Path::new("/tmp/tools"),
+        InstallProfile::Minimal,
+        &["mycelium".to_string(), "hyphae".to_string()],
+    );
+
+    assert_eq!(
+        preview,
+        vec![
+            "Dry run: no changes will be made.".to_string(),
+            String::new(),
+            "Profile: minimal profile".to_string(),
+            "Would install:".to_string(),
+            "  mycelium: managed install to /tmp/tools/mycelium".to_string(),
+            "  hyphae: managed install to /tmp/tools/hyphae".to_string(),
+            "Would skip:".to_string(),
+            "  rhizome: not in profile minimal".to_string(),
+            "  cortina: not in profile minimal".to_string(),
+            "  lamella: not in profile minimal".to_string(),
+            "  cap: not in profile minimal".to_string(),
+            "  canopy: not in profile minimal".to_string(),
+            "  volva: not in profile minimal".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn test_profile_mode_labels_make_codex_explicit() {
+    assert_eq!(InstallProfile::Standard.mode_label(), "standard profile");
     assert_eq!(InstallProfile::Codex.mode_label(), "Codex host mode");
     assert_eq!(
         InstallProfile::ClaudeCode.mode_label(),
@@ -173,6 +242,22 @@ fn test_profile_mode_labels_make_codex_explicit() {
         InstallProfile::DeveloperTools.mode_label(),
         "developer-tools profile"
     );
+    assert_eq!(InstallProfile::FullStack.mode_label(), "full profile");
+}
+
+#[test]
+fn test_profile_config_round_trips() {
+    let temp_dir = std::env::temp_dir().join("stipe-test-profile-config");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let config_path = temp_dir.join("profile.toml");
+    save_profile_to_path(&config_path, InstallProfile::Standard).unwrap();
+
+    let loaded = load_profile_from_path(&config_path).unwrap();
+    assert_eq!(loaded, Some(InstallProfile::Standard));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]

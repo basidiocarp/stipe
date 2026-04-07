@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use crate::commands::claude_hooks::HookPathSnapshot;
 use crate::commands::developer_tools::DeveloperToolsReport;
 use crate::commands::repair::RepairAction;
 use serde::Serialize;
@@ -18,12 +21,22 @@ pub(super) struct DoctorReport {
     pub(super) schema_version: String,
     pub(super) healthy: bool,
     pub(super) summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) install_profile: Option<InstallProfileSummary>,
     pub(super) checks: Vec<HealthCheck>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub(super) hook_paths: Vec<HookPathSnapshot>,
     pub(super) repair_actions: Vec<RepairAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) drift: Option<DriftReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) developer_tools: Option<DeveloperToolsReport>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(super) struct InstallProfileSummary {
+    pub(super) profile: String,
+    pub(super) config_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

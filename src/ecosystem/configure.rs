@@ -66,11 +66,7 @@ pub(super) fn configure_codex_cli(
         eprintln!(
             "  {} Codex host mode does not support the '{}' scope — skipping Codex configuration.",
             "!".yellow(),
-            match scope {
-                HostConfigScope::User => "user",
-                HostConfigScope::Project => "project",
-                HostConfigScope::Local => "local",
-            }
+            host_policy::scope_name(scope)
         );
         return;
     }

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,13 @@ pub(crate) struct HookEntrySnapshot {
     pub(crate) command: String,
     pub(crate) timeout: u64,
     pub(crate) status_message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct HookPathSnapshot {
+    pub(crate) event: String,
+    pub(crate) path: PathBuf,
+    pub(crate) passed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -267,15 +275,15 @@ pub(crate) fn hook_entries_at_path(settings_path: &Path) -> Result<Vec<HookEntry
                 .get("matcher")
                 .and_then(serde_json::Value::as_str)
                 .map(ToOwned::to_owned);
-            let Some(command_entries) = entry
-                .get("hooks")
-                .and_then(serde_json::Value::as_array)
+            let Some(command_entries) = entry.get("hooks").and_then(serde_json::Value::as_array)
             else {
                 continue;
             };
 
             for command_entry in command_entries {
-                let Some(command) = command_entry.get("command").and_then(serde_json::Value::as_str)
+                let Some(command) = command_entry
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
                 else {
                     continue;
                 };
@@ -305,6 +313,67 @@ pub(crate) fn hook_entries_at_path(settings_path: &Path) -> Result<Vec<HookEntry
     }
 
     Ok(entries)
+}
+
+fn extract_hook_path(command: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir();
+
+    for token in command.split_whitespace() {
+        let candidate = token.trim_matches(|ch| matches!(ch, '"' | '\''));
+        let path = if let Some(suffix) = candidate.strip_prefix("$HOME/") {
+            home.as_ref().map(|home| home.join(suffix))
+        } else if let Some(suffix) = candidate.strip_prefix("~/") {
+            home.as_ref().map(|home| home.join(suffix))
+        } else if candidate.starts_with('/') {
+            Some(PathBuf::from(candidate))
+        } else {
+            None
+        };
+
+        let Some(path) = path else {
+            continue;
+        };
+
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(ext, "js" | "sh" | "py"))
+        {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn hook_path_snapshots() -> Vec<HookPathSnapshot> {
+    let mut snapshots = Vec::new();
+
+    for settings_path in host_policy::claude_hook_settings_paths() {
+        let Ok(entries) = hook_entries_at_path(&settings_path) else {
+            continue;
+        };
+
+        for entry in entries {
+            let Some(path) = extract_hook_path(&entry.command) else {
+                continue;
+            };
+
+            snapshots.push(HookPathSnapshot {
+                event: entry.event,
+                path: path.clone(),
+                passed: path.exists(),
+            });
+        }
+    }
+
+    snapshots.sort_by(|left, right| {
+        left.event
+            .cmp(&right.event)
+            .then(left.path.cmp(&right.path))
+    });
+    snapshots.dedup_by(|left, right| left.event == right.event && left.path == right.path);
+    snapshots
 }
 
 pub fn claude_hooks_configured() -> bool {

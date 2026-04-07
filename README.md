@@ -85,11 +85,12 @@ run doctor       ─►    host-aware checks       ─►    repair guidance
 
 | Profile | Tools |
 |---------|-------|
-| `minimal` | `mycelium` |
+| `minimal` | `mycelium`, `hyphae` |
+| `standard` | `mycelium`, `hyphae`, `rhizome`, `cortina`, `lamella` |
 | `claude-code` | `mycelium`, `hyphae`, `rhizome`, `cortina` |
 | `codex` | `mycelium`, `hyphae`, `rhizome` |
 | `cursor` | `mycelium`, `hyphae`, `rhizome` |
-| `full-stack` | `mycelium`, `hyphae`, `rhizome`, `canopy`, `cortina` |
+| `full` | `mycelium`, `hyphae`, `rhizome`, `cortina`, `lamella`, `cap`, `canopy`, `volva` |
 | `developer-tools` | advisory third-party tooling hints only |
 
 ---

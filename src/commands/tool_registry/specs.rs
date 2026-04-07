@@ -15,6 +15,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         doctor_coverage: DoctorCoverage::Required,
         install_profiles: &[
             InstallProfile::Minimal,
+            InstallProfile::Standard,
             InstallProfile::ClaudeCode,
             InstallProfile::Codex,
             InstallProfile::Cursor,
@@ -38,6 +39,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         include_in_install_all: true,
         doctor_coverage: DoctorCoverage::Required,
         install_profiles: &[
+            InstallProfile::Minimal,
+            InstallProfile::Standard,
             InstallProfile::ClaudeCode,
             InstallProfile::Codex,
             InstallProfile::Cursor,
@@ -63,6 +66,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         include_in_install_all: true,
         doctor_coverage: DoctorCoverage::Required,
         install_profiles: &[
+            InstallProfile::Standard,
             InstallProfile::ClaudeCode,
             InstallProfile::Codex,
             InstallProfile::Cursor,
@@ -105,7 +109,11 @@ const TOOL_SPECS: &[ToolSpec] = &[
         include_in_ecosystem: true,
         include_in_install_all: true,
         doctor_coverage: DoctorCoverage::Ignore,
-        install_profiles: &[InstallProfile::ClaudeCode, InstallProfile::FullStack],
+        install_profiles: &[
+            InstallProfile::Standard,
+            InstallProfile::ClaudeCode,
+            InstallProfile::FullStack,
+        ],
         missing_hint: Some("stipe install cortina"),
         smoke_test_args: None,
         smoke_test_expect: None,

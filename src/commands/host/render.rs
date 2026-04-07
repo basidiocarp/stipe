@@ -109,11 +109,7 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
         return Err(anyhow::anyhow!(
             "{} does not support the '{}' scope",
             mode.label(),
-            match scope {
-                HostConfigScope::User => "user",
-                HostConfigScope::Project => "project",
-                HostConfigScope::Local => "local",
-            }
+            host_policy::scope_name(scope)
         ));
     }
 

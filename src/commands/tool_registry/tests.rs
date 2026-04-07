@@ -6,7 +6,13 @@ fn test_profile_tools_cover_expected_sets() {
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(minimal, vec!["mycelium"]);
+    assert_eq!(minimal, vec!["mycelium", "hyphae"]);
+
+    let standard = specs_for_profile(InstallProfile::Standard)
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>();
+    assert_eq!(standard, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
 
     let claude = specs_for_profile(InstallProfile::ClaudeCode)
         .into_iter()
@@ -73,6 +79,7 @@ fn test_install_profiles_only_reference_installable_tools() {
 
     for profile in [
         InstallProfile::Minimal,
+        InstallProfile::Standard,
         InstallProfile::ClaudeCode,
         InstallProfile::Codex,
         InstallProfile::Cursor,

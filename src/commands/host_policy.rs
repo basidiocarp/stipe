@@ -306,11 +306,25 @@ pub fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
             &["install", "--profile", "claude-code"],
             RepairTier::Primary,
         ),
-        InstallProfile::Minimal | InstallProfile::FullStack => RepairAction::stipe(
+        InstallProfile::Minimal => RepairAction::stipe(
+            "install-minimal",
+            "Install the minimal profile",
+            "Install only the baseline local agent stack.",
+            &["install", "--profile", "minimal"],
+            RepairTier::Primary,
+        ),
+        InstallProfile::Standard => RepairAction::stipe(
+            "install-standard",
+            "Install the standard profile",
+            "Install the default local agent stack and packaging helpers.",
+            &["install", "--profile", "standard"],
+            RepairTier::Primary,
+        ),
+        InstallProfile::FullStack => RepairAction::stipe(
             "install-full-stack",
             "Install the full stack",
             "Install every supported ecosystem tool when you want the broadest local setup.",
-            &["install", "--profile", "full-stack"],
+            &["install", "--profile", "full"],
             RepairTier::Primary,
         ),
         InstallProfile::DeveloperTools => RepairAction::manual(

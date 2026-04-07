@@ -70,17 +70,14 @@ fn register_claude_code(
     scope: HostConfigScope,
     verbose: u8,
 ) -> Result<bool> {
+    let scope_name = host_policy::scope_name(scope);
     let mut all_ok = true;
     for server in servers {
         let mut cmd = Command::new("claude");
         cmd.arg("mcp")
             .arg("add")
             .arg("--scope")
-            .arg(match scope {
-                HostConfigScope::User => "user",
-                HostConfigScope::Project => "project",
-                HostConfigScope::Local => "local",
-            })
+            .arg(scope_name)
             .arg(&server.name)
             .arg("--");
         cmd.arg(&server.command);
@@ -91,11 +88,7 @@ fn register_claude_code(
         if verbose > 0 {
             eprintln!(
                 "  Running: claude mcp add --scope {} {} -- {} {}",
-                match scope {
-                    HostConfigScope::User => "user",
-                    HostConfigScope::Project => "project",
-                    HostConfigScope::Local => "local",
-                },
+                scope_name,
                 server.name,
                 server.command,
                 server.args.join(" ")

@@ -14,7 +14,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Install ecosystem tools (mycelium, hyphae, rhizome, canopy, cortina)
+    /// Install ecosystem tools and profile surfaces
     Install {
         /// Install a predefined profile
         #[arg(long, value_enum)]
@@ -245,9 +245,35 @@ mod tests {
     }
 
     #[test]
+    fn test_install_accepts_standard_profile() {
+        let cli = Cli::try_parse_from(["stipe", "install", "--profile", "standard"])
+            .expect("standard profile should parse");
+
+        match cli.command {
+            Commands::Install { profile, .. } => {
+                assert_eq!(profile, Some(commands::install::InstallProfile::Standard));
+            }
+            _ => panic!("expected install command"),
+        }
+    }
+
+    #[test]
+    fn test_install_accepts_full_profile_alias() {
+        let cli = Cli::try_parse_from(["stipe", "install", "--profile", "full"])
+            .expect("full profile should parse");
+
+        match cli.command {
+            Commands::Install { profile, .. } => {
+                assert_eq!(profile, Some(commands::install::InstallProfile::FullStack));
+            }
+            _ => panic!("expected install command"),
+        }
+    }
+
+    #[test]
     fn test_init_accepts_repair_flag() {
-        let cli = Cli::try_parse_from(["stipe", "init", "--repair"])
-            .expect("repair flag should parse");
+        let cli =
+            Cli::try_parse_from(["stipe", "init", "--repair"]).expect("repair flag should parse");
 
         match cli.command {
             Commands::Init { repair, .. } => assert!(repair),
@@ -257,8 +283,8 @@ mod tests {
 
     #[test]
     fn test_init_accepts_force_alias() {
-        let cli = Cli::try_parse_from(["stipe", "init", "--force"])
-            .expect("force alias should parse");
+        let cli =
+            Cli::try_parse_from(["stipe", "init", "--force"]).expect("force alias should parse");
 
         match cli.command {
             Commands::Init { repair, .. } => assert!(repair),

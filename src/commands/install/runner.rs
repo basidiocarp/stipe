@@ -13,7 +13,11 @@ use crate::commands::install::release::{
     download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
     verify_binary, verify_functional,
 };
-use crate::commands::install::selection::{print_install_preview, resolve_requested_tools};
+use crate::commands::install::save_selected_profile;
+use crate::commands::install::selection::{
+    print_install_preview, print_profile_install_preview, resolve_requested_tools,
+    split_requested_tools,
+};
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 
 pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> Result<()> {
@@ -243,21 +247,18 @@ pub(crate) fn run(
     let tools_to_install = resolve_requested_tools(all, profile, tools);
 
     if dry_run {
-        if let Some(profile) = profile {
-            println!("Selected mode: {}", profile.mode_label().bold());
-            println!();
-        }
-
         match tools_to_install {
             Some(ref requested) => {
-                let label = if all {
-                    "all".to_string()
-                } else if let Some(profile) = profile {
-                    profile.mode_label().to_string()
+                if let Some(profile) = profile {
+                    print_profile_install_preview(&prefix, profile, requested);
                 } else {
-                    "explicit tools".to_string()
-                };
-                print_install_preview(&prefix, requested, &label);
+                    let label = if all {
+                        "all".to_string()
+                    } else {
+                        "explicit tools".to_string()
+                    };
+                    print_install_preview(&prefix, requested, &label);
+                }
             }
             None => {
                 print_install_preview(&prefix, &[], "interactive selection");
@@ -300,6 +301,7 @@ pub(crate) fn run(
             .map(|&idx| installable_specs[idx].name.to_string())
             .collect()
     };
+    let (tools_to_install, manual_tools) = split_requested_tools(&tools_to_install);
 
     println!();
 
@@ -335,6 +337,26 @@ pub(crate) fn run(
                     eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
                 }
             }
+        }
+    }
+
+    if let Some(profile) = profile.filter(|selected| *selected != InstallProfile::DeveloperTools)
+        && let Some(config_path) = save_selected_profile(profile)?
+    {
+        println!();
+        println!(
+            "{} {} ({})",
+            "✓".green(),
+            format!("Saved install profile: {}", profile.mode_label()),
+            config_path.display()
+        );
+    }
+
+    if !manual_tools.is_empty() {
+        println!();
+        println!("{}", "Manual follow-up:".bold());
+        for member in manual_tools {
+            println!("  - {}: {}", member.name, member.install_hint);
         }
     }
 

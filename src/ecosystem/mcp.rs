@@ -59,6 +59,8 @@ pub(super) fn register_mcp(
     scope: HostConfigScope,
     verbose: u8,
 ) -> Result<Option<&'static str>> {
+    let scope_name = host_policy::scope_name(scope);
+
     if mcp_exists(name, scope) {
         if verbose > 0 {
             eprintln!("  {name} MCP already registered");
@@ -70,11 +72,7 @@ pub(super) fn register_mcp(
     cmd.arg("mcp")
         .arg("add")
         .arg("--scope")
-        .arg(match scope {
-            HostConfigScope::User => "user",
-            HostConfigScope::Project => "project",
-            HostConfigScope::Local => "local",
-        })
+        .arg(scope_name)
         .arg(name);
     cmd.arg("--");
     for arg in args {
@@ -84,11 +82,7 @@ pub(super) fn register_mcp(
     if verbose > 0 {
         eprintln!(
             "  Running: claude mcp add --scope {} {} -- {}",
-            match scope {
-                HostConfigScope::User => "user",
-                HostConfigScope::Project => "project",
-                HostConfigScope::Local => "local",
-            },
+            scope_name,
             name,
             args.join(" ")
         );
