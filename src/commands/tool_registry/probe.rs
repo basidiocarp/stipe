@@ -20,6 +20,7 @@ fn spore_tool(binary_name: &str) -> Option<Tool> {
         "rhizome" => Some(Tool::Rhizome),
         "cortina" => Some(Tool::Cortina),
         "canopy" => Some(Tool::Canopy),
+        "volva" => Some(Tool::Volva),
         "cap" => Some(Tool::Cap),
         _ => None,
     }
@@ -81,6 +82,7 @@ mod tests {
         assert_eq!(spore_tool("rhizome"), Some(spore::Tool::Rhizome));
         assert_eq!(spore_tool("cortina"), Some(spore::Tool::Cortina));
         assert_eq!(spore_tool("canopy"), Some(spore::Tool::Canopy));
+        assert_eq!(spore_tool("volva"), Some(spore::Tool::Volva));
         assert_eq!(spore_tool("cap"), Some(spore::Tool::Cap));
     }
 

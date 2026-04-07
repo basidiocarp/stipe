@@ -1,27 +1,57 @@
 # Stipe
 
-Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers MCP servers with your editor, wires up hook and notification adapters, and runs health checks across multiple hosts and platforms. One binary replaces the shell scripts and the 4,000 lines of ecosystem management that used to live in Mycelium.
+Ecosystem installer and manager for Basidiocarp. Downloads binaries, registers
+MCP servers with supported hosts, installs hook adapters, and runs cross-tool
+health checks.
 
-Stipe now uses a shared tool registry plus a host inventory model: tool metadata is centralized in one place, each host gets its own setup and doctor flow, and shared tool state stays global.
-
-Boundary note: `spore` stays responsible for editor primitives such as detection, config paths, MCP config writes, and editor capability differences. `stipe` stays responsible for ecosystem policy such as managed tool inventory, install profiles, doctor severity, release mapping, and cross-tool orchestration.
+Named after the fungal stipe, the supporting stalk that holds the rest of the
+fruiting body together.
 
 Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
+
+---
+
+## The Problem
+
+Shared onboarding, repair, and host setup are easy to bolt onto unrelated tools,
+but that makes each tool harder to reason about and turns install policy into a
+scattered maintenance problem.
+
+## The Solution
+
+Stipe centralizes ecosystem management. It installs managed tools, registers
+MCP servers for supported hosts, wires up hooks and notifications, and runs the
+doctor flows that check whether all of that still works.
+
+---
+
+## The Ecosystem
+
+| Tool | Purpose |
+|------|---------|
+| **[stipe](https://github.com/basidiocarp/stipe)** | Ecosystem installer and manager |
+| **[cap](https://github.com/basidiocarp/cap)** | Web dashboard for the ecosystem |
+| **[cortina](https://github.com/basidiocarp/cortina)** | Lifecycle signal capture and session attribution |
+| **[hyphae](https://github.com/basidiocarp/hyphae)** | Persistent agent memory |
+| **[lamella](https://github.com/basidiocarp/lamella)** | Skills, hooks, and plugins for coding agents |
+| **[mycelium](https://github.com/basidiocarp/mycelium)** | Token-optimized command output |
+| **[rhizome](https://github.com/basidiocarp/rhizome)** | Code intelligence via tree-sitter and LSP |
+| **[spore](https://github.com/basidiocarp/spore)** | Shared transport and editor primitives |
+| **[volva](https://github.com/basidiocarp/volva)** | Execution-host runtime layer |
+
+> **Boundary:** `stipe` owns managed tool inventory, install profiles, doctor
+> severity, and cross-tool orchestration. `spore` owns the reusable editor and
+> transport primitives underneath that policy.
+
+---
 
 ## Quick Start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
+stipe doctor
+stipe update --all
 ```
-
-The bootstrap script installs core ecosystem tools (stipe, mycelium, hyphae, rhizome, cortina) and configures your editor's MCP servers. `canopy` (multi-agent coordination) is included only in the `full-stack` profile. After that, use stipe to manage updates and health checks:
-
-```bash
-stipe doctor       # verify everything is configured
-stipe update --all # update to latest versions
-```
-
-To install individual tools later or on a fresh machine where you already have stipe:
 
 ```bash
 stipe install --all
@@ -31,62 +61,93 @@ stipe host setup codex
 stipe host doctor codex
 ```
 
-`stipe host` is the multi-host surface. Use `stipe doctor` for the aggregate ecosystem view, then `stipe host doctor <host>` when you need to isolate one runtime.
+---
 
-Migration note:
+## How It Works
 
-- If you previously used `mycelium init --ecosystem` or `mycelium init --onboard`, use `stipe init` for shared ecosystem setup and MCP/bootstrap repair.
-- If you previously used `mycelium init --client <host>` or are fixing one runtime at a time, use `stipe host setup <host>`.
-- Older single-level `stipe setup <host>` usage has been removed. Use `stipe host setup <host>`.
-
-Install profiles:
-
-- `minimal` installs `mycelium`
-- `claude-code` installs `mycelium`, `hyphae`, `rhizome`, and `cortina`
-- `codex` installs `mycelium`, `hyphae`, and `rhizome` for Codex host support
-- `cursor` installs `mycelium`, `hyphae`, and `rhizome`
-- `full-stack` installs `mycelium`, `hyphae`, `rhizome`, `canopy`, and `cortina`
-- `developer-tools` is advisory only: it checks recommended third-party CLI tools and prints package-manager install hints instead of installing them into the managed bin directory
-
-## Commands
-
-```
-stipe install [--all] [--profile <name>] [--dry-run] [tools...]              Download tools from GitHub releases
-stipe host list                                                              Show known hosts and whether they are detected/configured
-stipe host setup <claude-code|codex|cursor> [--scope <scope>] [--dry-run]   Install and initialize a named host
-stipe host doctor [<claude-code|codex|cursor>] [--json]                      Check one host, or all managed hosts, independently
-stipe init [--client <name>] [--scope <scope>] [--dry-run]                   Register MCP servers, install hooks and notify adapters, init databases
-stipe doctor [--developer]                                                   Health check across the full stack and installed host config, optionally including advisory developer tools
-stipe update [--all] [--check]                                               Update tools to latest versions
-stipe status                                                                 Show installed tools and versions
-stipe uninstall [--all] [--dry-run] [tools...]                               Remove tools and configuration
+```text
+Operator               Stipe                          Host and tools
+────────               ─────                          ──────────────
+install profile  ─►    release + inventory     ─►    managed binaries
+run init         ─►    host setup              ─►    MCP, hooks, DB setup
+run doctor       ─►    host-aware checks       ─►    repair guidance
 ```
 
-This first multi-host slice covers shared host descriptors, inventory, and per-host setup/doctor flows. Platform-aware path and shell differences will expand from here rather than landing in one pass.
+1. Install tools: download the selected managed binaries from release sources.
+2. Initialize hosts: register MCP servers, hooks, notifications, and local databases.
+3. Inspect hosts: show detected hosts and their current setup state.
+4. Diagnose drift: report missing config, broken hook wiring, and stale setup.
+5. Update the stack: refresh managed tools to newer versions.
 
-## What `init` Does
+---
 
-1. Discovers installed tools via the shared `stipe` tool registry
-2. Registers Hyphae and Rhizome as MCP servers with your editor
-3. Installs the Codex notify adapter by adding Hyphae's notify command to `~/.codex/config.toml` or `.codex/config.toml`
-4. Installs Cortina hooks (PreToolUse, PostToolUse, Stop) plus `statusLine.command = "cortina statusline"` in `~/.claude/settings.json`, `.claude/settings.json`, or `.claude/settings.local.json`
-5. Creates the Hyphae database if missing
-6. Patches CLAUDE.md with ecosystem instructions
+## Install Profiles
 
-Supports Claude Code, Codex CLI, Cursor, Windsurf, Cline, Continue, and Claude Desktop.
+| Profile | Tools |
+|---------|-------|
+| `minimal` | `mycelium` |
+| `claude-code` | `mycelium`, `hyphae`, `rhizome`, `cortina` |
+| `codex` | `mycelium`, `hyphae`, `rhizome` |
+| `cursor` | `mycelium`, `hyphae`, `rhizome` |
+| `full-stack` | `mycelium`, `hyphae`, `rhizome`, `canopy`, `cortina` |
+| `developer-tools` | advisory third-party tooling hints only |
 
-`stipe doctor` checks for setup drift by looking for MCP client config files that are missing `hyphae` or `rhizome` registrations, plus Codex notify and Claude hook coverage. Optional tools like `canopy` are surfaced without failing the overall doctor report when absent. Platform-specific config paths and shell guidance are expected to vary across macOS, Linux, and Windows, so host repair advice should stay tied to the detected platform rather than a single shell assumption. Shared editor mechanics should continue to land in `spore`; `stipe` should consume those primitives rather than duplicating them.
+---
 
-`stipe doctor --developer` adds an advisory developer-tools section. That surface checks third-party CLI utilities such as `jq`, `fd`, `shellcheck`, `tokei`, `bat`, `difftastic`, `just`, `cargo-nextest`, and related workflow tools, but it does not make them part of ecosystem health and it does not install or update them. Use `stipe install --profile developer-tools` when you want a package-manager hint list for the supported developer-tool tier set.
+## What Stipe Owns
 
-Temporary Claude-specific shell helpers migrated from Lamella live under
-`scripts/claude/`. Treat them as fallback utilities while `stipe doctor`,
-`stipe host doctor claude-code`, and future host repair flows absorb the
-remaining manual recovery cases.
+- Managed tool inventory and release mapping
+- Host setup and MCP registration policy
+- Hook and notification adapter installation
+- Ecosystem and host-specific doctor flows
 
-## Why a Separate Tool
+## What Stipe Does Not Own
 
-Mycelium compresses command output. Ecosystem management was bolted onto it via `init --ecosystem` and grew into something unrelated to filtering. Stipe takes that responsibility so each tool stays focused.
+- Shell filtering: handled by `mycelium`
+- Memory storage: handled by `hyphae`
+- Code intelligence: handled by `rhizome`
+- Shared editor primitives: handled by `spore`
+
+---
+
+## Key Features
+
+- Multi-host setup: supports host-specific setup and doctor surfaces.
+- Managed profiles: install the right tool set for a chosen runtime.
+- Drift detection: checks for missing registrations and broken hook coverage.
+- Advisory developer tools: can report useful CLI tools without making them part of managed health.
+
+---
+
+## Architecture
+
+```text
+stipe/
+├── src/commands/   install, init, doctor, update, and status flows
+├── src/ecosystem/  shared inventory and policy
+├── scripts/claude/ fallback Claude-specific helpers
+├── stipe/src/      CLI entry point
+└── docs/           host and architecture notes via README-linked docs
+```
+
+```text
+stipe install [--all] [--profile <name>] [tools...]
+stipe host list
+stipe host setup <host>
+stipe host doctor [host]
+stipe init
+stipe doctor
+stipe update --all
+```
+
+---
+
+## Documentation
+
+- [README.md](README.md): command surface, profiles, and setup behavior
+- [CHANGELOG.md](CHANGELOG.md): release history
+- [ROADMAP.md](ROADMAP.md): planned work
+- [scripts/claude/README.md](scripts/claude/README.md): fallback Claude-specific helper scripts
 
 ## Development
 

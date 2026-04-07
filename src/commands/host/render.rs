@@ -127,7 +127,14 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
         println!();
     }
 
-    install::run(false, Some(mode.install_profile()), dry_run, false, None, &[])?;
+    install::run(
+        false,
+        Some(mode.install_profile()),
+        dry_run,
+        false,
+        None,
+        &[],
+    )?;
     init::run(Some(mode.client_flag()), scope, dry_run, false)
 }
 

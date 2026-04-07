@@ -77,7 +77,12 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("codesign")
-            .args(["--force", "--sign", "-", install_path.to_str().unwrap_or("")])
+            .args([
+                "--force",
+                "--sign",
+                "-",
+                install_path.to_str().unwrap_or(""),
+            ])
             .output();
     }
 
@@ -311,7 +316,12 @@ pub(crate) fn run(
             match install_from_source(tool, spec, &tool_source) {
                 Ok(_version) => {}
                 Err(error) => {
-                    eprintln!("  {} Failed to build {} from source: {}", "!".red(), tool, error);
+                    eprintln!(
+                        "  {} Failed to build {} from source: {}",
+                        "!".red(),
+                        tool,
+                        error
+                    );
                 }
             }
         }

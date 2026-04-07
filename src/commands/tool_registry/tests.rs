@@ -20,7 +20,9 @@ fn test_profile_tools_cover_expected_sets() {
         .collect::<Vec<_>>();
     assert_eq!(
         full_stack,
-        vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
+        vec![
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva"
+        ]
     );
 }
 
@@ -34,6 +36,7 @@ fn test_status_specs_include_optional_and_managed_tools() {
     assert!(names.contains(&"mycelium"));
     assert!(names.contains(&"cortina"));
     assert!(names.contains(&"canopy"));
+    assert!(names.contains(&"volva"));
     assert!(names.contains(&"cap"));
     assert!(!names.contains(&"stipe"));
 }
@@ -44,17 +47,21 @@ fn test_release_archive_binaries_include_managed_tools_and_stipe() {
     assert!(names.contains(&"mycelium"));
     assert!(names.contains(&"canopy"));
     assert!(names.contains(&"cortina"));
+    assert!(names.contains(&"volva"));
     assert!(names.contains(&"stipe"));
     assert!(!names.contains(&"cap"));
 }
 
 #[test]
-fn test_doctor_specs_include_optional_canopy() {
+fn test_doctor_specs_include_optional_canopy_and_volva() {
     let names = doctor_specs()
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(names, vec!["mycelium", "hyphae", "rhizome", "canopy"]);
+    assert_eq!(
+        names,
+        vec!["mycelium", "hyphae", "rhizome", "canopy", "volva"]
+    );
 }
 
 #[test]
@@ -114,6 +121,21 @@ fn test_ecosystem_and_status_views_only_reference_visible_tools() {
 }
 
 #[test]
+fn test_volva_has_the_intended_operator_surface_membership() {
+    let volva = find("volva").expect("volva spec");
+
+    assert!(volva.installable);
+    assert!(volva.include_in_status);
+    assert!(volva.include_in_ecosystem);
+    assert!(volva.include_in_update_all);
+    assert!(volva.include_in_uninstall_all);
+    assert_eq!(volva.doctor_coverage, DoctorCoverage::Optional);
+    assert_eq!(volva.install_profiles, &[InstallProfile::FullStack]);
+    assert_eq!(volva.missing_hint, Some("stipe install volva"));
+    assert_eq!(volva.smoke_test_args, Some(&["backend", "status"][..]));
+}
+
+#[test]
 fn test_optional_doctor_tools_have_install_hints() {
     for spec in doctor_specs() {
         if spec.doctor_coverage == DoctorCoverage::Optional {
@@ -151,7 +173,7 @@ fn test_mcp_serve_specs_match_expected_tools() {
     let rhizome = find("rhizome").expect("rhizome spec");
     assert_eq!(rhizome.mcp_serve_args, Some(&["serve", "--expanded"][..]));
 
-    for tool in ["mycelium", "canopy", "cortina", "cap", "stipe"] {
+    for tool in ["mycelium", "canopy", "cortina", "volva", "cap", "stipe"] {
         let spec = find(tool).expect("spec should exist");
         assert_eq!(
             spec.mcp_serve_args, None,

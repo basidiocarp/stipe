@@ -70,6 +70,13 @@ fn missing_tool_actions(tool: &ToolSpec) -> Vec<RepairAction> {
                 RepairTier::Secondary,
             ),
         ],
+        "volva" => vec![RepairAction::stipe(
+            "install-volva",
+            "Install Volva",
+            "Install the backend operations CLI.",
+            &["install", "volva"],
+            RepairTier::Primary,
+        )],
         _ => Vec::new(),
     }
 }
@@ -182,8 +189,16 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
             name: spec.name.to_string(),
             passed: true,
-            message: "Optional coordination runtime not installed".to_string(),
-            repair_actions: Vec::new(),
+            message: if spec.name == "volva" {
+                "Optional backend operations CLI not installed".to_string()
+            } else {
+                "Optional coordination runtime not installed".to_string()
+            },
+            repair_actions: if spec.name == "volva" {
+                missing_tool_actions(spec)
+            } else {
+                Vec::new()
+            },
         },
         (_, ToolProbe::Broken) => HealthCheck {
             name: spec.name.to_string(),
@@ -339,5 +354,17 @@ mod tests {
         assert!(error.contains("timed out"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_volva_has_an_install_repair_action() {
+        let volva = tool_registry::find("volva").expect("volva spec should exist");
+        let actions = missing_tool_actions(volva);
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.command == "stipe install volva")
+        );
     }
 }
