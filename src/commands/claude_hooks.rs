@@ -6,6 +6,16 @@ use std::process::Command;
 
 use super::host_policy::{self, HostConfigScope, HostMode};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HookEntrySnapshot {
+    pub(crate) event: String,
+    pub(crate) matcher: Option<String>,
+    pub(crate) hook_type: String,
+    pub(crate) command: String,
+    pub(crate) timeout: u64,
+    pub(crate) status_message: String,
+}
+
 #[derive(Clone, Copy)]
 struct HookSpec {
     event: &'static str,
@@ -15,7 +25,7 @@ struct HookSpec {
     timeout_secs: u64,
 }
 
-const CLAUDE_HOOK_SPECS: [HookSpec; 3] = [
+const CLAUDE_HOOK_SPECS: [HookSpec; 5] = [
     HookSpec {
         event: "PreToolUse",
         matcher: Some("Bash"),
@@ -36,6 +46,20 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 3] = [
         subcommand: "stop",
         status_message: "Cortina capturing session summary",
         timeout_secs: 2,
+    },
+    HookSpec {
+        event: "PreCompact",
+        matcher: Some("*"),
+        subcommand: "pre-compact",
+        status_message: "Cortina capturing compaction snapshots",
+        timeout_secs: 10,
+    },
+    HookSpec {
+        event: "UserPromptSubmit",
+        matcher: Some("*"),
+        subcommand: "user-prompt-submit",
+        status_message: "Cortina capturing submitted prompts",
+        timeout_secs: 10,
     },
 ];
 
@@ -225,6 +249,64 @@ fn claude_hooks_configured_at_path(settings_path: &Path) -> bool {
     }) && statusline_configured(&root)
 }
 
+pub(crate) fn hook_entries_at_path(settings_path: &Path) -> Result<Vec<HookEntrySnapshot>> {
+    let root = load_or_create_settings(settings_path)?;
+    let mut entries = Vec::new();
+
+    let Some(hooks) = root.get("hooks").and_then(serde_json::Value::as_object) else {
+        return Ok(entries);
+    };
+
+    for (event, event_entries) in hooks {
+        let Some(event_entries) = event_entries.as_array() else {
+            continue;
+        };
+
+        for entry in event_entries {
+            let matcher = entry
+                .get("matcher")
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned);
+            let Some(command_entries) = entry
+                .get("hooks")
+                .and_then(serde_json::Value::as_array)
+            else {
+                continue;
+            };
+
+            for command_entry in command_entries {
+                let Some(command) = command_entry.get("command").and_then(serde_json::Value::as_str)
+                else {
+                    continue;
+                };
+                let hook_type = command_entry
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("command");
+                let timeout = command_entry
+                    .get("timeout")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default();
+                let status_message = command_entry
+                    .get("statusMessage")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+
+                entries.push(HookEntrySnapshot {
+                    event: event.clone(),
+                    matcher: matcher.clone(),
+                    hook_type: hook_type.to_string(),
+                    command: command.to_string(),
+                    timeout,
+                    status_message: status_message.to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(entries)
+}
+
 pub fn claude_hooks_configured() -> bool {
     !configured_paths().is_empty()
 }
@@ -289,21 +371,9 @@ mod tests {
 
         let root: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
-        assert!(hook_entry_present(
-            &root,
-            CLAUDE_HOOK_SPECS[0],
-            &hook_command(CLAUDE_HOOK_SPECS[0]),
-        ));
-        assert!(hook_entry_present(
-            &root,
-            CLAUDE_HOOK_SPECS[1],
-            &hook_command(CLAUDE_HOOK_SPECS[1]),
-        ));
-        assert!(hook_entry_present(
-            &root,
-            CLAUDE_HOOK_SPECS[2],
-            &hook_command(CLAUDE_HOOK_SPECS[2]),
-        ));
+        for spec in CLAUDE_HOOK_SPECS {
+            assert!(hook_entry_present(&root, spec, &hook_command(spec)));
+        }
         assert!(statusline_configured(&root));
 
         let _ = fs::remove_file(settings_path);

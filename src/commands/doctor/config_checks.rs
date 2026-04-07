@@ -1,11 +1,15 @@
 use serde_json::Value;
-use std::fs;
 use std::path::PathBuf;
 
+use crate::commands::init::baseline;
 use super::host_policy;
-use super::model::{ConfigFormat, HealthCheck};
-use super::tool_checks::installed_mcp_servers;
+use super::model::{ConfigFormat, DriftReport, HealthCheck};
 use crate::commands::repair::{RepairAction, RepairTier};
+
+pub(super) struct ConfigDriftState {
+    pub(super) check: HealthCheck,
+    pub(super) report: Option<DriftReport>,
+}
 
 pub(super) fn config_mentions_servers(
     content: &str,
@@ -81,6 +85,7 @@ pub(super) fn config_mentions_servers(
     }
 }
 
+#[allow(dead_code)]
 fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
     let mut paths = Vec::new();
 
@@ -152,6 +157,7 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
     paths
 }
 
+#[allow(dead_code)]
 fn vscode_cline_settings_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
 
@@ -184,65 +190,48 @@ fn vscode_cline_settings_path() -> Option<PathBuf> {
     }
 }
 
-pub(super) fn check_mcp_config_drift() -> HealthCheck {
-    let required_servers = installed_mcp_servers();
-    if required_servers.is_empty() {
-        return HealthCheck {
-            name: "mcp config".to_string(),
-            passed: true,
-            message: "No MCP-backed tools installed yet".to_string(),
-            repair_actions: Vec::new(),
-        };
-    }
-
-    let configs = mcp_client_config_paths();
-    let mut found_any = false;
-    let mut matching_clients = Vec::new();
-
-    for (client_name, path, format) in configs {
-        if !path.exists() {
-            continue;
-        }
-
-        found_any = true;
-        match fs::read_to_string(&path) {
-            Ok(content) if config_mentions_servers(&content, &required_servers, format) => {
-                matching_clients.push(client_name.to_string());
+pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
+    match baseline::evaluate_drift() {
+        Ok(Some(report)) => {
+            let passed = report.findings.is_empty();
+            ConfigDriftState {
+                check: HealthCheck {
+                    name: "config drift".to_string(),
+                    passed,
+                    message: if passed {
+                        "Init baseline matches current config state.".to_string()
+                    } else {
+                        format!("{} config drift issue(s) detected", report.findings.len())
+                    },
+                    repair_actions: baseline::repair_actions_for_report(&report),
+                },
+                report: Some(report),
             }
-            Ok(_) | Err(_) => {}
         }
-    }
-
-    if matching_clients.is_empty() {
-        return HealthCheck {
-            name: "mcp config".to_string(),
-            passed: false,
-            message: if found_any {
-                format!(
-                    "MCP client config exists but is missing registrations for {} (run 'stipe init')",
-                    required_servers.join(", ")
-                )
-            } else {
-                "No supported MCP client config found (run 'stipe init')".to_string()
+        Ok(None) => ConfigDriftState {
+            check: HealthCheck {
+                name: "config drift".to_string(),
+                passed: true,
+                message: "No init baseline found; skipping drift detection.".to_string(),
+                repair_actions: Vec::new(),
             },
-            repair_actions: vec![RepairAction::stipe(
-                "init",
-                "Repair MCP registrations",
-                "Re-register Hyphae and Rhizome in supported MCP clients.",
-                &["init"],
-                RepairTier::Primary,
-            )],
-        };
-    }
-
-    HealthCheck {
-        name: "mcp config".to_string(),
-        passed: true,
-        message: format!(
-            "MCP registrations present in {}",
-            matching_clients.join(", ")
-        ),
-        repair_actions: Vec::new(),
+            report: None,
+        },
+        Err(error) => ConfigDriftState {
+            check: HealthCheck {
+                name: "config drift".to_string(),
+                passed: false,
+                message: format!("Unable to read init baseline: {error}"),
+                repair_actions: vec![RepairAction::stipe(
+                    "repair-init",
+                    "Repair the init baseline",
+                    "Rebuild the init baseline after fixing the drifted config.",
+                    &["init", "--repair"],
+                    RepairTier::Primary,
+                )],
+            },
+            report: None,
+        },
     }
 }
 

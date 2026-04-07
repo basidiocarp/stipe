@@ -65,7 +65,7 @@ enum Commands {
         command: commands::self_update::SelfCommand,
     },
 
-    /// Configure MCP clients, Codex notify adapters, hooks, and databases
+    /// Configure MCP clients, Codex notify adapters, hooks, databases, and repair drift
     Init {
         /// Target a specific MCP client
         #[arg(long)]
@@ -82,6 +82,10 @@ enum Commands {
         /// Emit structured JSON instead of human-readable text
         #[arg(long)]
         json: bool,
+
+        /// Reapply shared ecosystem configuration and refresh the baseline
+        #[arg(long, alias = "force", alias = "repair-hooks")]
+        repair: bool,
     },
 
     /// Inspect and configure supported hosts
@@ -147,7 +151,8 @@ fn main() -> Result<()> {
             scope,
             dry_run,
             json,
-        } => commands::init::run(client.as_deref(), scope, dry_run, json),
+            repair,
+        } => commands::init::run(client.as_deref(), scope, dry_run, json, repair),
         Commands::Host { command } => commands::host::run(command),
         Commands::Doctor {
             json,
@@ -236,6 +241,28 @@ mod tests {
                 );
             }
             _ => panic!("expected install command"),
+        }
+    }
+
+    #[test]
+    fn test_init_accepts_repair_flag() {
+        let cli = Cli::try_parse_from(["stipe", "init", "--repair"])
+            .expect("repair flag should parse");
+
+        match cli.command {
+            Commands::Init { repair, .. } => assert!(repair),
+            _ => panic!("expected init command"),
+        }
+    }
+
+    #[test]
+    fn test_init_accepts_force_alias() {
+        let cli = Cli::try_parse_from(["stipe", "init", "--force"])
+            .expect("force alias should parse");
+
+        match cli.command {
+            Commands::Init { repair, .. } => assert!(repair),
+            _ => panic!("expected init command"),
         }
     }
 }

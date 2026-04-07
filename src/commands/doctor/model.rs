@@ -2,6 +2,8 @@ use crate::commands::developer_tools::DeveloperToolsReport;
 use crate::commands::repair::RepairAction;
 use serde::Serialize;
 
+pub(super) use crate::commands::init::baseline::{DriftFinding, DriftReport};
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub(super) struct HealthCheck {
     pub(super) name: String,
@@ -19,6 +21,8 @@ pub(super) struct DoctorReport {
     pub(super) checks: Vec<HealthCheck>,
     pub(super) repair_actions: Vec<RepairAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) drift: Option<DriftReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) developer_tools: Option<DeveloperToolsReport>,
 }
 
@@ -26,5 +30,6 @@ pub(super) struct DoctorReport {
 pub(super) enum ConfigFormat {
     Json,
     Toml,
+    #[allow(dead_code)]
     ClaudeRoot,
 }

@@ -12,7 +12,7 @@ mod model;
 mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
-use model::{DoctorReport, HealthCheck};
+use model::{DoctorReport, DriftFinding, DriftReport, HealthCheck};
 use tool_checks::{check_hyphae_db, check_mcp_startups, check_tool};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -50,6 +50,104 @@ fn render_check_line(check: &HealthCheck, colorize: bool) -> String {
     format!("  {name:<20} {symbol} {message}")
 }
 
+fn render_drift_finding(finding: &DriftFinding, colorize: bool) -> (String, String) {
+    let (symbol, headline, hint) = match finding {
+        DriftFinding::MissingMcpRegistration {
+            config_path, name, ..
+        } => (
+            "✗",
+            format!(
+                "MCP {name}: registration missing from {}",
+                host_policy::format_user_path(config_path)
+            ),
+            "Run: stipe init --repair".to_string(),
+        ),
+        DriftFinding::MissingMcpBinary {
+            binary_path, name, ..
+        } => (
+            "✗",
+            format!(
+                "MCP {name}: binary not found at registered path ({})",
+                host_policy::format_user_path(binary_path)
+            ),
+            format!("Run: stipe install {name}"),
+        ),
+        DriftFinding::MissingHookRegistration {
+            config_path, event, ..
+        } => (
+            "✗",
+            format!(
+                "Hook {event}: registration missing from {}",
+                host_policy::format_user_path(config_path)
+            ),
+            "Run: stipe init --repair".to_string(),
+        ),
+        DriftFinding::MissingHookBinary {
+            binary_path, event, ..
+        } => (
+            "✗",
+            format!(
+                "Hook {event}: registered path not found ({})",
+                host_policy::format_user_path(binary_path)
+            ),
+            "Run: stipe install cortina".to_string(),
+        ),
+        DriftFinding::ConfigFileModified {
+            path,
+            actual_checksum,
+            ..
+        } => (
+            "~",
+            if actual_checksum.is_some() {
+                format!(
+                    "Config {}: modified since last init",
+                    host_policy::format_user_path(path)
+                )
+            } else {
+                format!(
+                    "Config {}: missing since last init",
+                    host_policy::format_user_path(path)
+                )
+            },
+            "Run: stipe init --repair".to_string(),
+        ),
+    };
+
+    let line = if colorize {
+        format!("  {symbol} {}", headline.yellow())
+    } else {
+        format!("  {symbol} {headline}")
+    };
+
+    (line, hint)
+}
+
+fn render_drift_report(report: &DriftReport, colorize: bool) -> Vec<String> {
+    if report.findings.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![
+        if colorize {
+            "Config drift detected:".bold().to_string()
+        } else {
+            "Config drift detected:".to_string()
+        },
+    ];
+
+    for finding in &report.findings {
+        let (line, hint) = render_drift_finding(finding, colorize);
+        lines.push(line);
+        lines.push(if colorize {
+            format!("    {}", hint.dimmed())
+        } else {
+            format!("    {hint}")
+        });
+    }
+
+    lines
+}
+
 fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     let mut lines = vec![
         String::new(),
@@ -70,6 +168,13 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     );
     lines.push(String::new());
 
+    if let Some(drift) = &report.drift
+        && !drift.findings.is_empty()
+    {
+        lines.extend(render_drift_report(drift, colorize));
+        lines.push(String::new());
+    }
+
     if report.healthy {
         lines.push(if colorize {
             "All checks passed.".green().to_string()
@@ -78,9 +183,9 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
         });
     } else {
         lines.push(if colorize {
-            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow().to_string()
+            "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow().to_string()
         } else {
-            "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".to_string()
+            "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".to_string()
         });
         if !report.repair_actions.is_empty() {
             lines.push(String::new());
@@ -125,7 +230,8 @@ fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
         .into_iter()
         .map(|spec| check_tool(spec, deep))
         .collect::<Vec<_>>();
-    checks.extend([check_hyphae_db(), check_mcp_config_drift()]);
+    let drift_state = check_mcp_config_drift();
+    checks.extend([check_hyphae_db(), drift_state.check.clone()]);
     if deep {
         checks.extend(check_mcp_startups());
     }
@@ -150,6 +256,7 @@ fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
         },
         checks,
         repair_actions,
+        drift: drift_state.report,
         developer_tools: include_developer_tools.then(developer_tools::doctor_report),
     }
 }
@@ -345,6 +452,7 @@ mod tests {
                 &["init"],
                 RepairTier::Primary,
             )],
+            drift: None,
             developer_tools: None,
         };
 
@@ -372,6 +480,7 @@ mod tests {
                 &["install", "hyphae"],
                 RepairTier::Primary,
             )],
+            drift: None,
             developer_tools: None,
         };
 
@@ -384,13 +493,56 @@ mod tests {
                 "",
                 "  hyphae               ✗ not found in PATH",
                 "",
-                "Some checks failed. Use 'stipe init' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.",
+                "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.",
                 "",
                 "Recommended repair actions:",
                 "  - stipe install hyphae",
                 "",
             ]
         );
+    }
+
+    #[test]
+    fn test_render_report_includes_drift_section() {
+        let report = DoctorReport {
+            schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
+            healthy: false,
+            summary: "1 checks need attention.".to_string(),
+            checks: vec![HealthCheck {
+                name: "config drift".to_string(),
+                passed: false,
+                message: "1 config drift issue(s) detected".to_string(),
+                repair_actions: vec![RepairAction::stipe(
+                    "repair-init",
+                    "Repair the init baseline",
+                    "Reapply shared ecosystem configuration and refresh the baseline manifest.",
+                    &["init", "--repair"],
+                    RepairTier::Primary,
+                )],
+            }],
+            repair_actions: vec![RepairAction::stipe(
+                "repair-init",
+                "Repair the init baseline",
+                "Reapply shared ecosystem configuration and refresh the baseline manifest.",
+                &["init", "--repair"],
+                RepairTier::Primary,
+            )],
+            drift: Some(DriftReport {
+                baseline_path: std::path::PathBuf::from("/tmp/init-baseline.json"),
+                generated_at_unix_nanos: 1,
+                findings: vec![DriftFinding::ConfigFileModified {
+                    path: std::path::PathBuf::from("/tmp/config.json"),
+                    expected_checksum: "deadbeef".to_string(),
+                    actual_checksum: Some("cafebabe".to_string()),
+                }],
+            }),
+            developer_tools: None,
+        };
+
+        let lines = render_report(&report, false);
+        assert!(lines.iter().any(|line| line.contains("Config drift detected:")));
+        assert!(lines.iter().any(|line| line.contains("modified since last init")));
+        assert!(lines.iter().any(|line| line.contains("stipe init --repair")));
     }
 
     #[test]

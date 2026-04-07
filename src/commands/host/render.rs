@@ -135,7 +135,7 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
         None,
         &[],
     )?;
-    init::run(Some(mode.client_flag()), scope, dry_run, false)
+    init::run(Some(mode.client_flag()), scope, dry_run, false, false)
 }
 
 pub fn run_doctor(mode: Option<HostMode>, json: bool) -> Result<()> {

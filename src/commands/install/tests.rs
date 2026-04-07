@@ -33,7 +33,7 @@ fn test_profile_tools_cover_expected_sets() {
         .collect::<Vec<_>>();
     assert_eq!(
         full_stack,
-        vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina"]
+        vec!["mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva"]
     );
 
     let developer_tools = tool_registry::specs_for_profile(InstallProfile::DeveloperTools)
@@ -75,6 +75,7 @@ fn test_resolve_requested_tools_handles_all_mode() {
             "rhizome".to_string(),
             "canopy".to_string(),
             "cortina".to_string(),
+            "volva".to_string(),
         ]
     );
 }
@@ -156,6 +157,7 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
             "  rhizome         code intelligence server".to_string(),
             "  canopy          coordination runtime".to_string(),
             "  cortina         hook runner & session tracking".to_string(),
+            "  volva           backend operations CLI".to_string(),
         ]
     );
 }

@@ -266,6 +266,7 @@ pub(super) fn check_mcp_startups() -> Vec<HealthCheck> {
         .collect()
 }
 
+#[allow(dead_code)]
 pub(super) fn installed_mcp_servers() -> Vec<&'static str> {
     tool_registry::doctor_specs()
         .into_iter()

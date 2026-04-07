@@ -3,11 +3,13 @@ use anyhow::Result;
 
 use super::host_policy::HostConfigScope;
 
+pub(crate) mod baseline;
 mod model;
 mod plan;
 mod render;
 mod snapshot;
 
+use baseline::record_current_baseline;
 use plan::build_plan;
 use render::print_preview;
 use snapshot::build_snapshot;
@@ -19,13 +21,20 @@ use model::{ClaudeSnapshot, CodexSnapshot, InitSnapshot, InitStepStatus, ToolSna
 #[cfg(test)]
 use render::render_preview;
 
-pub fn run(client: Option<&str>, scope: HostConfigScope, dry_run: bool, json: bool) -> Result<()> {
+pub fn run(
+    client: Option<&str>,
+    scope: HostConfigScope,
+    dry_run: bool,
+    json: bool,
+    repair: bool,
+) -> Result<()> {
     let snapshot = build_snapshot(client, scope)?;
     let plan = build_plan(&snapshot, dry_run);
 
     if json {
         if !dry_run {
             ecosystem::run_ecosystem(client, scope, 0)?;
+            record_current_baseline(&snapshot, scope)?;
         }
         println!("{}", serde_json::to_string_pretty(&plan)?);
         return Ok(());
@@ -36,7 +45,13 @@ pub fn run(client: Option<&str>, scope: HostConfigScope, dry_run: bool, json: bo
         return Ok(());
     }
 
-    ecosystem::run_ecosystem(client, scope, 0)
+    if repair {
+        println!("Repair mode: reapplying shared ecosystem configuration.");
+        println!();
+    }
+
+    ecosystem::run_ecosystem(client, scope, 0)?;
+    record_current_baseline(&snapshot, scope)
 }
 
 #[cfg(test)]
