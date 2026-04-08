@@ -98,7 +98,7 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
             }
         }
         Err(error) => {
-            return Err(anyhow!("{} functional check failed: {}", tool, error));
+            return Err(anyhow!("{tool} functional check failed: {error}"));
         }
     }
 
@@ -178,7 +178,7 @@ pub(crate) fn install_from_source(
             }
         }
         Err(error) => {
-            return Err(anyhow!("{} functional check failed: {}", tool_name, error));
+            return Err(anyhow!("{tool_name} functional check failed: {error}"));
         }
     }
 
@@ -340,7 +340,7 @@ pub(crate) fn run(
         println!(
             "{} {} ({})",
             "✓".green(),
-            format!("Saved install profile: {}", profile.mode_label()),
+            format_args!("Saved install profile: {}", profile.mode_label()),
             config_path.display()
         );
     }

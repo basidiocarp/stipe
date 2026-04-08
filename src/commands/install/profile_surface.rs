@@ -44,11 +44,11 @@ pub(crate) fn expected_profile_tools(profile: InstallProfile) -> Vec<String> {
         .iter()
         .filter(|name| {
             managed.contains(name)
-                || match (profile, **name) {
-                    (InstallProfile::Standard, "lamella") => true,
-                    (InstallProfile::FullStack, "lamella" | "cap") => true,
-                    _ => false,
-                }
+                || matches!(
+                    (profile, **name),
+                    (InstallProfile::Standard, "lamella")
+                        | (InstallProfile::FullStack, "lamella" | "cap")
+                )
         })
         .map(|name| (*name).to_string())
         .collect()

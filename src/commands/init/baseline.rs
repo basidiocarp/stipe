@@ -124,12 +124,14 @@ fn baseline_path() -> Option<PathBuf> {
 fn now_unix_nanos() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos() as u64)
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+        })
 }
 
 fn checksum_bytes(bytes: &[u8]) -> String {
-    const OFFSET: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
 
     let mut hash = OFFSET;
     for byte in bytes {
@@ -378,18 +380,14 @@ fn dedupe_config_candidates(candidates: Vec<ConfigCandidate>) -> Vec<ConfigCandi
     unique.into_values().collect()
 }
 
-fn build_current_manifest(
-    snapshot: &InitSnapshot,
-    scope: HostConfigScope,
-) -> Result<InitBaselineManifest> {
+fn build_current_manifest(snapshot: &InitSnapshot, scope: HostConfigScope) -> InitBaselineManifest {
     let mut config_files = BTreeMap::<PathBuf, String>::new();
     let mut mcp_servers = Vec::new();
     let mut hooks = Vec::new();
 
     for candidate in dedupe_config_candidates(current_scope_paths(snapshot, scope)) {
-        let content = match fs::read_to_string(&candidate.path) {
-            Ok(content) => content,
-            Err(_) => continue,
+        let Ok(content) = fs::read_to_string(&candidate.path) else {
+            continue;
         };
 
         match candidate.kind {
@@ -446,7 +444,7 @@ fn build_current_manifest(
         .map(|(path, checksum)| BaselineConfigFile { path, checksum })
         .collect::<Vec<_>>();
 
-    Ok(InitBaselineManifest {
+    InitBaselineManifest {
         schema_version: BASELINE_SCHEMA_VERSION.to_string(),
         generated_at_unix_nanos: now_unix_nanos(),
         target_client: snapshot.target_client.clone(),
@@ -454,7 +452,7 @@ fn build_current_manifest(
         config_files,
         mcp_servers,
         hooks,
-    })
+    }
 }
 
 fn write_manifest(path: &Path, manifest: &InitBaselineManifest) -> Result<()> {
@@ -475,7 +473,7 @@ pub(super) fn record_current_baseline(
         return Ok(());
     };
 
-    let manifest = build_current_manifest(snapshot, scope)?;
+    let manifest = build_current_manifest(snapshot, scope);
     write_manifest(&path, &manifest)
 }
 
@@ -525,11 +523,11 @@ fn title_case(value: &str) -> String {
 
 pub(crate) fn repair_action_for_finding(finding: &DriftFinding) -> RepairAction {
     match finding {
-        DriftFinding::MissingMcpRegistration { name: _, .. } => config_file_repair_action(),
         DriftFinding::MissingMcpBinary { name, .. } => install_tool_repair_action(name),
-        DriftFinding::MissingHookRegistration { .. } => config_file_repair_action(),
         DriftFinding::MissingHookBinary { .. } => install_tool_repair_action("cortina"),
-        DriftFinding::ConfigFileModified { .. } => config_file_repair_action(),
+        DriftFinding::MissingMcpRegistration { name: _, .. }
+        | DriftFinding::MissingHookRegistration { .. }
+        | DriftFinding::ConfigFileModified { .. } => config_file_repair_action(),
     }
 }
 
@@ -642,7 +640,8 @@ fn config_checksum_for_path(path: &Path) -> Option<String> {
     checksum_file(path).ok()
 }
 
-pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> Result<DriftReport> {
+#[allow(clippy::too_many_lines)]
+pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> DriftReport {
     let mut findings = Vec::new();
     let mut config_files_by_path = BTreeMap::<PathBuf, String>::new();
     let mut mcp_by_path = BTreeMap::<PathBuf, Vec<&BaselineMcpServer>>::new();
@@ -673,7 +672,7 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
                     Some(actual_checksum),
                 ));
             }
-            None if mcp_by_path.get(path).is_none() && hooks_by_path.get(path).is_none() => {
+            None if !mcp_by_path.contains_key(path) && !hooks_by_path.contains_key(path) => {
                 findings.push(config_modified(
                     path.clone(),
                     expected_checksum.clone(),
@@ -755,11 +754,11 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
 
     let baseline_path =
         baseline_path().unwrap_or_else(|| PathBuf::from("~/.local/share/stipe/init-baseline.json"));
-    Ok(DriftReport {
+    DriftReport {
         baseline_path,
         generated_at_unix_nanos: now_unix_nanos(),
         findings,
-    })
+    }
 }
 
 fn finding_sort_key(finding: &DriftFinding) -> String {
@@ -787,7 +786,7 @@ pub(crate) fn evaluate_drift() -> Result<Option<DriftReport>> {
         return Ok(None);
     };
 
-    Ok(Some(evaluate_drift_from_manifest(&manifest)?))
+    Ok(Some(evaluate_drift_from_manifest(&manifest)))
 }
 
 #[cfg(test)]
@@ -827,11 +826,11 @@ mod tests {
         };
 
         fs::write(&file, "{\"mcpServers\":{\"hyphae\":{}}}").unwrap();
-        let report = evaluate_drift_from_manifest(&manifest).unwrap();
+        let report = evaluate_drift_from_manifest(&manifest);
 
         assert!(matches!(
             report.findings.as_slice(),
-            [DriftFinding::ConfigFileModified { path, .. }] if path == &file
+            [DriftFinding::ConfigFileModified { path, .. }] if *path == file
         ));
 
         let _ = fs::remove_file(&file);
@@ -861,7 +860,7 @@ mod tests {
             hooks: Vec::new(),
         };
 
-        let report = evaluate_drift_from_manifest(&manifest).unwrap();
+        let report = evaluate_drift_from_manifest(&manifest);
         assert!(report
             .findings
             .iter()
