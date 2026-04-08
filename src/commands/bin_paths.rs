@@ -1,39 +1,61 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "windows")]
 fn local_bin_dir_from_parts(
-    override_dir: Option<PathBuf>,
-    home_dir: Option<PathBuf>,
-    _data_local_dir: Option<PathBuf>,
-    data_dir: Option<PathBuf>,
+    override_dir: Option<&Path>,
+    data_local_dir: Option<&Path>,
+    data_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     if let Some(bin_dir) = override_dir {
-        return Some(bin_dir);
+        return Some(bin_dir.to_path_buf());
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(dir) = _data_local_dir {
-            return Some(dir.join("Basidiocarp").join("bin"));
-        }
+    if let Some(dir) = data_local_dir {
+        return Some(dir.join("Basidiocarp").join("bin"));
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Some(home) = home_dir {
-            return Some(home.join(".local").join("bin"));
-        }
+    data_dir.map(|dir| dir.join("Basidiocarp").join("bin"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn local_bin_dir_from_parts(
+    override_dir: Option<&Path>,
+    home_dir: Option<&Path>,
+    data_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(bin_dir) = override_dir {
+        return Some(bin_dir.to_path_buf());
+    }
+
+    if let Some(home) = home_dir {
+        return Some(home.join(".local").join("bin"));
     }
 
     data_dir.map(|dir| dir.join("Basidiocarp").join("bin"))
 }
 
 pub fn local_bin_dir() -> Option<PathBuf> {
-    local_bin_dir_from_parts(
-        std::env::var_os("MYCELIUM_BIN_DIR").map(PathBuf::from),
-        dirs::home_dir(),
-        dirs::data_local_dir(),
-        dirs::data_dir(),
-    )
+    #[cfg(target_os = "windows")]
+    {
+        return local_bin_dir_from_parts(
+            std::env::var_os("MYCELIUM_BIN_DIR")
+                .as_deref()
+                .map(Path::new),
+            dirs::data_local_dir().as_deref(),
+            dirs::data_dir().as_deref(),
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        local_bin_dir_from_parts(
+            std::env::var_os("MYCELIUM_BIN_DIR")
+                .as_deref()
+                .map(Path::new),
+            dirs::home_dir().as_deref(),
+            dirs::data_dir().as_deref(),
+        )
+    }
 }
 
 pub fn local_bin_dir_display() -> String {
@@ -49,11 +71,18 @@ mod tests {
 
     #[test]
     fn test_local_bin_dir_prefers_override() {
+        let override_dir = PathBuf::from("/tmp/custom-bin");
+        #[cfg(not(target_os = "windows"))]
         let path = local_bin_dir_from_parts(
-            Some(PathBuf::from("/tmp/custom-bin")),
-            Some(PathBuf::from("/Users/test")),
-            Some(PathBuf::from("/Users/test/AppData/Local")),
-            Some(PathBuf::from("/Users/test/.local/share")),
+            Some(override_dir.as_path()),
+            Some(Path::new("/Users/test")),
+            Some(Path::new("/Users/test/.local/share")),
+        );
+        #[cfg(target_os = "windows")]
+        let path = local_bin_dir_from_parts(
+            Some(override_dir.as_path()),
+            Some(Path::new("/Users/test/AppData/Local")),
+            Some(Path::new("/Users/test/AppData/Roaming")),
         );
 
         assert_eq!(path, Some(PathBuf::from("/tmp/custom-bin")));
@@ -62,12 +91,10 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn test_local_bin_dir_uses_home_on_non_windows() {
-        let path = local_bin_dir_from_parts(
-            None,
-            Some(PathBuf::from("/Users/test")),
-            None,
-            Some(PathBuf::from("/Users/test/.local/share")),
-        );
+        let home_dir = PathBuf::from("/Users/test");
+        let data_dir = PathBuf::from("/Users/test/.local/share");
+        let path =
+            local_bin_dir_from_parts(None, Some(home_dir.as_path()), Some(data_dir.as_path()));
 
         assert_eq!(path, Some(PathBuf::from("/Users/test/.local/bin")));
     }
@@ -75,11 +102,12 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_local_bin_dir_uses_data_local_on_windows() {
+        let data_local_dir = PathBuf::from("C:\\Users\\test\\AppData\\Local");
+        let data_dir = PathBuf::from("C:\\Users\\test\\AppData\\Roaming");
         let path = local_bin_dir_from_parts(
             None,
-            Some(PathBuf::from("C:\\Users\\test")),
-            Some(PathBuf::from("C:\\Users\\test\\AppData\\Local")),
-            Some(PathBuf::from("C:\\Users\\test\\AppData\\Roaming")),
+            Some(data_local_dir.as_path()),
+            Some(data_dir.as_path()),
         );
 
         assert_eq!(

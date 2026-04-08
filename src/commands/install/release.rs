@@ -495,7 +495,7 @@ mod tests {
         let script = dir.join("hyphae");
         fs::write(
             &script,
-            "#!/bin/sh\nread line\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"hyphae\"}}}'\n",
+            "#!/bin/sh\nIFS= read -r line || exit 1\ncase \"$line\" in\n  *'\"method\":\"initialize\"'*)\n    printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"hyphae\"}}}'\n    ;;\n  *)\n    printf '%s\\n' 'unexpected initialize payload' >&2\n    exit 1\n    ;;\nesac\n",
         )
         .unwrap();
         let mut perms = fs::metadata(&script).unwrap().permissions();
