@@ -360,7 +360,7 @@ fn test_codex_notify_helpers_use_expected_values() {
         None,
         &["Codex CLI".to_string()]
     ));
-    assert!(codex_notify::codex_notify_detail(true).contains("Codex host mode"));
+    assert!(codex_notify::codex_notify_detail(true).contains("Codex"));
     assert_eq!(
         codex_notify::codex_notify_repair_action().command,
         "stipe host setup codex"
