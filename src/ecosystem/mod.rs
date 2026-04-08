@@ -65,8 +65,7 @@ pub fn run_ecosystem(
     if options.emit_stdout {
         print_status_report(&context);
     }
-    execute(&context, client, scope, options);
-    Ok(())
+    execute(&context, client, scope, options)
 }
 
 fn ecosystem_span_context() -> SpanContext {

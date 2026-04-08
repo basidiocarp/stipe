@@ -161,7 +161,7 @@ pub fn register_servers(
     servers: &[ServerConfig],
     scope: HostConfigScope,
     verbose: u8,
-) -> Result<bool> {
+) -> Result<()> {
     registration::register_servers(client, servers, scope, verbose)
 }
 

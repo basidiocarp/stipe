@@ -1,11 +1,15 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use reqwest::blocking::Client;
+use spore::logging::{SpanContext, workflow_span};
 use std::process::Command;
 
 use super::install;
 use super::tool_registry;
 use super::tool_registry::InstallProfile;
+
+#[cfg(test)]
+mod tests;
 
 fn get_installed_version(tool: &str) -> Result<String> {
     let output = Command::new(tool)
@@ -239,7 +243,12 @@ fn resolve_tools_to_check(
     Some(requested)
 }
 
-fn handle_update_result(tool: &str, info: &UpdateInfo, check: bool, client: &Client) {
+fn handle_update_result(
+    tool: &str,
+    info: &UpdateInfo,
+    check: bool,
+    client: &Client,
+) -> Option<String> {
     if check {
         if info.needs_reinstall {
             println!(
@@ -264,12 +273,13 @@ fn handle_update_result(tool: &str, info: &UpdateInfo, check: bool, client: &Cli
                 info.installed
             );
         }
-        return;
+        return None;
     }
 
     if info.update_available {
         if let Err(error) = update_tool(tool, client) {
             eprintln!("  {} Failed to update {}: {}", "!".red(), tool, error);
+            return Some(format!("{tool}: {error}"));
         }
     } else {
         println!(
@@ -279,6 +289,8 @@ fn handle_update_result(tool: &str, info: &UpdateInfo, check: bool, client: &Cli
             info.installed
         );
     }
+
+    None
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -288,6 +300,8 @@ pub fn run(
     check: bool,
     tools: &[String],
 ) -> Result<()> {
+    let span_context = update_span_context();
+    let _workflow_span = workflow_span("update", &span_context).entered();
     if profile == Some(InstallProfile::DeveloperTools) {
         print_update_header();
         println!("Developer tools are not managed by stipe.");
@@ -308,10 +322,15 @@ pub fn run(
     };
 
     let client = crate::commands::github::github_client()?;
+    let mut failures = Vec::new();
 
     for tool in &tools_to_check {
         match check_tool_update(tool, &client) {
-            Ok(info) => handle_update_result(tool, &info, check, &client),
+            Ok(info) => {
+                if let Some(error) = handle_update_result(tool, &info, check, &client) {
+                    failures.push(error);
+                }
+            }
             Err(error) => {
                 eprintln!(
                     "  {} Failed to check {} for updates: {}",
@@ -319,95 +338,28 @@ pub fn run(
                     tool,
                     error
                 );
+                failures.push(format!("{tool}: {error}"));
             }
         }
     }
 
     println!();
 
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "update failed for {} tool(s): {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::commands::tool_registry::{DoctorCoverage, ToolProbe, ToolSpec};
-
-    fn spec(name: &'static str, profiles: &'static [InstallProfile]) -> ToolSpec {
-        ToolSpec {
-            name,
-            binary_name: name,
-            release_repo: name,
-            description: "test tool",
-            installable: true,
-            include_in_update_all: true,
-            include_in_uninstall_all: true,
-            include_in_status: true,
-            include_in_ecosystem: true,
-            include_in_install_all: true,
-            doctor_coverage: DoctorCoverage::Required,
-            install_profiles: profiles,
-            missing_hint: None,
-            smoke_test_args: None,
-            smoke_test_expect: None,
-            mcp_serve_args: None,
-        }
-    }
-
-    #[test]
-    fn installed_profile_tools_only_keep_installed_or_broken_members() {
-        let profile = InstallProfile::ClaudeCode;
-        let mycelium = spec("mycelium", &[InstallProfile::ClaudeCode]);
-        let hyphae = spec("hyphae", &[InstallProfile::ClaudeCode]);
-        let cortina = spec("cortina", &[InstallProfile::ClaudeCode]);
-
-        let specs = vec![&mycelium, &hyphae, &cortina];
-        let selected = specs
-            .into_iter()
-            .filter_map(|candidate| {
-                if !candidate.install_profiles.contains(&profile) {
-                    return None;
-                }
-                let probe = match candidate.name {
-                    "mycelium" => ToolProbe::Installed("0.8.0".to_string()),
-                    "hyphae" => ToolProbe::Broken,
-                    _ => ToolProbe::Missing,
-                };
-                probe
-                    .is_repairable_presence()
-                    .then_some(candidate.name.to_string())
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(selected, vec!["mycelium".to_string(), "hyphae".to_string()]);
-    }
-
-    #[test]
-    fn installed_profile_tools_with_helper_keeps_only_present_tools() {
-        let selected =
-            installed_profile_tools_with(InstallProfile::ClaudeCode, |spec| match spec.name {
-                "mycelium" => ToolProbe::Installed("0.8.0".to_string()),
-                "hyphae" => ToolProbe::Broken,
-                _ => ToolProbe::Missing,
-            });
-
-        assert_eq!(selected, vec!["mycelium".to_string(), "hyphae".to_string()]);
-    }
-
-    #[test]
-    fn unique_tools_appends_explicit_extras_without_duplicates() {
-        let resolved = unique_tools(
-            vec!["mycelium".to_string(), "hyphae".to_string()],
-            &["hyphae".to_string(), "canopy".to_string()],
-        );
-
-        assert_eq!(
-            resolved,
-            vec![
-                "mycelium".to_string(),
-                "hyphae".to_string(),
-                "canopy".to_string()
-            ]
-        );
+fn update_span_context() -> SpanContext {
+    let context = SpanContext::for_app("stipe");
+    match crate::commands::host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
     }
 }

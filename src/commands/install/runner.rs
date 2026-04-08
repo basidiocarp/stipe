@@ -3,6 +3,7 @@ use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::blocking::Client;
+use spore::logging::{SpanContext, workflow_span};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -97,14 +98,7 @@ pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Clie
             }
         }
         Err(error) => {
-            eprintln!(
-                "  {} {} functional check failed: {}",
-                "!".yellow(),
-                tool,
-                error
-            );
-            eprintln!("    The binary installed but may not work correctly at runtime.");
-            eprintln!("    Reinstall with: stipe install {tool} --force");
+            return Err(anyhow!("{} functional check failed: {}", tool, error));
         }
     }
 
@@ -184,13 +178,7 @@ pub(crate) fn install_from_source(
             }
         }
         Err(error) => {
-            eprintln!(
-                "  {} {} functional check failed: {}",
-                "!".yellow(),
-                tool_name,
-                error
-            );
-            eprintln!("    The binary built but may not work correctly at runtime.");
+            return Err(anyhow!("{} functional check failed: {}", tool_name, error));
         }
     }
 
@@ -218,7 +206,10 @@ pub(crate) fn run(
     source_dir: Option<PathBuf>,
     tools: &[String],
 ) -> Result<()> {
+    let span_context = install_span_context();
+    let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;
+    let mut failures = Vec::new();
 
     crate::banner::print_banner();
     println!("{}", "Basidiocarp Ecosystem Installer".bold());
@@ -324,6 +315,7 @@ pub(crate) fn run(
                         tool,
                         error
                     );
+                    failures.push(format!("{tool}: {error}"));
                 }
             }
         }
@@ -335,6 +327,7 @@ pub(crate) fn run(
                 Ok(()) => {}
                 Err(error) => {
                     eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
+                    failures.push(format!("{tool}: {error}"));
                 }
             }
         }
@@ -361,11 +354,27 @@ pub(crate) fn run(
     }
 
     println!();
-    println!(
-        "{}",
-        "Installation complete. Run 'stipe init' to configure.".green()
-    );
-    println!();
 
-    Ok(())
+    if failures.is_empty() {
+        println!(
+            "{}",
+            "Installation complete. Run 'stipe init' to configure.".green()
+        );
+        println!();
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "installation failed for {} tool(s): {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
+}
+
+fn install_span_context() -> SpanContext {
+    let context = SpanContext::for_app("stipe");
+    match crate::commands::host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
+    }
 }

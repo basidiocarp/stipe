@@ -6,7 +6,7 @@ This page is the Stipe-specific backlog. The workspace [ROADMAP.md](../docs/ROAD
 
 - Stipe now supports multi-host `host list`, `host setup`, and `host doctor` flows. The installer story is no longer tied to one selected host or one machine shape.
 - Install, update, uninstall, doctor, and ecosystem status all share a managed-tool registry and platform-aware path handling. That makes the tool inventory much more predictable across operating systems.
-- The Stipe and Spore boundary is clearer than it used to be. Spore stays focused on shared editor and config primitives, while Stipe owns orchestration, policy, and repair behavior.
+- The Stipe and Spore boundary is clearer than it used to be. Spore stays focused on shared editor and config primitives, while Stipe stays on orchestration, policy, repair behavior, and other host-facing decisions that should not be reimplemented in local helpers.
 - Optional `canopy` coverage now appears in doctor flows without forcing Canopy to be treated as a required prerequisite for the rest of the stack.
 - Portable repair guidance is broader across macOS, Linux, and Windows, and Lamella's remaining Claude host shell helpers now live in Stipe as a temporary bridge instead of hiding inside the packaging layer.
 

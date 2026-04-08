@@ -19,45 +19,68 @@ pub(super) fn execute(
     client: Option<&str>,
     scope: HostConfigScope,
     options: EcosystemOptions,
-) {
+) -> anyhow::Result<()> {
     let span_context = ecosystem_span_context("ecosystem");
     let _workflow_span = workflow_span("execute_ecosystem", &span_context).entered();
+    let mut failures = Vec::new();
 
     match context.target_host {
         Some(HostMode::ClaudeCode) => {
-            configure_claude_code(context, scope, options, true);
-            initialize_hyphae_db_if_needed(
+            if let Err(err) = configure_claude_code(context, scope, options, true) {
+                failures.push(format!("Claude Code configuration failed: {err}"));
+            }
+            if let Err(err) = initialize_hyphae_db_if_needed(
                 context.hyphae_probe.is_installed(),
                 options.emit_stdout,
-            );
+            ) {
+                failures.push(format!("Hyphae database initialization failed: {err}"));
+            }
         }
         Some(HostMode::Codex) => {
-            configure_codex_host(context, scope, options);
-            initialize_hyphae_db_if_needed(
+            if let Err(err) = configure_codex_host(context, scope, options) {
+                failures.push(format!("Codex host mode configuration failed: {err}"));
+            }
+            if let Err(err) = initialize_hyphae_db_if_needed(
                 context.hyphae_probe.is_installed(),
                 options.emit_stdout,
-            );
+            ) {
+                failures.push(format!("Hyphae database initialization failed: {err}"));
+            }
         }
         Some(HostMode::Cursor) => {
-            configure_cursor_host(
+            if let Err(err) = configure_cursor_host(
                 context.hyphae_probe.is_installed(),
                 context.rhizome_probe.is_installed(),
                 options,
-            );
-            initialize_hyphae_db_if_needed(
+            ) {
+                failures.push(format!("Cursor mode configuration failed: {err}"));
+            }
+            if let Err(err) = initialize_hyphae_db_if_needed(
                 context.hyphae_probe.is_installed(),
                 options.emit_stdout,
-            );
+            ) {
+                failures.push(format!("Hyphae database initialization failed: {err}"));
+            }
         }
         None => {
-            configure_claude_code(context, scope, options, false);
-            configure_other_hosts_and_clients(context, client, scope, options);
+            if let Err(err) = configure_claude_code(context, scope, options, false) {
+                failures.push(format!("Claude Code configuration failed: {err}"));
+            }
+            if let Err(err) = configure_other_hosts_and_clients(context, client, scope, options) {
+                failures.push(err.to_string());
+            }
         }
     }
     verify_registered_mcp_servers(context, options.emit_stdout);
     if options.emit_stdout {
         print_repair_hints(context);
         println!();
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(failures.join("; ")))
     }
 }
 
@@ -106,12 +129,12 @@ fn configure_claude_code(
     scope: HostConfigScope,
     options: EcosystemOptions,
     targeted: bool,
-) {
+) -> anyhow::Result<()> {
     let span_context = ecosystem_span_context("claude");
     let _workflow_span = workflow_span("configure_claude_code", &span_context).entered();
 
     if !context.claude_runtime_relevant {
-        return;
+        return Ok(());
     }
 
     if !super::status::claude_is_available() {
@@ -130,7 +153,7 @@ fn configure_claude_code(
                 }
             );
         }
-        return;
+        return Ok(());
     }
 
     if options.emit_stdout {
@@ -139,18 +162,23 @@ fn configure_claude_code(
     }
 
     let mut configured = Vec::new();
+    let mut failures = Vec::new();
 
     if context.hyphae_probe.is_installed() {
+        let span_context = ecosystem_span_context("hyphae");
+        let _tool_span = tool_span("register_hyphae_mcp", &span_context).entered();
         match register_mcp("hyphae", &["hyphae", "serve"], scope, options.verbose) {
             Ok(status) => configured.push(match status {
                 RegistrationStatus::AlreadyRegistered => "hyphae MCP (already registered)",
                 RegistrationStatus::Registered => "hyphae MCP",
             }),
-            Err(err) => eprintln!("  {} hyphae MCP registration error: {}", "!".yellow(), err),
+            Err(err) => failures.push(format!("hyphae MCP registration error: {err}")),
         }
     }
 
     if context.rhizome_probe.is_installed() {
+        let span_context = ecosystem_span_context("rhizome");
+        let _tool_span = tool_span("register_rhizome_mcp", &span_context).entered();
         match register_mcp(
             "rhizome",
             &["rhizome", "serve", "--expanded"],
@@ -161,7 +189,7 @@ fn configure_claude_code(
                 RegistrationStatus::AlreadyRegistered => "rhizome MCP (already registered)",
                 RegistrationStatus::Registered => "rhizome MCP",
             }),
-            Err(err) => eprintln!("  {} rhizome MCP registration error: {}", "!".yellow(), err),
+            Err(err) => failures.push(format!("rhizome MCP registration error: {err}")),
         }
     }
 
@@ -181,19 +209,13 @@ fn configure_claude_code(
                 }
             }
             Ok(false) => eprintln!("  {} Claude hook installation skipped", "!".yellow()),
-            Err(err) => eprintln!(
-                "  {} Cortina hook registration failed: {}",
-                "!".yellow(),
-                err
-            ),
+            Err(err) => failures.push(format!("Cortina hook registration failed: {err}")),
         }
     } else if matches!(context.cortina_probe, ToolProbe::Broken) {
-        eprintln!(
-            "  {} {} is installed but broken — repair it before retrying Claude hook registration.",
-            "!".yellow(),
-            "cortina".bold()
+        failures.push(
+            "cortina is installed but broken — repair it before retrying Claude hook registration. Run: stipe install cortina"
+                .to_string(),
         );
-        eprintln!("    Run: stipe install cortina");
     } else {
         eprintln!(
             "  {} {} not found in PATH — skipping Claude hook registration.",
@@ -201,20 +223,26 @@ fn configure_claude_code(
             "cortina".bold()
         );
     }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(failures.join("; ")))
+    }
 }
 
 fn configure_codex_host(
     context: &EcosystemContext,
     scope: HostConfigScope,
     options: EcosystemOptions,
-) {
+) -> anyhow::Result<()> {
     if context.codex_version.is_some() {
         configure_codex_cli(
             context.hyphae_probe.is_installed(),
             context.rhizome_probe.is_installed(),
             scope,
             options,
-        );
+        )?;
     } else if options.emit_stdout {
         println!(
             "  {} {} not found in PATH — skipping Codex host mode configuration.",
@@ -223,6 +251,8 @@ fn configure_codex_host(
         );
         println!("    Install Codex first, then re-run: stipe host setup codex");
     }
+
+    Ok(())
 }
 
 fn configure_other_hosts_and_clients(
@@ -230,24 +260,39 @@ fn configure_other_hosts_and_clients(
     client: Option<&str>,
     scope: HostConfigScope,
     options: EcosystemOptions,
-) {
+) -> anyhow::Result<()> {
+    let mut failures = Vec::new();
     if context.codex_version.is_some() {
-        configure_codex_cli(
+        if let Err(err) = configure_codex_cli(
             context.hyphae_probe.is_installed(),
             context.rhizome_probe.is_installed(),
             scope,
             options,
-        );
+        ) {
+            failures.push(format!("Codex host mode configuration failed: {err}"));
+        }
     }
 
-    initialize_hyphae_db_if_needed(context.hyphae_probe.is_installed(), options.emit_stdout);
+    if let Err(err) =
+        initialize_hyphae_db_if_needed(context.hyphae_probe.is_installed(), options.emit_stdout)
+    {
+        failures.push(format!("Hyphae database initialization failed: {err}"));
+    }
 
-    configure_detected_clients(
+    if let Err(err) = configure_detected_clients(
         client,
         context.hyphae_probe.is_installed(),
         context.rhizome_probe.is_installed(),
         options,
-    );
+    ) {
+        failures.push(format!("Detected client registration failed: {err}"));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(failures.join("; ")))
+    }
 }
 
 fn print_repair_hints(context: &EcosystemContext) {

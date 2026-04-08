@@ -1,4 +1,5 @@
 use anyhow::Result;
+use spore::logging::{SpanContext, workflow_span};
 
 use super::host_policy::{HostConfigScope, HostMode};
 
@@ -23,6 +24,8 @@ use model::HostInventoryEntry;
 use render::{render_doctor, render_list};
 
 pub fn run(command: HostCommand) -> Result<()> {
+    let span_context = host_span_context();
+    let _workflow_span = workflow_span("host", &span_context).entered();
     match command {
         HostCommand::List => {
             render::run_list();
@@ -43,5 +46,13 @@ pub fn run(command: HostCommand) -> Result<()> {
         HostCommand::LegacyCursor { dry_run } => {
             render::run_setup(HostMode::Cursor, HostConfigScope::User, dry_run)
         }
+    }
+}
+
+fn host_span_context() -> SpanContext {
+    let context = SpanContext::for_app("stipe");
+    match crate::commands::host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
     }
 }

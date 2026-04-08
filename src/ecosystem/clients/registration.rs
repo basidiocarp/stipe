@@ -16,7 +16,7 @@ pub(super) fn register_servers(
     servers: &[ServerConfig],
     scope: HostConfigScope,
     verbose: u8,
-) -> Result<bool> {
+) -> Result<()> {
     if let Some(editor) = client.shared_editor() {
         return register_shared_editor(client, editor, servers, scope, verbose);
     }
@@ -26,7 +26,7 @@ pub(super) fn register_servers(
         McpClient::Continue => register_continue(servers, verbose),
         McpClient::Cline => {
             print_cline_snippet(servers);
-            Ok(true)
+            Ok(())
         }
         McpClient::Cursor
         | McpClient::Windsurf
@@ -70,7 +70,7 @@ fn register_claude_code(
     servers: &[ServerConfig],
     scope: HostConfigScope,
     verbose: u8,
-) -> Result<bool> {
+) -> Result<()> {
     let scope_name = host_policy::scope_name(scope);
     let mut failures = Vec::new();
     for server in servers {
@@ -99,7 +99,9 @@ fn register_claude_code(
         }
 
         let _subprocess_span = subprocess_span("claude mcp add", &span_context).entered();
-        let output = cmd.output().context("failed to run `claude mcp add`")?;
+        let output = cmd
+            .output()
+            .with_context(|| format!("failed to run `claude mcp add` for {}", server.name))?;
         if !output.status.success() {
             failures.push(format!(
                 "{}: {}",
@@ -110,7 +112,7 @@ fn register_claude_code(
     }
 
     if failures.is_empty() {
-        Ok(true)
+        Ok(())
     } else {
         Err(anyhow::anyhow!(
             "Claude Code MCP registration failed: {}",
@@ -125,7 +127,7 @@ fn register_shared_editor(
     servers: &[ServerConfig],
     scope: HostConfigScope,
     verbose: u8,
-) -> Result<bool> {
+) -> Result<()> {
     if client == McpClient::CodexCli && scope == HostConfigScope::Project {
         let config_path =
             host_policy::codex_notify_config_path(scope).context("no project Codex config path")?;
@@ -165,14 +167,14 @@ fn register_shared_editor(
         );
     }
 
-    Ok(true)
+    Ok(())
 }
 
 fn register_codex_toml_at_path(
     config_path: &Path,
     servers: &[ServerConfig],
     verbose: u8,
-) -> Result<bool> {
+) -> Result<()> {
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -231,10 +233,10 @@ fn register_codex_toml_at_path(
         );
     }
 
-    Ok(true)
+    Ok(())
 }
 
-fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
+fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<()> {
     let config_path = McpClient::Continue
         .config_path()
         .context("no Continue config path")?;
@@ -294,7 +296,7 @@ fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<bool> {
         );
     }
 
-    Ok(true)
+    Ok(())
 }
 
 fn print_cline_snippet(servers: &[ServerConfig]) {

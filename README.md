@@ -102,6 +102,15 @@ run doctor       ─►    host-aware checks       ─►    repair guidance
 - Hook and notification adapter installation
 - Ecosystem and host-specific doctor flows
 
+## Foundation Boundary
+
+Stipe is a policy layer over shared primitives. It owns host setup, install,
+doctor, repair, provider health, and registration policy.
+
+It does not own authoring, packaging, or durable memory semantics. Those
+concerns stay in the owning tools and shared helpers, and shared low-level
+behavior should remain shared instead of being reimplemented locally.
+
 ## What Stipe Does Not Own
 
 - Shell filtering: handled by `mycelium`
