@@ -13,22 +13,9 @@ pub enum VerifyLevel {
     McpHandshake,
 }
 
-fn spore_tool(binary_name: &str) -> Option<Tool> {
-    match binary_name {
-        "mycelium" => Some(Tool::Mycelium),
-        "hyphae" => Some(Tool::Hyphae),
-        "rhizome" => Some(Tool::Rhizome),
-        "cortina" => Some(Tool::Cortina),
-        "canopy" => Some(Tool::Canopy),
-        "volva" => Some(Tool::Volva),
-        "cap" => Some(Tool::Cap),
-        _ => None,
-    }
-}
-
 #[must_use]
 pub fn resolve_binary_path(spec: &ToolSpec) -> Option<PathBuf> {
-    if let Some(tool) = spore_tool(spec.binary_name) {
+    if let Some(tool) = Tool::from_binary_name(spec.binary_name) {
         return discover(tool).map(|info| info.binary_path);
     }
 
@@ -73,22 +60,23 @@ pub fn parse_version(output: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{VerifyLevel, spore_tool};
+    use super::VerifyLevel;
+    use spore::Tool;
 
     #[test]
     fn supported_ecosystem_binaries_map_to_spore_tools() {
-        assert_eq!(spore_tool("mycelium"), Some(spore::Tool::Mycelium));
-        assert_eq!(spore_tool("hyphae"), Some(spore::Tool::Hyphae));
-        assert_eq!(spore_tool("rhizome"), Some(spore::Tool::Rhizome));
-        assert_eq!(spore_tool("cortina"), Some(spore::Tool::Cortina));
-        assert_eq!(spore_tool("canopy"), Some(spore::Tool::Canopy));
-        assert_eq!(spore_tool("volva"), Some(spore::Tool::Volva));
-        assert_eq!(spore_tool("cap"), Some(spore::Tool::Cap));
+        assert_eq!(Tool::from_binary_name("mycelium"), Some(Tool::Mycelium));
+        assert_eq!(Tool::from_binary_name("hyphae"), Some(Tool::Hyphae));
+        assert_eq!(Tool::from_binary_name("rhizome"), Some(Tool::Rhizome));
+        assert_eq!(Tool::from_binary_name("cortina"), Some(Tool::Cortina));
+        assert_eq!(Tool::from_binary_name("canopy"), Some(Tool::Canopy));
+        assert_eq!(Tool::from_binary_name("volva"), Some(Tool::Volva));
+        assert_eq!(Tool::from_binary_name("cap"), Some(Tool::Cap));
     }
 
     #[test]
     fn unmanaged_binaries_stay_outside_spore_mapping() {
-        assert_eq!(spore_tool("stipe"), None);
+        assert_eq!(Tool::from_binary_name("stipe"), None);
     }
 
     #[test]

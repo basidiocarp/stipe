@@ -5,6 +5,7 @@ use super::host_policy;
 use super::model::{ConfigFormat, DriftReport, HealthCheck};
 use crate::commands::init::baseline;
 use crate::commands::repair::{RepairAction, RepairTier};
+use crate::ecosystem::clients::vscode_cline_settings_path;
 
 pub(super) struct ConfigDriftState {
     pub(super) check: HealthCheck,
@@ -156,39 +157,6 @@ fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
     }
 
     paths
-}
-
-#[allow(dead_code)]
-fn vscode_cline_settings_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-
-    #[cfg(target_os = "macos")]
-    {
-        Some(
-            home.join("Library")
-                .join("Application Support")
-                .join("Code")
-                .join("User")
-                .join("settings.json"),
-        )
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Some(
-            home.join(".config")
-                .join("Code")
-                .join("User")
-                .join("settings.json"),
-        )
-    }
-    #[cfg(target_os = "windows")]
-    {
-        dirs::config_dir().map(|d| d.join("Code").join("User").join("settings.json"))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        None
-    }
 }
 
 pub(super) fn check_mcp_config_drift() -> ConfigDriftState {

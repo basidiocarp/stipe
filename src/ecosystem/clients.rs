@@ -170,7 +170,7 @@ pub fn print_generic_config(servers: &[ServerConfig]) {
 }
 
 /// Get the VS Code settings path where Cline stores MCP config.
-fn vscode_cline_settings_path() -> Option<PathBuf> {
+pub(crate) fn vscode_cline_settings_path() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     #[cfg(target_os = "macos")]
     {
