@@ -9,6 +9,21 @@ All notable changes to Stipe are documented in this file.
 - **Changelog format**: Release headings and entry structure now follow the
   shared ecosystem changelog template.
 
+## [0.5.8] - 2026-04-08
+
+### Changed
+
+- **Shared logging rollout**: Stipe now initializes logging through Spore's
+  app-aware `STIPE_LOG` path instead of relying on generic runtime setup.
+- **Verification tracing**: Install, smoke-test, and MCP handshake subprocesses
+  now emit shared tracing spans with workspace-aware context for faster failure
+  localization during doctor and install flows.
+
+### Fixed
+
+- **Operator guidance**: Docs now distinguish debug logging from Stipe's normal
+  CLI output.
+
 ## [0.5.7] - 2026-04-03
 
 ### Added

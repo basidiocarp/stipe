@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use reqwest::blocking::Client;
+use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -164,6 +165,8 @@ pub(crate) fn verify_binary(path: &Path) -> Result<String> {
 }
 
 pub(crate) fn verify_binary_with_timeout(path: &Path, timeout: Duration) -> Result<String> {
+    let span_context = span_context_for_path(path, "verify_binary");
+    let _tool_span = tool_span("verify_binary", &span_context).entered();
     let output = run_command_with_timeout(Command::new(path).arg("--version"), timeout)
         .with_context(|| format!("Failed to run {}", path.display()))?;
 
@@ -183,6 +186,8 @@ pub(crate) fn verify_functional(
     binary_path: &Path,
     spec: &ToolSpec,
 ) -> std::result::Result<(), String> {
+    let span_context = span_context_for_path(binary_path, "verify_functional");
+    let _tool_span = tool_span("verify_functional", &span_context).entered();
     let Some(args) = spec.smoke_test_args else {
         return Ok(());
     };
@@ -225,6 +230,8 @@ pub(crate) fn verify_mcp_handshake(
     binary_path: &Path,
     spec: &ToolSpec,
 ) -> std::result::Result<(), String> {
+    let span_context = span_context_for_path(binary_path, "verify_mcp_handshake");
+    let _tool_span = tool_span("verify_mcp_handshake", &span_context).entered();
     let Some(args) = spec.mcp_serve_args else {
         return Ok(());
     };
@@ -358,6 +365,9 @@ pub(crate) fn probe_mcp_server(
 }
 
 fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> std::io::Result<Output> {
+    let span_context = span_context_for_command(command, "run_command_with_timeout");
+    let command_name = command.get_program().to_string_lossy().to_string();
+    let _subprocess_span = subprocess_span(&command_name, &span_context).entered();
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -413,6 +423,25 @@ fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> std::io
         stdout,
         stderr,
     })
+}
+
+fn span_context_for_path(path: &Path, tool: &str) -> SpanContext {
+    let context = SpanContext::for_app("stipe").with_tool(tool);
+    match path.parent() {
+        Some(parent) => context.with_workspace_root(parent.display().to_string()),
+        None => context,
+    }
+}
+
+fn span_context_for_command(command: &Command, tool: &str) -> SpanContext {
+    let context = SpanContext::for_app("stipe").with_tool(tool);
+    match command.get_current_dir() {
+        Some(current_dir) => context.with_workspace_root(current_dir.display().to_string()),
+        None => match std::env::current_dir() {
+            Ok(path) => context.with_workspace_root(path.display().to_string()),
+            Err(_) => context,
+        },
+    }
 }
 
 #[cfg(test)]

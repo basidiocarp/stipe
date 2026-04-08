@@ -1,5 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use spore::logging::{SpanContext, root_span, workflow_span};
+use tracing::Level;
 
 mod banner;
 mod commands;
@@ -128,7 +130,11 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    spore::logging::init_app("stipe", Level::WARN);
+    let span_context = current_span_context();
+    let _root_span = root_span(&span_context).entered();
     let cli = Cli::parse();
+    let _workflow_span = workflow_span(command_name(&cli.command), &span_context).entered();
 
     match cli.command {
         Commands::Install {
@@ -165,6 +171,27 @@ fn main() -> Result<()> {
             tools,
         } => commands::uninstall::run(all, dry_run, &tools),
         Commands::Status => commands::status::run(),
+    }
+}
+
+fn current_span_context() -> SpanContext {
+    let context = SpanContext::for_app("stipe");
+    match std::env::current_dir() {
+        Ok(path) => context.with_workspace_root(path.display().to_string()),
+        Err(_) => context,
+    }
+}
+
+fn command_name(command: &Commands) -> &'static str {
+    match command {
+        Commands::Install { .. } => "install",
+        Commands::Update { .. } => "update",
+        Commands::SelfCmd { .. } => "self",
+        Commands::Init { .. } => "init",
+        Commands::Host { .. } => "host",
+        Commands::Doctor { .. } => "doctor",
+        Commands::Uninstall { .. } => "uninstall",
+        Commands::Status => "status",
     }
 }
 

@@ -159,6 +159,19 @@ cargo clippy
 cargo fmt
 ```
 
+## Logging
+
+Stipe writes diagnostic logs to stderr through Spore's shared logger so command
+output stays readable.
+
+- Use `STIPE_LOG` for repo-specific logging, for example
+  `STIPE_LOG=stipe=debug stipe doctor --deep`.
+- `RUST_LOG` still works as the broader Rust fallback, but `STIPE_LOG` is the
+  intended operator knob for this binary.
+- Logging is separate from Stipe's normal CLI output: human-readable status,
+  install, and doctor output still goes to stdout, while diagnostics and tracing
+  stay on stderr.
+
 ## License
 
 MIT

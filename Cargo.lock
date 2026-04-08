@@ -1298,8 +1298,8 @@ dependencies = [
 
 [[package]]
 name = "spore"
-version = "0.4.7"
-source = "git+https://github.com/basidiocarp/spore?rev=ca13188aa966ce4627d2a7f7c968a333d76a65c1#ca13188aa966ce4627d2a7f7c968a333d76a65c1"
+version = "0.4.9"
+source = "git+https://github.com/basidiocarp/spore?tag=v0.4.9#a899dbd671cc8b79c68c37f183ea8ea830f922c6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1323,7 +1323,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stipe"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -1338,6 +1338,7 @@ dependencies = [
  "spore",
  "tar",
  "toml",
+ "tracing",
  "wait-timeout",
  "which",
 ]
@@ -1635,6 +1636,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1644,12 +1655,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]
