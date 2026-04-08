@@ -168,9 +168,13 @@ output stays readable.
   `STIPE_LOG=stipe=debug stipe doctor --deep`.
 - `RUST_LOG` still works as the broader Rust fallback, but `STIPE_LOG` is the
   intended operator knob for this binary.
+- Default runtime logging is `warn`, with lifecycle span events enabled so
+  normal operator runs emit shared tracing boundaries without forcing `debug`.
 - Logging is separate from Stipe's normal CLI output: human-readable status,
   install, and doctor output still goes to stdout, while diagnostics and tracing
   stay on stderr.
+- `stipe init --json` keeps stdout reserved for the final JSON payload even when
+  it needs to apply ecosystem setup first.
 
 ## License
 

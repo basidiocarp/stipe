@@ -165,7 +165,11 @@ pub(crate) fn verify_binary(path: &Path) -> Result<String> {
 }
 
 pub(crate) fn verify_binary_with_timeout(path: &Path, timeout: Duration) -> Result<String> {
-    let span_context = span_context_for_path(path, "verify_binary");
+    let tool_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("binary");
+    let span_context = span_context_for_path(path, tool_name);
     let _tool_span = tool_span("verify_binary", &span_context).entered();
     let output = run_command_with_timeout(Command::new(path).arg("--version"), timeout)
         .with_context(|| format!("Failed to run {}", path.display()))?;
@@ -186,7 +190,7 @@ pub(crate) fn verify_functional(
     binary_path: &Path,
     spec: &ToolSpec,
 ) -> std::result::Result<(), String> {
-    let span_context = span_context_for_path(binary_path, "verify_functional");
+    let span_context = span_context_for_path(binary_path, spec.binary_name);
     let _tool_span = tool_span("verify_functional", &span_context).entered();
     let Some(args) = spec.smoke_test_args else {
         return Ok(());
@@ -230,7 +234,7 @@ pub(crate) fn verify_mcp_handshake(
     binary_path: &Path,
     spec: &ToolSpec,
 ) -> std::result::Result<(), String> {
-    let span_context = span_context_for_path(binary_path, "verify_mcp_handshake");
+    let span_context = span_context_for_path(binary_path, spec.binary_name);
     let _tool_span = tool_span("verify_mcp_handshake", &span_context).entered();
     let Some(args) = spec.mcp_serve_args else {
         return Ok(());
@@ -282,6 +286,8 @@ pub(crate) fn probe_mcp_server(
     expected_server: &str,
     timeout: Duration,
 ) -> std::result::Result<(), String> {
+    let span_context = span_context_for_path(command, expected_server);
+    let _subprocess_span = subprocess_span(expected_server, &span_context).entered();
     let mut child = Command::new(command)
         .args(args)
         .stdin(Stdio::piped())
@@ -365,7 +371,8 @@ pub(crate) fn probe_mcp_server(
 }
 
 fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> std::io::Result<Output> {
-    let span_context = span_context_for_command(command, "run_command_with_timeout");
+    let tool_name = command.get_program().to_string_lossy().to_string();
+    let span_context = span_context_for_command(command, &tool_name);
     let command_name = command.get_program().to_string_lossy().to_string();
     let _subprocess_span = subprocess_span(&command_name, &span_context).entered();
     let mut child = command

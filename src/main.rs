@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use spore::logging::{SpanContext, root_span, workflow_span};
+use spore::logging::{LogOutput, LoggingConfig, SpanContext, SpanEvents, root_span, workflow_span};
 use tracing::Level;
 
 mod banner;
@@ -130,7 +130,11 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    spore::logging::init_app("stipe", Level::WARN);
+    spore::logging::init_with_config(
+        LoggingConfig::for_app("stipe", Level::WARN)
+            .with_output(LogOutput::Stderr)
+            .with_span_events(SpanEvents::Lifecycle),
+    );
     let span_context = current_span_context();
     let _root_span = root_span(&span_context).entered();
     let cli = Cli::parse();
@@ -176,9 +180,9 @@ fn main() -> Result<()> {
 
 fn current_span_context() -> SpanContext {
     let context = SpanContext::for_app("stipe");
-    match std::env::current_dir() {
-        Ok(path) => context.with_workspace_root(path.display().to_string()),
-        Err(_) => context,
+    match commands::host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
     }
 }
 

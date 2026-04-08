@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use serde_json::Value;
+use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -53,19 +54,27 @@ fn mcp_exists(name: &str, scope: HostConfigScope) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RegistrationStatus {
+    Registered,
+    AlreadyRegistered,
+}
+
 pub(super) fn register_mcp(
     name: &str,
     args: &[&str],
     scope: HostConfigScope,
     verbose: u8,
-) -> Result<Option<&'static str>> {
+) -> Result<RegistrationStatus> {
     let scope_name = host_policy::scope_name(scope);
+    let span_context = span_context_for_registration(name);
+    let _tool_span = tool_span("register_mcp", &span_context).entered();
 
     if mcp_exists(name, scope) {
         if verbose > 0 {
             eprintln!("  {name} MCP already registered");
         }
-        return Ok(Some("already registered"));
+        return Ok(RegistrationStatus::AlreadyRegistered);
     }
 
     let mut cmd = Command::new("claude");
@@ -88,10 +97,35 @@ pub(super) fn register_mcp(
         );
     }
 
+    let _subprocess_span = subprocess_span("claude mcp add", &span_context).entered();
     let output = cmd.output()?;
     if output.status.success() {
-        Ok(Some("registered"))
+        Ok(RegistrationStatus::Registered)
     } else {
-        Ok(None)
+        Err(anyhow!(
+            "claude mcp add failed for {name} ({scope_name} scope): {}",
+            format_command_output(&output)
+        ))
     }
+}
+
+fn span_context_for_registration(name: &str) -> SpanContext {
+    let context = SpanContext::for_app("stipe").with_tool(name);
+    match current_project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
+    }
+}
+
+fn format_command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let mut details = vec![format!("exit status {}", output.status)];
+    if !stdout.is_empty() {
+        details.push(format!("stdout: {stdout}"));
+    }
+    if !stderr.is_empty() {
+        details.push(format!("stderr: {stderr}"));
+    }
+    details.join("; ")
 }

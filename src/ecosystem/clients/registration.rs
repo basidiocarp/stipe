@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::{Map, Value, json};
 use spore::editors::{Editor, McpServer as SporeMcpServer, register_mcp_servers};
+use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -71,8 +72,10 @@ fn register_claude_code(
     verbose: u8,
 ) -> Result<bool> {
     let scope_name = host_policy::scope_name(scope);
-    let mut all_ok = true;
+    let mut failures = Vec::new();
     for server in servers {
+        let span_context = registration_span_context(&server.name);
+        let _tool_span = tool_span("register_claude_code_server", &span_context).entered();
         let mut cmd = Command::new("claude");
         cmd.arg("mcp")
             .arg("add")
@@ -95,12 +98,25 @@ fn register_claude_code(
             );
         }
 
+        let _subprocess_span = subprocess_span("claude mcp add", &span_context).entered();
         let output = cmd.output().context("failed to run `claude mcp add`")?;
         if !output.status.success() {
-            all_ok = false;
+            failures.push(format!(
+                "{}: {}",
+                server.name,
+                describe_command_failure(&output)
+            ));
         }
     }
-    Ok(all_ok)
+
+    if failures.is_empty() {
+        Ok(true)
+    } else {
+        Err(anyhow::anyhow!(
+            "Claude Code MCP registration failed: {}",
+            failures.join(" | ")
+        ))
+    }
 }
 
 fn register_shared_editor(
@@ -306,4 +322,25 @@ fn print_cline_snippet(servers: &[ServerConfig]) {
         serde_json::to_string_pretty(&snippet).unwrap_or_default()
     );
     println!();
+}
+
+fn registration_span_context(tool: &str) -> SpanContext {
+    let context = SpanContext::for_app("stipe").with_tool(tool);
+    match host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
+    }
+}
+
+fn describe_command_failure(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let mut details = vec![format!("exit status {}", output.status)];
+    if !stdout.is_empty() {
+        details.push(format!("stdout: {stdout}"));
+    }
+    if !stderr.is_empty() {
+        details.push(format!("stderr: {stderr}"));
+    }
+    details.join("; ")
 }

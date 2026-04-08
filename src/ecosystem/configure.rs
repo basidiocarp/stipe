@@ -1,9 +1,11 @@
 use colored::Colorize;
-use std::process::Command;
+use spore::logging::{SpanContext, subprocess_span, tool_span, workflow_span};
+use std::process::{Command, Output};
 
 use crate::commands::codex_notify;
 use crate::commands::host_policy::{self, HostConfigScope};
 
+use super::EcosystemOptions;
 use super::clients::{self, McpClient};
 use super::status::build_ecosystem_servers;
 
@@ -14,27 +16,33 @@ fn configure_mcp_client(
     hyphae_installed: bool,
     rhizome_installed: bool,
     scope: HostConfigScope,
-    verbose: u8,
+    options: EcosystemOptions,
 ) -> bool {
+    let span_context = ecosystem_span_context(client.name());
+    let _tool_span = tool_span("configure_mcp_client", &span_context).entered();
     let servers = build_ecosystem_servers(hyphae_installed, rhizome_installed);
 
     if servers.is_empty() {
         return false;
     }
 
-    println!();
-    println!("{}", format!("Configuring {label}...").bold());
-    println!();
+    if options.emit_stdout {
+        println!();
+        println!("{}", format!("Configuring {label}...").bold());
+        println!();
+    }
 
-    match clients::register_servers(client, &servers, scope, verbose) {
+    match clients::register_servers(client, &servers, scope, options.verbose) {
         Ok(true) => {
-            println!();
-            println!(
-                "  {} MCP servers registered for {success_label}:",
-                "\u{2713}".green()
-            );
-            for server in &servers {
-                println!("    - {}", server.name);
+            if options.emit_stdout {
+                println!();
+                println!(
+                    "  {} MCP servers registered for {success_label}:",
+                    "\u{2713}".green()
+                );
+                for server in &servers {
+                    println!("    - {}", server.name);
+                }
             }
             true
         }
@@ -60,8 +68,11 @@ pub(super) fn configure_codex_cli(
     hyphae_installed: bool,
     rhizome_installed: bool,
     scope: HostConfigScope,
-    verbose: u8,
+    options: EcosystemOptions,
 ) {
+    let span_context = ecosystem_span_context("codex");
+    let _workflow_span = workflow_span("configure_codex_cli", &span_context).entered();
+
     if !host_policy::host_scope_supported(host_policy::HostMode::Codex, scope) {
         eprintln!(
             "  {} Codex host mode does not support the '{}' scope — skipping Codex configuration.",
@@ -78,21 +89,29 @@ pub(super) fn configure_codex_cli(
         hyphae_installed,
         rhizome_installed,
         scope,
-        verbose,
+        options,
     ) {
         return;
     }
 
     if hyphae_installed {
-        match codex_notify::install_codex_notify(scope, verbose) {
-            Ok(true) => println!("    - Hyphae Codex notify adapter"),
+        match codex_notify::install_codex_notify(scope, options.verbose) {
+            Ok(true) => {
+                if options.emit_stdout {
+                    println!("    - Hyphae Codex notify adapter");
+                }
+            }
             Ok(false) => eprintln!("  {} Codex notify installation skipped", "!".yellow()),
             Err(e) => eprintln!("  {} Codex notify installation failed: {}", "!".yellow(), e),
         }
     }
 }
 
-pub(super) fn configure_cursor_host(hyphae_installed: bool, rhizome_installed: bool, verbose: u8) {
+pub(super) fn configure_cursor_host(
+    hyphae_installed: bool,
+    rhizome_installed: bool,
+    options: EcosystemOptions,
+) {
     let _ = configure_mcp_client(
         McpClient::Cursor,
         "Cursor mode",
@@ -100,11 +119,14 @@ pub(super) fn configure_cursor_host(hyphae_installed: bool, rhizome_installed: b
         hyphae_installed,
         rhizome_installed,
         HostConfigScope::User,
-        verbose,
+        options,
     );
 }
 
-pub(super) fn initialize_hyphae_db_if_needed(hyphae_installed: bool) {
+pub(super) fn initialize_hyphae_db_if_needed(hyphae_installed: bool, emit_stdout: bool) {
+    let span_context = ecosystem_span_context("hyphae");
+    let _tool_span = tool_span("initialize_hyphae_db_if_needed", &span_context).entered();
+
     if let Some(data_dir) = hyphae_installed
         .then(dirs::data_dir)
         .flatten()
@@ -112,8 +134,28 @@ pub(super) fn initialize_hyphae_db_if_needed(hyphae_installed: bool) {
         .filter(|d| !d.join("hyphae.db").exists())
     {
         let _ = std::fs::create_dir_all(&data_dir);
-        let _ = Command::new("hyphae").arg("stats").output();
-        println!("  {} Hyphae database initialized", "\u{2713}".green());
+        let _subprocess_span = subprocess_span("hyphae stats", &span_context).entered();
+        match Command::new("hyphae").arg("stats").output() {
+            Ok(output) if output.status.success() => {
+                if emit_stdout {
+                    println!("  {} Hyphae database initialized", "\u{2713}".green());
+                }
+            }
+            Ok(output) => {
+                eprintln!(
+                    "  {} Hyphae database initialization failed: {}",
+                    "!".yellow(),
+                    describe_command_failure("hyphae stats", &output)
+                );
+            }
+            Err(error) => {
+                eprintln!(
+                    "  {} Hyphae database initialization failed: {}",
+                    "!".yellow(),
+                    error
+                );
+            }
+        }
     }
 }
 
@@ -122,8 +164,10 @@ pub(super) fn configure_detected_clients(
     client_filter: Option<&str>,
     hyphae_installed: bool,
     rhizome_installed: bool,
-    verbose: u8,
+    options: EcosystemOptions,
 ) {
+    let span_context = ecosystem_span_context("mcp-clients");
+    let _workflow_span = workflow_span("configure_detected_clients", &span_context).entered();
     let servers = build_ecosystem_servers(hyphae_installed, rhizome_installed);
 
     if servers.is_empty() {
@@ -151,8 +195,10 @@ pub(super) fn configure_detected_clients(
         return;
     }
 
-    println!();
-    println!("{}", "Configuring additional MCP clients...".bold());
+    if options.emit_stdout {
+        println!();
+        println!("{}", "Configuring additional MCP clients...".bold());
+    }
 
     let mut client_configured = Vec::new();
 
@@ -161,7 +207,7 @@ pub(super) fn configure_detected_clients(
             continue;
         }
 
-        match clients::register_servers(*target, &servers, HostConfigScope::User, verbose) {
+        match clients::register_servers(*target, &servers, HostConfigScope::User, options.verbose) {
             Ok(true) => {
                 client_configured.push(target.name());
             }
@@ -183,11 +229,32 @@ pub(super) fn configure_detected_clients(
         }
     }
 
-    if !client_configured.is_empty() {
+    if options.emit_stdout && !client_configured.is_empty() {
         println!();
         println!("  {} MCP servers registered for:", "\u{2713}".green());
         for name in &client_configured {
             println!("    - {name}");
         }
     }
+}
+
+fn ecosystem_span_context(tool: &str) -> SpanContext {
+    let context = SpanContext::for_app("stipe").with_tool(tool);
+    match host_policy::project_root().or_else(|| std::env::current_dir().ok()) {
+        Some(path) => context.with_workspace_root(path.display().to_string()),
+        None => context,
+    }
+}
+
+fn describe_command_failure(command: &str, output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let mut details = vec![format!("{command} exited with {}", output.status)];
+    if !stdout.is_empty() {
+        details.push(format!("stdout: {stdout}"));
+    }
+    if !stderr.is_empty() {
+        details.push(format!("stderr: {stderr}"));
+    }
+    details.join("; ")
 }

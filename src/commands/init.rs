@@ -33,7 +33,7 @@ pub fn run(
 
     if json {
         if !dry_run {
-            ecosystem::run_ecosystem(client, scope, 0)?;
+            ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::quiet(0))?;
             record_current_baseline(&snapshot, scope)?;
         }
         println!("{}", serde_json::to_string_pretty(&plan)?);
@@ -50,7 +50,7 @@ pub fn run(
         println!();
     }
 
-    ecosystem::run_ecosystem(client, scope, 0)?;
+    ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::new(0))?;
     record_current_baseline(&snapshot, scope)
 }
 
