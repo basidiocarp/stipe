@@ -37,13 +37,13 @@ fn local_bin_dir_from_parts(
 pub fn local_bin_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        return local_bin_dir_from_parts(
+        local_bin_dir_from_parts(
             std::env::var_os("MYCELIUM_BIN_DIR")
                 .as_deref()
                 .map(Path::new),
             dirs::data_local_dir().as_deref(),
             dirs::data_dir().as_deref(),
-        );
+        )
     }
 
     #[cfg(not(target_os = "windows"))]
