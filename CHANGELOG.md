@@ -9,6 +9,23 @@ All notable changes to Stipe are documented in this file.
 - **Changelog format**: Release headings and entry structure now follow the
   shared ecosystem changelog template.
 
+## [0.5.9] - 2026-04-08
+
+### Changed
+
+- **Foundation alignment**: README, roadmap, and maintainer guidance now
+  describe Stipe's host-policy boundary more explicitly.
+- **Module boundaries**: Large runtime-adjacent test coverage moved into
+  focused `tests.rs` modules under `init`, `update`, `doctor`, and ecosystem
+  status surfaces.
+
+### Fixed
+
+- **JSON operator flow**: `stipe init --json` now keeps stdout machine-clean
+  while still surfacing setup failures accurately.
+- **Setup diagnostics**: Host registration and Hyphae setup flows now report
+  subprocess failures and stderr more reliably.
+
 ## [0.5.8] - 2026-04-08
 
 ### Changed
