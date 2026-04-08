@@ -204,8 +204,9 @@ fn test_split_requested_tools_keeps_manual_members_out_of_managed_installs() {
 
 #[test]
 fn test_render_profile_install_preview_snapshot() {
+    let install_root = std::path::Path::new("/tmp/tools");
     let preview = render_profile_install_preview(
-        std::path::Path::new("/tmp/tools"),
+        install_root,
         InstallProfile::Minimal,
         &["mycelium".to_string(), "hyphae".to_string()],
     );
@@ -217,8 +218,14 @@ fn test_render_profile_install_preview_snapshot() {
             String::new(),
             "Profile: minimal profile".to_string(),
             "Would install:".to_string(),
-            "  mycelium: managed install to /tmp/tools/mycelium".to_string(),
-            "  hyphae: managed install to /tmp/tools/hyphae".to_string(),
+            format!(
+                "  mycelium: managed install to {}",
+                install_root.join("mycelium").display()
+            ),
+            format!(
+                "  hyphae: managed install to {}",
+                install_root.join("hyphae").display()
+            ),
             "Would skip:".to_string(),
             "  rhizome: not in profile minimal".to_string(),
             "  cortina: not in profile minimal".to_string(),
