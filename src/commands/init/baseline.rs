@@ -259,9 +259,7 @@ fn extract_json_mcp_servers(
         }
     }
 
-    if allow_project_scoped
-        && let Some(project_root) = host_policy::project_root()
-    {
+    if allow_project_scoped && let Some(project_root) = host_policy::project_root() {
         let project_key = project_root.to_string_lossy();
         if let Some(project) = parsed
             .get("projects")
@@ -302,10 +300,7 @@ fn extract_toml_mcp_servers(content: &str, config_path: &Path) -> Vec<BaselineMc
         return Vec::new();
     };
 
-    let Some(mcp_servers) = parsed
-        .get("mcp_servers")
-        .and_then(toml::Value::as_table)
-    else {
+    let Some(mcp_servers) = parsed.get("mcp_servers").and_then(toml::Value::as_table) else {
         return Vec::new();
     };
 
@@ -383,7 +378,10 @@ fn dedupe_config_candidates(candidates: Vec<ConfigCandidate>) -> Vec<ConfigCandi
     unique.into_values().collect()
 }
 
-fn build_current_manifest(snapshot: &InitSnapshot, scope: HostConfigScope) -> Result<InitBaselineManifest> {
+fn build_current_manifest(
+    snapshot: &InitSnapshot,
+    scope: HostConfigScope,
+) -> Result<InitBaselineManifest> {
     let mut config_files = BTreeMap::<PathBuf, String>::new();
     let mut mcp_servers = Vec::new();
     let mut hooks = Vec::new();
@@ -469,7 +467,10 @@ fn write_manifest(path: &Path, manifest: &InitBaselineManifest) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn record_current_baseline(snapshot: &InitSnapshot, scope: HostConfigScope) -> Result<()> {
+pub(super) fn record_current_baseline(
+    snapshot: &InitSnapshot,
+    scope: HostConfigScope,
+) -> Result<()> {
     let Some(path) = baseline_path() else {
         return Ok(());
     };
@@ -487,9 +488,10 @@ pub(crate) fn load_baseline() -> Result<Option<InitBaselineManifest>> {
         return Ok(None);
     }
 
-    let content = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let manifest = serde_json::from_str(&content)
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let manifest =
+        serde_json::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
     Ok(Some(manifest))
 }
 
@@ -609,7 +611,11 @@ fn hook_binary_missing(
     }
 }
 
-fn config_modified(path: PathBuf, expected_checksum: String, actual_checksum: Option<String>) -> DriftFinding {
+fn config_modified(
+    path: PathBuf,
+    expected_checksum: String,
+    actual_checksum: Option<String>,
+) -> DriftFinding {
     DriftFinding::ConfigFileModified {
         path,
         expected_checksum,
@@ -652,7 +658,10 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
             .push(server);
     }
     for hook in &manifest.hooks {
-        hooks_by_path.entry(hook.path.clone()).or_default().push(hook);
+        hooks_by_path
+            .entry(hook.path.clone())
+            .or_default()
+            .push(hook);
     }
 
     for (path, expected_checksum) in &config_files_by_path {
@@ -665,7 +674,11 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
                 ));
             }
             None if mcp_by_path.get(path).is_none() && hooks_by_path.get(path).is_none() => {
-                findings.push(config_modified(path.clone(), expected_checksum.clone(), None));
+                findings.push(config_modified(
+                    path.clone(),
+                    expected_checksum.clone(),
+                    None,
+                ));
             }
             _ => {}
         }
@@ -740,7 +753,8 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
         left_key.cmp(&right_key)
     });
 
-    let baseline_path = baseline_path().unwrap_or_else(|| PathBuf::from("~/.local/share/stipe/init-baseline.json"));
+    let baseline_path =
+        baseline_path().unwrap_or_else(|| PathBuf::from("~/.local/share/stipe/init-baseline.json"));
     Ok(DriftReport {
         baseline_path,
         generated_at_unix_nanos: now_unix_nanos(),
@@ -751,24 +765,16 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> R
 fn finding_sort_key(finding: &DriftFinding) -> String {
     match finding {
         DriftFinding::MissingMcpRegistration {
-            config_path,
-            name,
-            ..
+            config_path, name, ..
         } => format!("mcp-registration:{}:{}", config_path.display(), name),
         DriftFinding::MissingMcpBinary {
-            config_path,
-            name,
-            ..
+            config_path, name, ..
         } => format!("mcp-binary:{}:{}", config_path.display(), name),
         DriftFinding::MissingHookRegistration {
-            config_path,
-            event,
-            ..
+            config_path, event, ..
         } => format!("hook-registration:{}:{}", config_path.display(), event),
         DriftFinding::MissingHookBinary {
-            config_path,
-            event,
-            ..
+            config_path, event, ..
         } => format!("hook-binary:{}:{}", config_path.display(), event),
         DriftFinding::ConfigFileModified { path, .. } => {
             format!("config-modified:{}", path.display())

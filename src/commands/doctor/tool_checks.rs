@@ -543,7 +543,11 @@ mod tests {
         let workspace_root = temp_dir.join("claude-mycelium");
         let stipe_root = workspace_root.join("stipe");
         fs::create_dir_all(&stipe_root).unwrap();
-        fs::write(stipe_root.join("Cargo.toml"), "[package]\nname = \"stipe\"\n").unwrap();
+        fs::write(
+            stipe_root.join("Cargo.toml"),
+            "[package]\nname = \"stipe\"\n",
+        )
+        .unwrap();
 
         let lamella_root = workspace_root.join("lamella");
         fs::create_dir_all(lamella_root.join("resources")).unwrap();
