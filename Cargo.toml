@@ -29,7 +29,7 @@ toml = "1.1"
 tempfile = "3"
 wait-timeout = "0.2"
 which = "7"
-dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 indicatif = "0.17"
 tracing = "0.1"
 
