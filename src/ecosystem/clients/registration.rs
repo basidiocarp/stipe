@@ -4,8 +4,10 @@ use serde_json::{Map, Value, json};
 use spore::editors::{Editor, McpServer as SporeMcpServer, register_mcp_servers};
 use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use tempfile::NamedTempFile;
 
 use crate::commands::host_policy::{self, HostConfigScope};
 
@@ -128,7 +130,7 @@ fn register_shared_editor(
     scope: HostConfigScope,
     verbose: u8,
 ) -> Result<()> {
-    if client == McpClient::CodexCli && scope == HostConfigScope::Project {
+    if client == McpClient::CodexCli {
         let config_path =
             host_policy::codex_notify_config_path(scope).context("no project Codex config path")?;
         return register_codex_toml_at_path(&config_path, servers, verbose);
@@ -223,7 +225,13 @@ fn register_codex_toml_at_path(
         server_map.insert(server.name.clone(), toml::Value::Table(server_table));
     }
 
-    fs::write(config_path, toml::to_string_pretty(&root)?)?;
+    let parent = config_path
+        .parent()
+        .context("Codex config path has no parent directory")?;
+    let content = toml::to_string_pretty(&root)?;
+    let mut temp_file = NamedTempFile::new_in(parent)?;
+    temp_file.write_all(content.as_bytes())?;
+    temp_file.persist(config_path)?;
 
     if verbose > 0 {
         eprintln!(
