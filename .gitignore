@@ -20,7 +20,6 @@ target/
 # Project tooling
 .claude/
 .serena/
-.plans/
 AGENTS.md
 CLAUDE.md
 INSTALL.md

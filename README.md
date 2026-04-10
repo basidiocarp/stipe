@@ -135,9 +135,10 @@ behavior should remain shared instead of being reimplemented locally.
 stipe/
 ├── src/commands/   install, init, doctor, update, and status flows
 ├── src/ecosystem/  shared inventory and policy
+├── docs/           lightweight repo-local documentation index
 ├── scripts/claude/ fallback Claude-specific helpers
 ├── stipe/src/      CLI entry point
-└── docs/           host and architecture notes via README-linked docs
+└── CHANGELOG.md    release history
 ```
 
 ```text
@@ -157,16 +158,23 @@ stipe update --all
 - [README.md](README.md): command surface, profiles, and setup behavior
 - [CHANGELOG.md](CHANGELOG.md): release history
 - [ROADMAP.md](ROADMAP.md): planned work
+- [docs/README.md](docs/README.md): repo-local documentation index
 - [scripts/claude/README.md](scripts/claude/README.md): fallback Claude-specific helper scripts
 
 ## Development
 
 ```bash
 cargo build --release
+cargo nextest run
 cargo test
 cargo clippy
 cargo fmt
 ```
+
+- Prefer `cargo nextest run` for the normal test loop.
+- Keep `criterion` out of scope here until a concrete hot path is named.
+- Use whole-command timing when install, init, or doctor flows feel slow, for
+  example `time cargo run -- doctor --deep`.
 
 ## Logging
 

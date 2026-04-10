@@ -4,10 +4,20 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-04-09
+
 ### Changed
 
-- **Changelog format**: Release headings and entry structure now follow the
-  shared ecosystem changelog template.
+- **Lighter release downloads**: Install, update, and GitHub-release fetch
+  paths now use `ureq`, and interactive prompts are aligned on `dialoguer`
+  `0.12`.
+- **Docs structure**: The docs set now includes a central `docs/README.md` and
+  plan index that match the current lowercase docs layout.
+
+### Fixed
+
+- **Compile-info drag**: Stipe no longer carries the blocking `reqwest` stack
+  for release download paths, which reduces dependency weight in the CLI.
 
 ## [0.5.9] - 2026-04-08
 
@@ -267,7 +277,7 @@ All notable changes to Stipe are documented in this file.
 
 - **Platform key and asset lookup**: `platform_key()` now returns a static str,
   and asset lookup now returns references instead of cloning.
-- **Shared HTTP client**: Network paths now reuse one `reqwest::Client`.
+- **Shared HTTP client**: Network paths now reuse one shared `ureq`-based GitHub client.
 - **Centralized tool metadata**: `TOOLS` replaced scattered string literals.
 - **Spore migration**: Stipe updated for the shared `SporeError` surface.
 

@@ -2,7 +2,6 @@ use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use dialoguer::{MultiSelect, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::blocking::Client;
 use spore::logging::{SpanContext, workflow_span};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +9,7 @@ use std::path::{Path, PathBuf};
 use crate::commands::bin_paths;
 use crate::commands::developer_tools;
 use crate::commands::github;
+use crate::commands::github::GitHubClient;
 use crate::commands::install::release::{
     download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
     verify_binary, verify_functional,
@@ -21,7 +21,12 @@ use crate::commands::install::selection::{
 };
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 
-pub(crate) fn install_tool(tool: &str, prefix: &Path, force: bool, client: &Client) -> Result<()> {
+pub(crate) fn install_tool(
+    tool: &str,
+    prefix: &Path,
+    force: bool,
+    client: &GitHubClient,
+) -> Result<()> {
     let spec = tool_registry::find(tool).ok_or_else(|| anyhow!("Unknown tool: {tool}"))?;
 
     println!("  {} Fetching release information...", "⏳".yellow());
@@ -118,7 +123,7 @@ fn default_monorepo_root() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("projects")
-        .join("claude-mycelium")
+        .join("basidiocarp")
 }
 
 /// Resolve the cargo install path for a tool inside the monorepo.
@@ -277,7 +282,7 @@ pub(crate) fn run(
             .collect();
 
         let selections = MultiSelect::with_theme(&theme)
-            .items_checked(&tool_items)
+            .items_checked(tool_items)
             .interact()?;
 
         if selections.is_empty() {

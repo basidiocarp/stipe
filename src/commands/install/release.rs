@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
-use reqwest::blocking::Client;
 use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -10,6 +9,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::commands::github::GitHubClient;
 use crate::commands::tool_registry;
 use crate::commands::tool_registry::ToolSpec;
 
@@ -51,7 +51,7 @@ fn release_repo(tool: &str) -> &str {
     tool_registry::find(tool).map_or(tool, |spec| spec.release_repo)
 }
 
-pub(crate) fn fetch_latest_release(tool: &str, client: &Client) -> Result<GitHubRelease> {
+pub(crate) fn fetch_latest_release(tool: &str, client: &GitHubClient) -> Result<GitHubRelease> {
     let repo = release_repo(tool);
     let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
@@ -110,28 +110,46 @@ pub(crate) fn find_matching_asset<'a>(
 pub(crate) fn download_binary(
     asset: &ReleaseAsset,
     progress: &ProgressBar,
-    client: &Client,
+    client: &GitHubClient,
 ) -> Result<Vec<u8>> {
-    let response = client
+    let mut response = client
         .get(&asset.download_url)
-        .send()
         .with_context(|| format!("Failed to download {}", asset.name))?;
 
     if !response.status().is_success() {
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .ok()
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| "<empty response>".to_string());
         return Err(anyhow!(
-            "Download failed for {}: {}",
+            "Download failed for {}: {} ({body})",
             asset.name,
             response.status()
         ));
     }
 
-    let total_size = response.content_length().unwrap_or(0);
+    let total_size = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
     progress.set_length(total_size);
 
-    let bytes = response.bytes().context("Failed to read response body")?;
+    let mut bytes = Vec::new();
+    response
+        .body_mut()
+        .with_config()
+        .limit(u64::MAX)
+        .reader()
+        .read_to_end(&mut bytes)
+        .context("Failed to read response body")?;
 
     progress.finish();
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 pub(crate) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {

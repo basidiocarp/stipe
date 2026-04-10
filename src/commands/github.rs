@@ -1,39 +1,58 @@
 use anyhow::{Context, Result, anyhow};
-use reqwest::blocking::Client;
-use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
+use ureq::RequestExt;
+use ureq::http;
 
 const GITHUB_API_ACCEPT: &str = "application/vnd.github.v3+json";
 const GITHUB_USER_AGENT: &str = concat!("stipe/", env!("CARGO_PKG_VERSION"));
 
-pub(crate) fn github_client() -> Result<Client> {
-    let mut default_headers = HeaderMap::new();
-    default_headers.insert(ACCEPT, HeaderValue::from_static(GITHUB_API_ACCEPT));
-    default_headers.insert(USER_AGENT, HeaderValue::from_static(GITHUB_USER_AGENT));
+#[derive(Debug, Clone)]
+pub(crate) struct GitHubClient {
+    authorization: Option<String>,
+}
 
-    if let Some(token) = github_token() {
-        let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .context("failed to build GitHub authorization header")?;
-        default_headers.insert(AUTHORIZATION, value);
+pub(crate) fn github_client() -> Result<GitHubClient> {
+    let authorization = github_token()
+        .map(|token| format!("Bearer {token}"))
+        .map(Some)
+        .unwrap_or(None);
+
+    Ok(GitHubClient { authorization })
+}
+
+impl GitHubClient {
+    fn request(&self, url: &str) -> Result<ureq::http::Request<()>> {
+        let mut builder = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(url)
+            .header("Accept", GITHUB_API_ACCEPT)
+            .header("User-Agent", GITHUB_USER_AGENT);
+
+        if let Some(authorization) = self.authorization.as_deref() {
+            builder = builder.header("Authorization", authorization);
+        }
+
+        builder.body(()).context("failed to build GitHub request")
     }
 
-    Client::builder()
-        .default_headers(default_headers)
-        .build()
-        .context("failed to build GitHub HTTP client")
+    pub(crate) fn get(&self, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+        self.request(url)?
+            .with_default_agent()
+            .configure()
+            .http_status_as_error(false)
+            .run()
+            .with_context(|| format!("failed to fetch {url}"))
+    }
 }
 
 pub(crate) fn get_github_json(
-    client: &Client,
+    client: &GitHubClient,
     url: &str,
     resource: &str,
 ) -> Result<serde_json::Value> {
-    let response = client
-        .get(url)
-        .send()
-        .with_context(|| format!("failed to fetch {resource}"))?;
+    let mut response = client.get(url)?;
+    let status = response.status();
 
-    if !response.status().is_success() {
-        let status = response.status();
+    if !status.is_success() {
         let rate_remaining = response
             .headers()
             .get("x-ratelimit-remaining")
@@ -47,7 +66,8 @@ pub(crate) fn get_github_json(
             .unwrap_or("unknown")
             .to_string();
         let body = response
-            .text()
+            .body_mut()
+            .read_to_string()
             .ok()
             .map(|text| text.trim().to_string())
             .filter(|text| !text.is_empty())
@@ -70,8 +90,12 @@ pub(crate) fn get_github_json(
         return Err(anyhow!(guidance));
     }
 
-    response
-        .json()
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .context("failed to read GitHub JSON response")?;
+
+    serde_json::from_str(&body)
         .with_context(|| format!("failed to parse GitHub JSON for {resource}"))
 }
 

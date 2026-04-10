@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
-use reqwest::blocking::Client;
 use spore::logging::{SpanContext, workflow_span};
 use std::process::Command;
 
 use super::install;
 use super::tool_registry;
 use super::tool_registry::InstallProfile;
+use crate::commands::github::GitHubClient;
 
 #[cfg(test)]
 mod tests;
@@ -34,7 +34,7 @@ fn get_installed_version(tool: &str) -> Result<String> {
     Ok(version.to_string())
 }
 
-fn fetch_latest_version(tool: &str, client: &Client) -> Result<String> {
+fn fetch_latest_version(tool: &str, client: &GitHubClient) -> Result<String> {
     let repo = tool_registry::find(tool).map_or(tool, |spec| spec.release_repo);
     let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
@@ -58,7 +58,7 @@ struct UpdateInfo {
     needs_reinstall: bool,
 }
 
-fn check_tool_update(tool: &str, client: &Client) -> Result<UpdateInfo> {
+fn check_tool_update(tool: &str, client: &GitHubClient) -> Result<UpdateInfo> {
     let (installed, needs_reinstall) = if let Some(spec) = tool_registry::find(tool) {
         match tool_registry::probe(spec) {
             tool_registry::ToolProbe::Installed(version) => (version, false),
@@ -82,7 +82,7 @@ fn check_tool_update(tool: &str, client: &Client) -> Result<UpdateInfo> {
     })
 }
 
-fn update_tool(tool: &str, client: &reqwest::blocking::Client) -> Result<()> {
+fn update_tool(tool: &str, client: &GitHubClient) -> Result<()> {
     println!("  {} Checking for updates...", "⏳".yellow());
 
     let update_info = check_tool_update(tool, client)?;
@@ -247,7 +247,7 @@ fn handle_update_result(
     tool: &str,
     info: &UpdateInfo,
     check: bool,
-    client: &Client,
+    client: &GitHubClient,
 ) -> Option<String> {
     if check {
         if info.needs_reinstall {

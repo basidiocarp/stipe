@@ -284,7 +284,7 @@ fn candidate_workspace_roots() -> Vec<PathBuf> {
 
     push_candidate_root(
         &mut roots,
-        dirs::home_dir().map(|home| home.join("projects").join("claude-mycelium")),
+        dirs::home_dir().map(|home| home.join("projects").join("basidiocarp")),
     );
 
     roots
@@ -540,7 +540,7 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&temp_dir);
 
-        let workspace_root = temp_dir.join("claude-mycelium");
+        let workspace_root = temp_dir.join("basidiocarp");
         let stipe_root = workspace_root.join("stipe");
         fs::create_dir_all(&stipe_root).unwrap();
         fs::write(
