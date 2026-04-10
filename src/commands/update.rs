@@ -321,7 +321,7 @@ pub fn run(
         return Ok(());
     };
 
-    let client = crate::commands::github::github_client()?;
+    let client = crate::commands::github::github_client();
     let mut failures = Vec::new();
 
     for tool in &tools_to_check {

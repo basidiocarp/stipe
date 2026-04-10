@@ -325,7 +325,7 @@ pub(crate) fn run(
             }
         }
     } else {
-        let client = github::github_client()?;
+        let client = github::github_client();
 
         for tool in &tools_to_install {
             match install_tool(tool, &prefix, false, &client) {

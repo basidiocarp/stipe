@@ -10,13 +10,10 @@ pub(crate) struct GitHubClient {
     authorization: Option<String>,
 }
 
-pub(crate) fn github_client() -> Result<GitHubClient> {
-    let authorization = github_token()
-        .map(|token| format!("Bearer {token}"))
-        .map(Some)
-        .unwrap_or(None);
+pub(crate) fn github_client() -> GitHubClient {
+    let authorization = github_token().map(|token| format!("Bearer {token}"));
 
-    Ok(GitHubClient { authorization })
+    GitHubClient { authorization }
 }
 
 impl GitHubClient {

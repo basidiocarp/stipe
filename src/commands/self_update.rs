@@ -82,7 +82,7 @@ fn run_update(check: bool) -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
     let current_exe =
         std::env::current_exe().context("Failed to determine current stipe executable path")?;
-    let client = github::github_client()?;
+    let client = github::github_client();
     let release = fetch_latest_release("stipe", &client)?;
 
     if normalize_version(&release.version) == current_version {
