@@ -99,17 +99,35 @@ run doctor       ─►    host-aware checks       ─►    repair guidance
 
 - Managed tool inventory and release mapping
 - Host setup and MCP registration policy
+- Approval memory and runtime policy for repeated host setup decisions
 - Hook and notification adapter installation
 - Ecosystem and host-specific doctor flows
 
 ## Foundation Boundary
 
 Stipe is a policy layer over shared primitives. It owns host setup, install,
-doctor, repair, provider health, and registration policy.
+doctor, repair, provider health, registration policy, and the approval memory
+or runtime policy state that explains why repeated setup actions are allowed or
+denied.
 
 It does not own authoring, packaging, or durable memory semantics. Those
 concerns stay in the owning tools and shared helpers, and shared low-level
 behavior should remain shared instead of being reimplemented locally.
+
+## Approval Memory And Runtime Policy
+
+Stipe keeps a narrow approval-memory model for repeated runtime-facing setup.
+The first cut is intentionally small:
+
+- remembered approvals or deny decisions are explicit records, not hidden booleans
+- policy scope is ordered `project -> user`
+- decision provenance is recorded so doctor output can say whether a rule came
+  from an operator profile action, an operator-edited policy file, or imported
+  config
+
+This policy layer is host-respecting. Stipe can remember operator intent and
+surface active policy, but it should not silently invent new approvals on the
+user's behalf.
 
 ## What Stipe Does Not Own
 
@@ -126,6 +144,19 @@ behavior should remain shared instead of being reimplemented locally.
 - Managed profiles: install the right tool set for a chosen runtime.
 - Drift detection: checks for missing registrations and broken hook coverage.
 - Advisory developer tools: can report useful CLI tools without making them part of managed health.
+
+## Terminal UI Boundary
+
+If `stipe` ever adopts `ratatui`, the only bounded candidate flow is `stipe doctor`.
+That surface already aggregates the most operator-facing status data, so it is the
+one place where a richer dashboard could plausibly earn its maintenance cost.
+
+For now, `stipe` keeps `doctor`, install profile selection, and host setup previews
+on the existing `dialoguer` and `indicatif` model. A fullscreen TUI would add a new
+rendering stack on top of a command surface that is already snapshot-tested, JSON-capable,
+and easy to run in CI or over SSH. `ratatui` should not spread into install, host setup,
+or other flows until one bounded `doctor` dashboard proves clearly better than the
+plain CLI output it would replace.
 
 ---
 

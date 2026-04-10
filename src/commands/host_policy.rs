@@ -125,8 +125,36 @@ pub fn host_config_path(mode: HostMode) -> Option<PathBuf> {
 }
 
 pub fn project_root() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(root) = test_project_root_override() {
+        return Some(root);
+    }
+
     let cwd = std::env::current_dir().ok()?;
     Some(spore::paths::find_project_root(&cwd).unwrap_or(cwd))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_PROJECT_ROOT_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn test_project_root_override() -> Option<PathBuf> {
+    TEST_PROJECT_ROOT_OVERRIDE.with(|path| path.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn with_project_root_override<T>(root: PathBuf, f: impl FnOnce() -> T) -> T {
+    TEST_PROJECT_ROOT_OVERRIDE.with(|path| {
+        let previous = path.replace(Some(root));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        path.replace(previous);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
 }
 
 pub fn supported_host_config_scopes(mode: HostMode) -> &'static [HostConfigScope] {

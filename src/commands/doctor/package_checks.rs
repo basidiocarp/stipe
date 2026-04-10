@@ -73,18 +73,18 @@ pub(super) fn collect_package_drift(
         .collect::<Vec<_>>();
     let missing_count = missing_packages.len();
 
-    let repair_actions = if missing_count > 0 && package_repair::supports_profile(saved_profile.profile)
-    {
-        vec![RepairAction::stipe(
-            "package-repair",
-            "Repair packaged skills and plugins",
-            "Run Lamella package install with backup and rollback targets managed by Stipe.",
-            &["package", "--profile", saved_profile.profile.profile_name()],
-            RepairTier::Primary,
-        )]
-    } else {
-        Vec::new()
-    };
+    let repair_actions =
+        if missing_count > 0 && package_repair::supports_profile(saved_profile.profile) {
+            vec![RepairAction::stipe(
+                "package-repair",
+                "Repair packaged skills and plugins",
+                "Run Lamella package install with backup and rollback targets managed by Stipe.",
+                &["package", "--profile", saved_profile.profile.profile_name()],
+                RepairTier::Primary,
+            )]
+        } else {
+            Vec::new()
+        };
 
     (
         PackageDrift {

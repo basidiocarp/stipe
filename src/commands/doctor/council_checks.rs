@@ -44,7 +44,12 @@ pub(super) fn check_task_linked_council(
         repair_actions: if passed {
             Vec::new()
         } else {
-            repair_actions(saved_profile, has_worktree_context, hyphae_ready, canopy_ready)
+            repair_actions(
+                saved_profile,
+                has_worktree_context,
+                hyphae_ready,
+                canopy_ready,
+            )
         },
     }
 }

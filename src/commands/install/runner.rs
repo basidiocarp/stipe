@@ -19,6 +19,7 @@ use crate::commands::install::selection::{
     print_install_preview, print_profile_install_preview, resolve_requested_tools,
     split_requested_tools,
 };
+use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 
 pub(crate) fn install_tool(
@@ -199,6 +200,11 @@ pub(crate) fn install_from_source(
 }
 
 pub(crate) fn install_bin_dir() -> Result<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = test_install_bin_dir_override() {
+        return Ok(path);
+    }
+
     bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
 }
 
@@ -219,7 +225,20 @@ pub(crate) fn run(
     crate::banner::print_banner();
     println!("{}", "Basidiocarp Ecosystem Installer".bold());
     println!("{}", "─".repeat(75));
+    println!(
+        "{}",
+        "Bring the local operator canopy online with a deliberate rollout.".dimmed()
+    );
     println!();
+
+    if let Some(profile) = profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
+        let runtime_policy = runtime_policy::collect_runtime_policy(Some(profile));
+        for line in runtime_policy::render_install_policy_lines(profile, &runtime_policy) {
+            println!("{line}");
+        }
+        runtime_policy::enforce_install_profile_policy(profile, &runtime_policy)?;
+        println!();
+    }
 
     if profile == Some(InstallProfile::DeveloperTools) {
         let unknown = developer_tools::unknown_requested_tools(tools);
@@ -270,9 +289,10 @@ pub(crate) fn run(
     } else {
         let theme = ColorfulTheme::default();
         let installable_specs = tool_registry::installable_specs();
+        println!("{}", "Choose your operator kit.".bold());
         println!(
             "{}",
-            "Select tools to install (all selected by default):".bold()
+            "Managed tools start selected. Trim the list to fit this machine.".dimmed()
         );
         println!();
 
@@ -328,7 +348,7 @@ pub(crate) fn run(
         let client = github::github_client();
 
         for tool in &tools_to_install {
-            match install_tool(tool, &prefix, false, &client) {
+            match install_tool_for_run(tool, &prefix, false, &client) {
                 Ok(()) => {}
                 Err(error) => {
                     eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
@@ -338,19 +358,9 @@ pub(crate) fn run(
         }
     }
 
-    if let Some(profile) = profile.filter(|selected| *selected != InstallProfile::DeveloperTools)
-        && let Some(config_path) = save_selected_profile(profile)?
-    {
-        println!();
-        println!(
-            "{} {} ({})",
-            "✓".green(),
-            format_args!("Saved install profile: {}", profile.mode_label()),
-            config_path.display()
-        );
-    }
+    let has_manual_follow_up = !manual_tools.is_empty();
 
-    if !manual_tools.is_empty() {
+    if has_manual_follow_up {
         println!();
         println!("{}", "Manual follow-up:".bold());
         for member in manual_tools {
@@ -361,10 +371,13 @@ pub(crate) fn run(
     println!();
 
     if failures.is_empty() {
-        println!(
-            "{}",
-            "Installation complete. Run 'stipe init' to configure.".green()
-        );
+        let persisted_profile = selected_profile_for_persistence(&failures, profile);
+
+        if let Some(profile) = persisted_profile {
+            persist_install_profile_state(profile)?;
+        }
+
+        print_install_success_summary(persisted_profile, has_manual_follow_up);
         println!();
         Ok(())
     } else {
@@ -374,6 +387,142 @@ pub(crate) fn run(
             failures.join("; ")
         ))
     }
+}
+
+pub(crate) fn selected_profile_for_persistence(
+    failures: &[String],
+    profile: Option<InstallProfile>,
+) -> Option<InstallProfile> {
+    if failures.is_empty() {
+        profile.filter(|selected| *selected != InstallProfile::DeveloperTools)
+    } else {
+        None
+    }
+}
+
+fn persist_install_profile_state(profile: InstallProfile) -> Result<()> {
+    if let Some(config_path) = save_selected_profile(profile)? {
+        let policy_path = runtime_policy::remember_install_profile_approval(profile)?;
+        println!();
+        println!(
+            "{} {} ({})",
+            "✓".green(),
+            format_args!("Saved install profile: {}", profile.mode_label()),
+            config_path.display()
+        );
+        if let Some(policy_path) = policy_path {
+            println!(
+                "{} {} ({})",
+                "✓".green(),
+                "Updated approval memory and runtime policy",
+                policy_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn render_install_success_summary(
+    profile: Option<InstallProfile>,
+    has_manual_follow_up: bool,
+) -> Vec<String> {
+    let mut lines = vec!["Installation complete.".to_string()];
+
+    if has_manual_follow_up {
+        lines.push("The managed canopy is in place; finish the manual follow-up to complete the setup.".to_string());
+    } else {
+        lines.push("The local canopy is ready for host wiring.".to_string());
+    }
+
+    if let Some(profile) = profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
+        lines.push(format!(
+            "Profile checkpoint: {} is saved for this project.",
+            profile.mode_label()
+        ));
+    }
+
+    lines.push("Next step: run `stipe init` to wire hosts and MCP state.".to_string());
+    lines.push(
+        "If you want a status readout first, `stipe doctor` will show what still needs attention."
+            .to_string(),
+    );
+
+    lines
+}
+
+fn print_install_success_summary(profile: Option<InstallProfile>, has_manual_follow_up: bool) {
+    let lines = render_install_success_summary(profile, has_manual_follow_up);
+
+    for (index, line) in lines.into_iter().enumerate() {
+        if index == 0 {
+            println!("{}", line.green().bold());
+        } else if index == 1 {
+            println!("{}", line.dimmed());
+        } else if line.starts_with("Profile checkpoint:") {
+            println!("{}", line.dimmed());
+        } else if line.starts_with("Next step:") {
+            println!("{}", line.bold());
+        } else {
+            println!("{}", line.dimmed());
+        }
+    }
+}
+
+fn install_tool_for_run(
+    tool: &str,
+    prefix: &Path,
+    force: bool,
+    client: &GitHubClient,
+) -> Result<()> {
+    #[cfg(test)]
+    if let Some(result) = test_install_outcome_override() {
+        return result;
+    }
+
+    install_tool(tool, prefix, force, client)
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_INSTALL_BIN_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static TEST_INSTALL_OUTCOME_OVERRIDE: std::cell::RefCell<Option<std::result::Result<(), String>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn test_install_bin_dir_override() -> Option<PathBuf> {
+    TEST_INSTALL_BIN_DIR_OVERRIDE.with(|path| path.borrow().clone())
+}
+
+#[cfg(test)]
+fn test_install_outcome_override() -> Option<Result<()>> {
+    TEST_INSTALL_OUTCOME_OVERRIDE.with(|outcome| {
+        outcome
+            .borrow()
+            .clone()
+            .map(|result| result.map_err(anyhow::Error::msg))
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn with_install_test_overrides<T>(
+    bin_dir: PathBuf,
+    install_result: std::result::Result<(), String>,
+    f: impl FnOnce() -> T,
+) -> T {
+    TEST_INSTALL_BIN_DIR_OVERRIDE.with(|bin_override| {
+        TEST_INSTALL_OUTCOME_OVERRIDE.with(|install_override| {
+            let previous_bin = bin_override.replace(Some(bin_dir));
+            let previous_install = install_override.replace(Some(install_result));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+            install_override.replace(previous_install);
+            bin_override.replace(previous_bin);
+            match result {
+                Ok(value) => value,
+                Err(payload) => std::panic::resume_unwind(payload),
+            }
+        })
+    })
 }
 
 fn install_span_context() -> SpanContext {

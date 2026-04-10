@@ -80,7 +80,7 @@ fn test_render_preview_mentions_target_client_and_actions() {
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("Would skip: register the rhizome MCP server"))
+            .any(|line| line.contains("skip register the rhizome MCP server"))
     );
     assert!(
         lines
@@ -107,11 +107,18 @@ fn test_render_preview_snapshot_for_cursor_target() {
     assert_eq!(
         render_preview(&snapshot),
         vec![
-            "Would target Cursor mode. Use the selected host inventory for registration instead of inferring setup from unrelated clients.",
-            "Would register the hyphae MCP server. Hyphae is installed and can be wired into supported clients.",
-            "Would skip: register the rhizome MCP server. Rhizome is not installed yet.",
-            "Already OK: initialize the Hyphae database. The Hyphae database already exists.",
-            "Would patch the local instruction file with ecosystem guidance. Keep the workspace instructions aligned with the installed ecosystem.",
+            "Init preview | host bootstrap".to_string(),
+            "Dry run: no changes will be made.".to_string(),
+            String::new(),
+            "Target: Cursor mode".to_string(),
+            "Plan:".to_string(),
+            "  - stage target Cursor mode. Use the selected host inventory for registration instead of inferring setup from unrelated clients.".to_string(),
+            "  - stage register the hyphae MCP server. Hyphae is installed and can be wired into supported clients.".to_string(),
+            "  - skip register the rhizome MCP server. Rhizome is not installed yet.".to_string(),
+            "  - keep initialize the Hyphae database. The Hyphae database already exists.".to_string(),
+            "  - stage patch the local instruction file with ecosystem guidance. Keep the workspace instructions aligned with the installed ecosystem.".to_string(),
+            String::new(),
+            "Next step: run `stipe init` when you are ready to apply the host plan.".to_string(),
         ]
     );
 }

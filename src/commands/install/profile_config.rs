@@ -20,7 +20,39 @@ struct ProfileConfigFile {
 }
 
 fn profile_config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join(BASIDIOCARP_CONFIG_DIR).join(PROFILE_CONFIG_FILE))
+    current_config_dir().map(|dir| dir.join(BASIDIOCARP_CONFIG_DIR).join(PROFILE_CONFIG_FILE))
+}
+
+fn current_config_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = test_config_dir_override() {
+        return Some(path);
+    }
+
+    dirs::config_dir()
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CONFIG_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn test_config_dir_override() -> Option<PathBuf> {
+    TEST_CONFIG_DIR_OVERRIDE.with(|path| path.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn with_config_dir_override<T>(root: PathBuf, f: impl FnOnce() -> T) -> T {
+    TEST_CONFIG_DIR_OVERRIDE.with(|path| {
+        let previous = path.replace(Some(root));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        path.replace(previous);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
 }
 
 fn save_profile(path: &Path, profile: InstallProfile) -> Result<()> {

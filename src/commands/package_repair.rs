@@ -230,8 +230,8 @@ fn resolve_profile_from_inputs(
 }
 
 fn locate_lamella_root() -> Result<PathBuf> {
-    let project_root =
-        host_policy::project_root().context("unable to determine project root for package repair")?;
+    let project_root = host_policy::project_root()
+        .context("unable to determine project root for package repair")?;
     for candidate in lamella_root_candidates(&project_root) {
         if candidate.join("lamella").exists() && candidate.join("resources").exists() {
             return Ok(candidate);
@@ -359,7 +359,10 @@ fn prepare_backups_with_timestamp(
 
 fn sibling_backup_path(path: &Path, timestamp: u64, index: usize) -> PathBuf {
     let suffix = format!(".stipe-backup-{timestamp}-{index}");
-    let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("state");
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("state");
     path.with_file_name(format!("{file_name}{suffix}"))
 }
 
@@ -367,9 +370,7 @@ fn rollback_backups(backups: &[PackageBackup]) -> RollbackSummary {
     let mut summary = RollbackSummary::default();
     for backup in backups.iter().rev() {
         if !backup.backup.exists() {
-            summary
-                .skipped_missing_backup
-                .push(backup.backup.clone());
+            summary.skipped_missing_backup.push(backup.backup.clone());
             continue;
         }
         if backup.original.exists() {
@@ -449,7 +450,10 @@ fn rollback_summary_lines(summary: &RollbackSummary) -> Vec<String> {
     lines
 }
 
-fn format_failed_package_repair_message(error: &anyhow::Error, rollback: &RollbackSummary) -> String {
+fn format_failed_package_repair_message(
+    error: &anyhow::Error,
+    rollback: &RollbackSummary,
+) -> String {
     if rollback.has_issues() {
         format!(
             "Lamella install failed: {error}. Rollback encountered conflicts; inspect rollback summary and backup artifacts."
@@ -498,7 +502,8 @@ fn run_lamella_install(lamella_root: &Path, invocations: &[LamellaInvocation]) -
             .with_context(|| {
                 format!(
                     "failed to run {}",
-                    lamella_command_string(invocation).replace("./lamella", &host_policy::format_user_path(&lamella_bin))
+                    lamella_command_string(invocation)
+                        .replace("./lamella", &host_policy::format_user_path(&lamella_bin))
                 )
             })?;
 
@@ -851,8 +856,7 @@ mod tests {
 
         assert!(summary.has_issues());
 
-        let message =
-            format_failed_package_repair_message(&anyhow!("lamella failed"), &summary);
+        let message = format_failed_package_repair_message(&anyhow!("lamella failed"), &summary);
         assert!(message.contains("Rollback encountered conflicts"));
     }
 

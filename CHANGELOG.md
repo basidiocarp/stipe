@@ -4,6 +4,39 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-04-10
+
+### Added
+
+- **Approval memory and runtime policy**: `stipe install` now records explicit
+  remembered approval decisions, surfaces runtime policy in `stipe doctor`, and
+  enforces remembered denies or unreadable policy before repeated install or
+  host-facing setup flows continue.
+- **Command-path policy coverage**: Install tests now exercise project-scoped
+  and user-scoped policy decisions, precedence, and successful approval
+  persistence through the real command path instead of only helper seams.
+
+### Changed
+
+- **Doctor and repair surface**: `stipe doctor` now reports provider and MCP
+  health, package inventory or drift, worktree config discovery, and runtime
+  policy state in one richer operator report.
+- **Profile-aware package repair**: `stipe package --profile ...` now maps
+  cleanly onto Lamella install surfaces, keeps repair guidance scoped to the
+  selected host profile, and preserves clearer rollback or audit details.
+- **Operator UX polish**: Install, init, and host text surfaces now use more
+  intentional preview framing, next-step guidance, and light Basidiocarp
+  branding without adopting a fullscreen TUI.
+
+### Fixed
+
+- **Package repair safety**: Backup preparation now rolls back partial state
+  more carefully, reports rollback conflicts explicitly, and keeps audit-log
+  failures from hiding the real package-repair result.
+- **Install close-out guidance**: The install success summary now stays
+  accurate when manual follow-up is still required and hands the operator
+  cleanly into `stipe init` or `stipe doctor`.
+
 ## [0.5.11] - 2026-04-09
 
 ### Changed

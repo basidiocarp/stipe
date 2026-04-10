@@ -78,7 +78,10 @@ fn build_mcp_health_for_mode(mode: HostMode) -> McpHealth {
     } else if missing_servers.is_empty() {
         "required MCP servers are registered".to_string()
     } else {
-        format!("missing MCP registration for {}", missing_servers.join(", "))
+        format!(
+            "missing MCP registration for {}",
+            missing_servers.join(", ")
+        )
     };
 
     McpHealth {

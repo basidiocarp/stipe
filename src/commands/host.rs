@@ -13,9 +13,9 @@ mod tests;
 #[cfg(test)]
 use crate::commands::host_policy::HostAdapterKind;
 pub(crate) use doctor_report::build_host_doctor_report;
-pub(crate) use inventory::build_inventory;
 #[cfg(test)]
 use doctor_report::doctor_checks_for_entry;
+pub(crate) use inventory::build_inventory;
 #[cfg(test)]
 use inventory::inventory_entry;
 pub(crate) use model::HostCommand;

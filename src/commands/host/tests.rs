@@ -84,7 +84,7 @@ fn test_render_list_snapshot_includes_known_sections() {
     let lines = render_list();
 
     assert_eq!(lines[0], "");
-    assert_eq!(lines[1], "Configured Hosts");
+    assert_eq!(lines[1], "Basidiocarp Host Inventory");
     assert_eq!(lines[2], "─".repeat(75));
     assert!(lines.iter().any(|line| line.contains("claude-code")));
     assert!(lines.iter().any(|line| line.contains("codex")));
@@ -115,7 +115,7 @@ fn test_render_doctor_snapshot_for_failure() {
         render_doctor(&report, false),
         vec![
             "",
-            "Host Health",
+            "Basidiocarp Host Health",
             &"─".repeat(75),
             "",
             "  cursor         ✗ Cursor is not configured",

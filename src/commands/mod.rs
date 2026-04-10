@@ -10,6 +10,7 @@ pub mod init;
 pub mod install;
 pub mod package_repair;
 pub mod repair;
+pub mod runtime_policy;
 pub mod self_update;
 pub mod status;
 pub mod tool_registry;

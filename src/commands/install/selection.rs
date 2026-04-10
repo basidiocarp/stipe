@@ -45,22 +45,30 @@ pub(super) fn format_install_preview(
     tools: &[String],
     mode_label: &str,
 ) -> Vec<String> {
-    let mut lines = vec![format!("Mode: {mode_label}")];
+    let mut lines = vec![
+        "Install preview | dry run".to_string(),
+        String::new(),
+        format!("Mode: {mode_label}"),
+        "Plan:".to_string(),
+    ];
 
     for tool in tools {
         let install_path = prefix.join(tool);
         if install_path.exists() {
             lines.push(format!(
-                "{tool}: would be skipped because {} already exists",
+                "  - {tool:<12} keep existing binary at {}",
                 install_path.display()
             ));
         } else {
             lines.push(format!(
-                "{tool}: would be downloaded and installed to {}",
+                "  - {tool:<12} install release to {}",
                 install_path.display()
             ));
         }
     }
+
+    lines.push(String::new());
+    lines.push("Next step: run `stipe install ...` when this plan looks right.".to_string());
 
     lines
 }
@@ -70,14 +78,17 @@ pub(super) fn render_install_preview(
     tools: &[String],
     mode_label: &str,
 ) -> Vec<String> {
-    let mut lines = vec![
-        "Dry run: no changes will be made.".to_string(),
-        String::new(),
-    ];
-
     if tools.is_empty() {
-        lines.push("Interactive selection would be shown with all tools preselected.".to_string());
-        lines.push(String::new());
+        let mut lines = vec![
+            "Install preview | dry run".to_string(),
+            String::new(),
+            "Mode: interactive selection".to_string(),
+            "Selection flow:".to_string(),
+            "  Managed tools open with every entry preselected.".to_string(),
+            "  Use space to toggle entries and enter to confirm.".to_string(),
+            String::new(),
+            "Available tools:".to_string(),
+        ];
         lines.extend(
             tool_registry::installable_specs()
                 .into_iter()
@@ -86,12 +97,7 @@ pub(super) fn render_install_preview(
         return lines;
     }
 
-    lines.extend(
-        format_install_preview(prefix, tools, mode_label)
-            .into_iter()
-            .map(|line| format!("  {line}")),
-    );
-    lines
+    format_install_preview(prefix, tools, mode_label)
 }
 
 pub(super) fn split_requested_tools(tools: &[String]) -> (Vec<String>, Vec<ManualProfileMember>) {
@@ -118,23 +124,24 @@ pub(super) fn render_profile_install_preview(
 ) -> Vec<String> {
     let (managed, manual) = split_requested_tools(tools);
     let mut lines = vec![
-        "Dry run: no changes will be made.".to_string(),
+        "Install preview | dry run".to_string(),
         String::new(),
         format!("Profile: {}", profile.mode_label()),
-        "Would install:".to_string(),
+        "Managed installs:".to_string(),
     ];
 
     for tool in managed {
         lines.push(format!(
-            "  {tool}: managed install to {}",
+            "  - {tool:<12} managed install to {}",
             prefix.join(&tool).display()
         ));
     }
     for member in manual {
-        lines.push(format!(
-            "  {}: manual follow-up ({})",
-            member.name, member.install_hint
-        ));
+        if !lines.iter().any(|line| line == "Manual follow-up:") {
+            lines.push(String::new());
+            lines.push("Manual follow-up:".to_string());
+        }
+        lines.push(format!("  - {} ({})", member.name, member.install_hint));
     }
 
     let skipped = expected_profile_tools(InstallProfile::FullStack)
@@ -143,14 +150,18 @@ pub(super) fn render_profile_install_preview(
         .collect::<Vec<_>>();
 
     if !skipped.is_empty() {
-        lines.push("Would skip:".to_string());
+        lines.push(String::new());
+        lines.push("Not included in this profile:".to_string());
         for tool in skipped {
-            lines.push(format!(
-                "  {tool}: not in profile {}",
-                profile.profile_name()
-            ));
+            lines.push(format!("  - {tool}"));
         }
     }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "Next step: run `stipe install --profile {}` to apply this plan.",
+        profile.profile_name()
+    ));
 
     lines
 }
@@ -161,9 +172,7 @@ pub(super) fn print_install_preview(prefix: &Path, tools: &[String], mode_label:
     for (index, line) in lines.into_iter().enumerate() {
         if index == 0 {
             println!("{}", line.yellow());
-        } else if !tools.is_empty() && line.starts_with("  Mode:") {
-            println!("{line}");
-        } else if tools.is_empty() && index == 2 {
+        } else if line.ends_with(':') || line.starts_with("Mode:") {
             println!("{}", line.bold());
         } else {
             println!("{line}");

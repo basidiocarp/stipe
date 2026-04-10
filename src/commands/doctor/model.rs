@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use crate::commands::host_policy::HostMode;
 use crate::commands::claude_hooks::HookPathSnapshot;
 use crate::commands::developer_tools::DeveloperToolsReport;
+use crate::commands::host_policy::HostMode;
 use crate::commands::repair::RepairAction;
+use crate::commands::runtime_policy::RuntimePolicyReport;
 use serde::Serialize;
 
 pub(super) use crate::commands::init::baseline::{DriftFinding, DriftReport};
@@ -36,6 +37,8 @@ pub(super) struct DoctorReport {
     pub(super) provider_health: Vec<ProviderHealth>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub(super) mcp_health: Vec<McpHealth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) runtime_policy: Option<RuntimePolicyReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) package_inventory: Option<PackageInventory>,
     #[serde(skip_serializing_if = "Option::is_none")]

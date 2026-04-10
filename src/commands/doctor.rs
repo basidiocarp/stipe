@@ -7,6 +7,7 @@ use super::host;
 use super::host_policy;
 use super::install;
 use super::repair::{RepairAction, RepairTier, dedupe_repair_actions};
+use super::runtime_policy;
 use super::tool_registry;
 
 mod config_checks;
@@ -228,6 +229,11 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
         lines.push(String::new());
     }
 
+    if let Some(runtime_policy) = &report.runtime_policy {
+        lines.extend(render_runtime_policy(runtime_policy, colorize));
+        lines.push(String::new());
+    }
+
     if let Some(worktree) = &report.worktree_config {
         lines.extend(render_worktree_config(worktree, colorize));
         lines.push(String::new());
@@ -324,11 +330,7 @@ fn render_provider_health(provider_health: &[ProviderHealth], colorize: bool) ->
             lines.push(format!("    auth: {:?}", provider.auth_freshness).to_lowercase());
             lines.push(format!("    detail: {auth_detail}"));
         } else {
-            lines.push(format!(
-                "    auth: {:?}",
-                provider.auth_freshness
-            )
-            .to_lowercase());
+            lines.push(format!("    auth: {:?}", provider.auth_freshness).to_lowercase());
         }
     }
 
@@ -357,7 +359,11 @@ fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<Str
         } else {
             mcp.status.clone()
         };
-        lines.push(format!("  {symbol} {:<12} {}", mcp.host.client_flag(), status));
+        lines.push(format!(
+            "  {symbol} {:<12} {}",
+            mcp.host.client_flag(),
+            status
+        ));
         if !mcp.config_paths.is_empty() {
             let paths = mcp
                 .config_paths
@@ -370,11 +376,7 @@ fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<Str
         if !mcp.missing_servers.is_empty() {
             lines.push(format!("    missing: {}", mcp.missing_servers.join(", ")));
         }
-        lines.push(format!(
-            "    auth: {:?}",
-            mcp.auth_freshness
-        )
-        .to_lowercase());
+        lines.push(format!("    auth: {:?}", mcp.auth_freshness).to_lowercase());
     }
 
     lines
@@ -399,9 +401,99 @@ fn render_worktree_config(report: &WorktreeConfigDiscovery, colorize: bool) -> V
     if report.discovered_configs.is_empty() {
         lines.push("  configs: none discovered".to_string());
     } else {
-        lines.extend(report.discovered_configs.iter().map(|path| {
-            format!("  config: {}", host_policy::format_user_path(path))
+        lines.extend(
+            report
+                .discovered_configs
+                .iter()
+                .map(|path| format!("  config: {}", host_policy::format_user_path(path))),
+        );
+    }
+
+    lines
+}
+
+fn render_runtime_policy(
+    report: &runtime_policy::RuntimePolicyReport,
+    colorize: bool,
+) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Runtime policy:".bold().to_string()
+    } else {
+        "Runtime policy:".to_string()
+    }];
+
+    lines.push(format!(
+        "  configured: {}",
+        if report.configured { "yes" } else { "no" }
+    ));
+    lines.push(format!(
+        "  policy scope precedence: {}",
+        report
+            .precedence
+            .iter()
+            .map(|scope| format!("{scope:?}").to_lowercase())
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    ));
+
+    if report.config_paths.is_empty() {
+        lines.push("  config: none discovered".to_string());
+    } else {
+        lines.extend(
+            report
+                .config_paths
+                .iter()
+                .map(|path| format!("  config: {}", host_policy::format_user_path(path))),
+        );
+    }
+
+    if let Some(load_error) = &report.load_error {
+        lines.push(format!("  load error: {load_error}"));
+    }
+
+    if report.remembered_decisions.is_empty() {
+        lines.push("  approval memory: none recorded".to_string());
+    } else {
+        lines.push("  approval memory:".to_string());
+        lines.extend(report.remembered_decisions.iter().map(|decision| {
+            format!(
+                "    - {} {} ({}, source: {}, updated: {})",
+                match decision.decision {
+                    runtime_policy::PolicyDecision::Allow => "allow",
+                    runtime_policy::PolicyDecision::Deny => "deny",
+                },
+                decision.subject,
+                match decision.scope {
+                    runtime_policy::PolicyScope::Project => "project",
+                    runtime_policy::PolicyScope::User => "user",
+                },
+                match decision.source {
+                    runtime_policy::DecisionSource::OperatorProfile => "operator-profile",
+                    runtime_policy::DecisionSource::OperatorPolicyFile => "operator-policy-file",
+                    runtime_policy::DecisionSource::ImportedConfig => "imported-config",
+                },
+                decision.updated_at_unix
+            )
         }));
+    }
+
+    if let Some(active) = &report.active_install_profile {
+        lines.push(format!(
+            "  active install profile decision: {} ({}, source: {})",
+            match active.decision {
+                runtime_policy::PolicyDecision::Allow => "allow",
+                runtime_policy::PolicyDecision::Deny => "deny",
+            },
+            match active.scope {
+                runtime_policy::PolicyScope::Project => "project",
+                runtime_policy::PolicyScope::User => "user",
+            },
+            match active.source {
+                runtime_policy::DecisionSource::OperatorProfile => "operator-profile",
+                runtime_policy::DecisionSource::OperatorPolicyFile => "operator-policy-file",
+                runtime_policy::DecisionSource::ImportedConfig => "imported-config",
+            }
+        ));
     }
 
     lines
@@ -423,9 +515,12 @@ fn render_package_inventory(report: &PackageInventory, colorize: bool) -> Vec<St
         }
     ));
     if !report.metadata_sources.is_empty() {
-        lines.extend(report.metadata_sources.iter().map(|path| {
-            format!("  metadata: {}", host_policy::format_user_path(path))
-        }));
+        lines.extend(
+            report
+                .metadata_sources
+                .iter()
+                .map(|path| format!("  metadata: {}", host_policy::format_user_path(path))),
+        );
     }
     if report.discovered_packages.is_empty() {
         lines.push("  packages: none discovered".to_string());
@@ -438,7 +533,10 @@ fn render_package_inventory(report: &PackageInventory, colorize: bool) -> Vec<St
     if report.discovered_plugins.is_empty() {
         lines.push("  plugins: none discovered".to_string());
     } else {
-        lines.push(format!("  plugins: {}", report.discovered_plugins.join(", ")));
+        lines.push(format!(
+            "  plugins: {}",
+            report.discovered_plugins.join(", ")
+        ));
     }
 
     lines
@@ -452,12 +550,19 @@ fn render_package_drift(report: &PackageDrift, colorize: bool) -> Vec<String> {
     }];
     lines.push(format!(
         "  metadata available: {}",
-        if report.metadata_available { "yes" } else { "no" }
+        if report.metadata_available {
+            "yes"
+        } else {
+            "no"
+        }
     ));
     if report.expected_packages.is_empty() {
         lines.push("  expected: none".to_string());
     } else {
-        lines.push(format!("  expected: {}", report.expected_packages.join(", ")));
+        lines.push(format!(
+            "  expected: {}",
+            report.expected_packages.join(", ")
+        ));
     }
     if report.missing_packages.is_empty() {
         lines.push("  missing: none".to_string());
@@ -492,6 +597,8 @@ fn build_report_with_saved_profile(
 ) -> DoctorReport {
     let provider_health = collect_provider_health();
     let mcp_health = collect_mcp_health();
+    let runtime_policy =
+        runtime_policy::collect_runtime_policy(saved_profile.as_ref().map(|saved| saved.profile));
     let package_inventory = collect_package_inventory();
     let worktree_config = collect_worktree_config_discovery();
     let (package_drift, package_drift_check) = collect_package_drift(saved_profile.as_ref());
@@ -506,7 +613,10 @@ fn build_report_with_saved_profile(
     };
     let hook_paths = claude_hooks::hook_path_snapshots();
     let drift_state = check_mcp_config_drift();
-    let provider_failures = provider_health.iter().filter(|provider| !provider.healthy).count();
+    let provider_failures = provider_health
+        .iter()
+        .filter(|provider| !provider.healthy)
+        .count();
     let mcp_failures = mcp_health.iter().filter(|mcp| !mcp.healthy).count();
     checks.push(HealthCheck {
         name: "provider health".to_string(),
@@ -547,6 +657,12 @@ fn build_report_with_saved_profile(
                 RepairTier::Primary,
             )]
         },
+    });
+    checks.push(HealthCheck {
+        name: "runtime policy".to_string(),
+        passed: !runtime_policy::policy_conflicts_with_active_profile(&runtime_policy),
+        message: runtime_policy::describe_runtime_policy(&runtime_policy),
+        repair_actions: Vec::new(),
     });
     checks.push(check_task_linked_council(
         saved_profile.as_ref(),
@@ -592,6 +708,7 @@ fn build_report_with_saved_profile(
         developer_tools: include_developer_tools.then(developer_tools::doctor_report),
         provider_health,
         mcp_health,
+        runtime_policy: Some(runtime_policy),
         package_inventory: Some(package_inventory),
         worktree_config: Some(worktree_config),
         package_drift: Some(package_drift),

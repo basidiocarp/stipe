@@ -274,14 +274,8 @@ mod tests {
 
     #[test]
     fn test_package_accepts_profile_and_dry_run() {
-        let cli = Cli::try_parse_from([
-            "stipe",
-            "package",
-            "--profile",
-            "codex",
-            "--dry-run",
-        ])
-        .expect("package command should parse with profile and dry-run");
+        let cli = Cli::try_parse_from(["stipe", "package", "--profile", "codex", "--dry-run"])
+            .expect("package command should parse with profile and dry-run");
 
         match cli.command {
             Commands::Package { profile, dry_run } => {

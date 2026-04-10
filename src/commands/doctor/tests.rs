@@ -2,6 +2,9 @@ use super::*;
 use crate::commands::codex_notify;
 use crate::commands::developer_tools::DeveloperToolTier;
 use crate::commands::repair::{RepairAction, RepairTier};
+use crate::commands::runtime_policy::{
+    DecisionSource, PolicyDecision, PolicyScope, RememberedDecision, RuntimePolicyReport,
+};
 use crate::commands::tool_registry::ToolProbe;
 use std::fs;
 
@@ -113,7 +116,12 @@ fn test_build_report_includes_host_inventory_checks() {
 
     assert!(names.iter().any(|name| name.contains("host: claude-code")));
     assert!(names.iter().any(|name| name.contains("host: codex")));
-    assert!(names.iter().any(|name| name.contains("task-linked council")));
+    assert!(
+        names
+            .iter()
+            .any(|name| name.contains("task-linked council"))
+    );
+    assert!(names.iter().any(|name| name.contains("runtime policy")));
 }
 
 #[test]
@@ -169,12 +177,14 @@ fn test_task_linked_council_check_reports_missing_prereqs() {
     assert!(check.message.contains("worktree config"));
     assert!(check.message.contains("Lamella package metadata"));
     assert!(
-        check.repair_actions
+        check
+            .repair_actions
             .iter()
             .any(|action| action.command == "stipe init --repair")
     );
     assert!(
-        check.repair_actions
+        check
+            .repair_actions
             .iter()
             .any(|action| action.command == "stipe package")
     );
@@ -245,6 +255,7 @@ fn test_build_report_includes_repair_actions_for_failures() {
         developer_tools: None,
         provider_health: Vec::new(),
         mcp_health: Vec::new(),
+        runtime_policy: None,
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
@@ -280,6 +291,7 @@ fn test_render_report_snapshot_for_failure() {
         developer_tools: None,
         provider_health: Vec::new(),
         mcp_health: Vec::new(),
+        runtime_policy: None,
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
@@ -326,6 +338,7 @@ fn test_render_report_includes_hook_paths_section() {
         developer_tools: None,
         provider_health: Vec::new(),
         mcp_health: Vec::new(),
+        runtime_policy: None,
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
@@ -379,6 +392,7 @@ fn test_render_report_includes_drift_section() {
         developer_tools: None,
         provider_health: Vec::new(),
         mcp_health: Vec::new(),
+        runtime_policy: None,
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
@@ -399,6 +413,67 @@ fn test_render_report_includes_drift_section() {
         lines
             .iter()
             .any(|line| line.contains("stipe init --repair"))
+    );
+}
+
+#[test]
+fn test_render_report_includes_runtime_policy_section() {
+    let report = DoctorReport {
+        schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
+        healthy: true,
+        summary: "All checks passed.".to_string(),
+        install_profile: None,
+        checks: vec![HealthCheck {
+            name: "runtime policy".to_string(),
+            passed: true,
+            message: "No remembered approvals or deny decisions are currently stored.".to_string(),
+            repair_actions: Vec::new(),
+        }],
+        hook_paths: Vec::new(),
+        repair_actions: Vec::new(),
+        drift: None,
+        developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        runtime_policy: Some(RuntimePolicyReport {
+            configured: true,
+            config_paths: vec![std::path::PathBuf::from("/tmp/runtime-policy.toml")],
+            precedence: vec![PolicyScope::Project, PolicyScope::User],
+            load_error: None,
+            remembered_decisions: vec![RememberedDecision {
+                subject: "install-profile:codex".to_string(),
+                scope: PolicyScope::User,
+                decision: PolicyDecision::Allow,
+                source: DecisionSource::OperatorProfile,
+                updated_at_unix: 42,
+                note: Some("Remembered approval".to_string()),
+            }],
+            active_install_profile: Some(RememberedDecision {
+                subject: "install-profile:codex".to_string(),
+                scope: PolicyScope::User,
+                decision: PolicyDecision::Allow,
+                source: DecisionSource::OperatorProfile,
+                updated_at_unix: 42,
+                note: Some("Remembered approval".to_string()),
+            }),
+        }),
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
+    };
+
+    let lines = render_report(&report, false);
+    assert!(lines.iter().any(|line| line == "Runtime policy:"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("policy scope precedence: project -> user"))
+    );
+    assert!(lines.iter().any(|line| line.contains("approval memory")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("active install profile decision: allow"))
     );
 }
 

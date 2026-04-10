@@ -14,9 +14,9 @@ fn render_inventory(colorize: bool) -> Vec<String> {
     let mut lines = vec![
         String::new(),
         if colorize {
-            "Configured Hosts".bold().to_string()
+            "Basidiocarp Host Inventory".bold().to_string()
         } else {
-            "Configured Hosts".to_string()
+            "Basidiocarp Host Inventory".to_string()
         },
         "─".repeat(75),
         String::new(),
@@ -114,10 +114,18 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
     }
 
     if dry_run {
-        println!("{} {}", "Planning".bold(), mode.label().bold());
         println!(
             "{}",
-            "This runs the matching install profile and then targets init at the selected host."
+            format!("Host setup preview | {}", mode.label()).bold()
+        );
+        println!(
+            "{}",
+            "Roll out the matching install profile first, then aim init at the selected host."
+                .dimmed()
+        );
+        println!(
+            "{}",
+            "No files change in preview mode; this is the operator checklist before launch."
                 .dimmed()
         );
         println!();
@@ -156,9 +164,9 @@ pub(super) fn render_doctor(
     let mut lines = vec![
         String::new(),
         if colorize {
-            "Host Health".bold().to_string()
+            "Basidiocarp Host Health".bold().to_string()
         } else {
-            "Host Health".to_string()
+            "Basidiocarp Host Health".to_string()
         },
         "─".repeat(75),
         String::new(),

@@ -1,5 +1,14 @@
+use super::profile_config;
 use super::*;
+use crate::commands::host_policy;
+use crate::commands::install::runner::{
+    render_install_success_summary, selected_profile_for_persistence,
+};
+use crate::commands::runtime_policy;
 use crate::commands::tool_registry;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn test_profile_tools_cover_expected_sets() {
@@ -126,12 +135,12 @@ fn test_format_install_preview_reports_existing_and_missing_tools() {
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("mycelium") && line.contains("already exists"))
+            .any(|line| line.contains("mycelium") && line.contains("keep existing binary"))
     );
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("hyphae") && line.contains("would be downloaded"))
+            .any(|line| line.contains("hyphae") && line.contains("install release"))
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -151,17 +160,20 @@ fn test_render_install_preview_snapshot_for_explicit_tools() {
             "minimal profile"
         ),
         vec![
-            "Dry run: no changes will be made.".to_string(),
+            "Install preview | dry run".to_string(),
             String::new(),
-            "  Mode: minimal profile".to_string(),
+            "Mode: minimal profile".to_string(),
+            "Plan:".to_string(),
             format!(
-                "  mycelium: would be skipped because {} already exists",
+                "  - mycelium     keep existing binary at {}",
                 temp_dir.join("mycelium").display()
             ),
             format!(
-                "  hyphae: would be downloaded and installed to {}",
+                "  - hyphae       install release to {}",
                 temp_dir.join("hyphae").display()
             ),
+            String::new(),
+            "Next step: run `stipe install ...` when this plan looks right.".to_string(),
         ]
     );
 
@@ -173,10 +185,14 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
     assert_eq!(
         render_install_preview(std::path::Path::new("/tmp/tools"), &[], "minimal profile"),
         vec![
-            "Dry run: no changes will be made.".to_string(),
+            "Install preview | dry run".to_string(),
             String::new(),
-            "Interactive selection would be shown with all tools preselected.".to_string(),
+            "Mode: interactive selection".to_string(),
+            "Selection flow:".to_string(),
+            "  Managed tools open with every entry preselected.".to_string(),
+            "  Use space to toggle entries and enter to confirm.".to_string(),
             String::new(),
+            "Available tools:".to_string(),
             "  mycelium        token compression proxy".to_string(),
             "  hyphae          agent memory system".to_string(),
             "  rhizome         code intelligence server".to_string(),
@@ -214,25 +230,28 @@ fn test_render_profile_install_preview_snapshot() {
     assert_eq!(
         preview,
         vec![
-            "Dry run: no changes will be made.".to_string(),
+            "Install preview | dry run".to_string(),
             String::new(),
             "Profile: minimal profile".to_string(),
-            "Would install:".to_string(),
+            "Managed installs:".to_string(),
             format!(
-                "  mycelium: managed install to {}",
+                "  - mycelium     managed install to {}",
                 install_root.join("mycelium").display()
             ),
             format!(
-                "  hyphae: managed install to {}",
+                "  - hyphae       managed install to {}",
                 install_root.join("hyphae").display()
             ),
-            "Would skip:".to_string(),
-            "  rhizome: not in profile minimal".to_string(),
-            "  cortina: not in profile minimal".to_string(),
-            "  lamella: not in profile minimal".to_string(),
-            "  cap: not in profile minimal".to_string(),
-            "  canopy: not in profile minimal".to_string(),
-            "  volva: not in profile minimal".to_string(),
+            String::new(),
+            "Not included in this profile:".to_string(),
+            "  - rhizome".to_string(),
+            "  - cortina".to_string(),
+            "  - lamella".to_string(),
+            "  - cap".to_string(),
+            "  - canopy".to_string(),
+            "  - volva".to_string(),
+            String::new(),
+            "Next step: run `stipe install --profile minimal` to apply this plan.".to_string(),
         ]
     );
 }
@@ -253,6 +272,30 @@ fn test_profile_mode_labels_make_codex_explicit() {
 }
 
 #[test]
+fn test_selected_profile_for_persistence_skips_failed_installs() {
+    let failures = vec!["rhizome: download failed".to_string()];
+
+    assert_eq!(
+        selected_profile_for_persistence(&failures, Some(InstallProfile::Codex)),
+        None
+    );
+}
+
+#[test]
+fn test_selected_profile_for_persistence_keeps_successful_non_developer_profile() {
+    let failures = Vec::new();
+
+    assert_eq!(
+        selected_profile_for_persistence(&failures, Some(InstallProfile::Codex)),
+        Some(InstallProfile::Codex)
+    );
+    assert_eq!(
+        selected_profile_for_persistence(&failures, Some(InstallProfile::DeveloperTools)),
+        None
+    );
+}
+
+#[test]
 fn test_profile_config_round_trips() {
     let temp_dir = std::env::temp_dir().join("stipe-test-profile-config");
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -265,6 +308,232 @@ fn test_profile_config_round_trips() {
     assert_eq!(loaded, Some(InstallProfile::Standard));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_install_run_honors_project_runtime_policy_deny() {
+    with_test_project_root("runtime-policy-deny", |project_root, _config_root| {
+        write_runtime_policy_file(
+            &project_root,
+            r#"
+[[remembered_decisions]]
+subject = "install-profile:codex"
+scope = "project"
+decision = "deny"
+source = "operator-policy-file"
+updated_at_unix = 42
+"#,
+        );
+
+        let error = run(
+            false,
+            Some(InstallProfile::Codex),
+            true,
+            false,
+            None,
+            &Vec::new(),
+        )
+        .expect_err("project-scoped deny should block install");
+
+        let message = error.to_string();
+        assert!(message.contains("runtime policy denies install profile codex"));
+        assert!(message.contains("project scope"));
+    });
+}
+
+#[test]
+fn test_install_run_fails_when_project_runtime_policy_cannot_load() {
+    with_test_project_root("runtime-policy-load-error", |project_root, _config_root| {
+        write_runtime_policy_file(
+            &project_root,
+            r#"
+[[remembered_decisions]]
+subject = "install-profile:codex"
+scope = "project"
+decision = "allow"
+source = "operator-policy-file"
+updated_at_unix = "not-an-integer"
+"#,
+        );
+
+        let error = run(
+            false,
+            Some(InstallProfile::Codex),
+            true,
+            false,
+            None,
+            &Vec::new(),
+        )
+        .expect_err("policy load failures should block install");
+
+        let message = error.to_string();
+        assert!(message.contains("runtime policy for install profile codex could not be loaded"));
+        assert!(message.contains("stipe-runtime-policy.toml"));
+    });
+}
+
+#[test]
+fn test_install_run_honors_user_runtime_policy_deny_without_project_override() {
+    with_test_project_root("runtime-policy-user-deny", |project_root, config_root| {
+        write_user_runtime_policy_file(
+            &config_root,
+            r#"
+[[remembered_decisions]]
+subject = "install-profile:codex"
+scope = "user"
+decision = "deny"
+source = "operator-policy-file"
+updated_at_unix = 84
+"#,
+        );
+
+        let error = run(
+            false,
+            Some(InstallProfile::Codex),
+            true,
+            false,
+            None,
+            &Vec::new(),
+        )
+        .expect_err("user-scoped deny should block install when no project override exists");
+
+        let message = error.to_string();
+        assert!(message.contains("runtime policy denies install profile codex"));
+        assert!(message.contains("user scope"));
+        assert!(
+            !project_root
+                .join(".basidiocarp")
+                .join("stipe-runtime-policy.toml")
+                .exists()
+        );
+    });
+}
+
+#[test]
+fn test_install_run_prefers_project_runtime_policy_over_user_policy() {
+    with_test_project_root(
+        "runtime-policy-project-over-user",
+        |project_root, config_root| {
+            write_runtime_policy_file(
+                &project_root,
+                r#"
+[[remembered_decisions]]
+subject = "install-profile:codex"
+scope = "project"
+decision = "allow"
+source = "operator-policy-file"
+updated_at_unix = 120
+"#,
+            );
+            write_user_runtime_policy_file(
+                &config_root,
+                r#"
+[[remembered_decisions]]
+subject = "install-profile:codex"
+scope = "user"
+decision = "deny"
+source = "operator-policy-file"
+updated_at_unix = 240
+"#,
+            );
+
+            let install_bin_dir = project_root.join("bin");
+            fs::create_dir_all(&install_bin_dir).expect("create install bin dir");
+
+            let result = crate::commands::install::runner::with_install_test_overrides(
+                install_bin_dir,
+                Ok(()),
+                || {
+                    run(
+                        false,
+                        Some(InstallProfile::Codex),
+                        true,
+                        false,
+                        None,
+                        &Vec::new(),
+                    )
+                },
+            );
+
+            result.expect("project-scoped allow should override user-scoped deny");
+        },
+    );
+}
+
+#[test]
+fn test_install_run_persists_profile_and_approval_memory_on_success() {
+    with_test_project_root("runtime-policy-success", |project_root, config_root| {
+        let install_bin_dir = project_root.join("bin");
+        fs::create_dir_all(&install_bin_dir).expect("create install bin dir");
+
+        let result = profile_config::with_config_dir_override(config_root.clone(), || {
+            crate::commands::install::runner::with_install_test_overrides(
+                install_bin_dir.clone(),
+                Ok(()),
+                || {
+                    run(
+                        false,
+                        Some(InstallProfile::Codex),
+                        false,
+                        false,
+                        None,
+                        &Vec::new(),
+                    )
+                },
+            )
+        });
+
+        result.expect("success-path install should complete");
+
+        let saved_profile =
+            load_profile_from_path(&config_root.join("basidiocarp").join("profile.toml"))
+                .expect("load saved profile");
+        assert_eq!(saved_profile, Some(InstallProfile::Codex));
+
+        let remembered = runtime_policy::load_policy_from_path(
+            &config_root.join("basidiocarp").join("runtime-policy.toml"),
+        )
+        .expect("load runtime policy");
+        let approval = remembered
+            .iter()
+            .find(|record| record.subject == "install-profile:codex")
+            .expect("remembered approval for codex profile");
+        assert_eq!(approval.scope, runtime_policy::PolicyScope::User);
+        assert_eq!(approval.decision, runtime_policy::PolicyDecision::Allow);
+        assert_eq!(
+            approval.source,
+            runtime_policy::DecisionSource::OperatorProfile
+        );
+    });
+}
+
+#[test]
+fn test_render_install_success_summary_stages_next_step() {
+    assert_eq!(
+        render_install_success_summary(Some(InstallProfile::Codex), false),
+        vec![
+            "Installation complete.".to_string(),
+            "The local canopy is ready for host wiring.".to_string(),
+            "Profile checkpoint: Codex host mode is saved for this project.".to_string(),
+            "Next step: run `stipe init` to wire hosts and MCP state.".to_string(),
+            "If you want a status readout first, `stipe doctor` will show what still needs attention.".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_render_install_success_summary_mentions_manual_follow_up_when_needed() {
+    assert_eq!(
+        render_install_success_summary(Some(InstallProfile::Standard), true),
+        vec![
+            "Installation complete.".to_string(),
+            "The managed canopy is in place; finish the manual follow-up to complete the setup."
+                .to_string(),
+            "Profile checkpoint: standard profile is saved for this project.".to_string(),
+            "Next step: run `stipe init` to wire hosts and MCP state.".to_string(),
+            "If you want a status readout first, `stipe doctor` will show what still needs attention.".to_string(),
+        ]
+    );
 }
 
 #[test]
@@ -285,6 +554,46 @@ fn test_platform_key_known() {
         ),
         "platform_key returned unexpected value: {key}"
     );
+}
+
+fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
+    let project_root = temp_test_dir(label);
+    let config_root = project_root.join("config-root");
+    fs::create_dir_all(&project_root).expect("create project root");
+    fs::create_dir_all(&config_root).expect("create config root");
+
+    host_policy::with_project_root_override(project_root.clone(), || {
+        runtime_policy::with_config_dir_override(config_root.clone(), || {
+            test(project_root.clone(), config_root.clone())
+        })
+    });
+
+    let _ = fs::remove_dir_all(project_root);
+}
+
+fn write_runtime_policy_file(project_root: &Path, content: &str) {
+    let policy_dir = project_root.join(".basidiocarp");
+    fs::create_dir_all(&policy_dir).expect("create policy dir");
+    fs::write(
+        policy_dir.join("stipe-runtime-policy.toml"),
+        content.trim_start(),
+    )
+    .expect("write runtime policy");
+}
+
+fn write_user_runtime_policy_file(config_root: &Path, content: &str) {
+    let policy_dir = config_root.join("basidiocarp");
+    fs::create_dir_all(&policy_dir).expect("create user policy dir");
+    fs::write(policy_dir.join("runtime-policy.toml"), content.trim_start())
+        .expect("write user runtime policy");
+}
+
+fn temp_test_dir(label: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!("stipe-install-tests-{label}-{nanos}"))
 }
 
 #[test]
