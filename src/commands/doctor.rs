@@ -6,15 +6,26 @@ use super::developer_tools;
 use super::host;
 use super::host_policy;
 use super::install;
-use super::repair::dedupe_repair_actions;
+use super::repair::{RepairAction, RepairTier, dedupe_repair_actions};
 use super::tool_registry;
 
 mod config_checks;
+mod council_checks;
 mod model;
+mod package_checks;
+mod provider_checks;
 mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
-use model::{DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary};
+use council_checks::check_task_linked_council;
+use model::{
+    DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary, PackageDrift,
+    PackageInventory, ProviderHealth, WorktreeConfigDiscovery,
+};
+use package_checks::{
+    collect_package_drift, collect_package_inventory, collect_worktree_config_discovery,
+};
+use provider_checks::{collect_mcp_health, collect_provider_health};
 use tool_checks::{check_hyphae_db, check_mcp_startups, check_profile_tools, check_tool};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -207,6 +218,31 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     );
     lines.push(String::new());
 
+    lines.extend(render_provider_health(&report.provider_health, colorize));
+    if !report.provider_health.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines.extend(render_mcp_health(&report.mcp_health, colorize));
+    if !report.mcp_health.is_empty() {
+        lines.push(String::new());
+    }
+
+    if let Some(worktree) = &report.worktree_config {
+        lines.extend(render_worktree_config(worktree, colorize));
+        lines.push(String::new());
+    }
+
+    if let Some(inventory) = &report.package_inventory {
+        lines.extend(render_package_inventory(inventory, colorize));
+        lines.push(String::new());
+    }
+
+    if let Some(drift) = &report.package_drift {
+        lines.extend(render_package_drift(drift, colorize));
+        lines.push(String::new());
+    }
+
     lines.extend(render_hook_paths(&report.hook_paths, colorize));
     if !report.hook_paths.is_empty() {
         lines.push(String::new());
@@ -256,6 +292,186 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     lines
 }
 
+fn render_provider_health(provider_health: &[ProviderHealth], colorize: bool) -> Vec<String> {
+    if provider_health.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![if colorize {
+        "Providers:".bold().to_string()
+    } else {
+        "Providers:".to_string()
+    }];
+
+    for provider in provider_health {
+        let symbol = if provider.healthy { "✓" } else { "✗" };
+        let status = if colorize {
+            if provider.healthy {
+                provider.status.green().to_string()
+            } else {
+                provider.status.yellow().to_string()
+            }
+        } else {
+            provider.status.clone()
+        };
+        lines.push(format!(
+            "  {symbol} {:<12} {:<18} {}",
+            provider.host.client_flag(),
+            provider.provider,
+            status
+        ));
+        if let Some(auth_detail) = &provider.auth_detail {
+            lines.push(format!("    auth: {:?}", provider.auth_freshness).to_lowercase());
+            lines.push(format!("    detail: {auth_detail}"));
+        } else {
+            lines.push(format!(
+                "    auth: {:?}",
+                provider.auth_freshness
+            )
+            .to_lowercase());
+        }
+    }
+
+    lines
+}
+
+fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<String> {
+    if mcp_health.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![if colorize {
+        "MCP status:".bold().to_string()
+    } else {
+        "MCP status:".to_string()
+    }];
+
+    for mcp in mcp_health {
+        let symbol = if mcp.healthy { "✓" } else { "✗" };
+        let status = if colorize {
+            if mcp.healthy {
+                mcp.status.green().to_string()
+            } else {
+                mcp.status.yellow().to_string()
+            }
+        } else {
+            mcp.status.clone()
+        };
+        lines.push(format!("  {symbol} {:<12} {}", mcp.host.client_flag(), status));
+        if !mcp.config_paths.is_empty() {
+            let paths = mcp
+                .config_paths
+                .iter()
+                .map(|path| host_policy::format_user_path(path))
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(format!("    config: {paths}"));
+        }
+        if !mcp.missing_servers.is_empty() {
+            lines.push(format!("    missing: {}", mcp.missing_servers.join(", ")));
+        }
+        lines.push(format!(
+            "    auth: {:?}",
+            mcp.auth_freshness
+        )
+        .to_lowercase());
+    }
+
+    lines
+}
+
+fn render_worktree_config(report: &WorktreeConfigDiscovery, colorize: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Worktree config discovery:".bold().to_string()
+    } else {
+        "Worktree config discovery:".to_string()
+    }];
+
+    if let Some(project_root) = &report.project_root {
+        lines.push(format!(
+            "  root: {}",
+            host_policy::format_user_path(project_root)
+        ));
+    } else {
+        lines.push("  root: not detected".to_string());
+    }
+
+    if report.discovered_configs.is_empty() {
+        lines.push("  configs: none discovered".to_string());
+    } else {
+        lines.extend(report.discovered_configs.iter().map(|path| {
+            format!("  config: {}", host_policy::format_user_path(path))
+        }));
+    }
+
+    lines
+}
+
+fn render_package_inventory(report: &PackageInventory, colorize: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Package and plugin inventory:".bold().to_string()
+    } else {
+        "Package and plugin inventory:".to_string()
+    }];
+
+    lines.push(format!(
+        "  metadata available: {}",
+        if report.package_metadata_available {
+            "yes"
+        } else {
+            "no"
+        }
+    ));
+    if !report.metadata_sources.is_empty() {
+        lines.extend(report.metadata_sources.iter().map(|path| {
+            format!("  metadata: {}", host_policy::format_user_path(path))
+        }));
+    }
+    if report.discovered_packages.is_empty() {
+        lines.push("  packages: none discovered".to_string());
+    } else {
+        lines.push(format!(
+            "  packages: {}",
+            report.discovered_packages.join(", ")
+        ));
+    }
+    if report.discovered_plugins.is_empty() {
+        lines.push("  plugins: none discovered".to_string());
+    } else {
+        lines.push(format!("  plugins: {}", report.discovered_plugins.join(", ")));
+    }
+
+    lines
+}
+
+fn render_package_drift(report: &PackageDrift, colorize: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Package drift:".bold().to_string()
+    } else {
+        "Package drift:".to_string()
+    }];
+    lines.push(format!(
+        "  metadata available: {}",
+        if report.metadata_available { "yes" } else { "no" }
+    ));
+    if report.expected_packages.is_empty() {
+        lines.push("  expected: none".to_string());
+    } else {
+        lines.push(format!("  expected: {}", report.expected_packages.join(", ")));
+    }
+    if report.missing_packages.is_empty() {
+        lines.push("  missing: none".to_string());
+    } else {
+        let missing = if colorize {
+            report.missing_packages.join(", ").yellow().to_string()
+        } else {
+            report.missing_packages.join(", ")
+        };
+        lines.push(format!("  missing: {missing}"));
+    }
+    lines
+}
+
 fn host_health_checks() -> Vec<HealthCheck> {
     host::build_host_doctor_report(None)
         .checks
@@ -274,6 +490,12 @@ fn build_report_with_saved_profile(
     include_developer_tools: bool,
     deep: bool,
 ) -> DoctorReport {
+    let provider_health = collect_provider_health();
+    let mcp_health = collect_mcp_health();
+    let package_inventory = collect_package_inventory();
+    let worktree_config = collect_worktree_config_discovery();
+    let (package_drift, package_drift_check) = collect_package_drift(saved_profile.as_ref());
+
     let mut checks = if let Some(saved_profile) = &saved_profile {
         check_profile_tools(saved_profile.profile, deep)
     } else {
@@ -284,7 +506,58 @@ fn build_report_with_saved_profile(
     };
     let hook_paths = claude_hooks::hook_path_snapshots();
     let drift_state = check_mcp_config_drift();
-    checks.extend([check_hyphae_db(), drift_state.check.clone()]);
+    let provider_failures = provider_health.iter().filter(|provider| !provider.healthy).count();
+    let mcp_failures = mcp_health.iter().filter(|mcp| !mcp.healthy).count();
+    checks.push(HealthCheck {
+        name: "provider health".to_string(),
+        passed: provider_failures == 0,
+        message: if provider_failures == 0 {
+            "All detected providers are healthy.".to_string()
+        } else {
+            format!("{provider_failures} provider entries need attention")
+        },
+        repair_actions: if provider_failures == 0 {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "host-doctor",
+                "Inspect host health",
+                "Inspect host/provider health and run targeted setup for missing provider configuration.",
+                &["host", "doctor"],
+                RepairTier::Primary,
+            )]
+        },
+    });
+    checks.push(HealthCheck {
+        name: "mcp registration".to_string(),
+        passed: mcp_failures == 0,
+        message: if mcp_failures == 0 {
+            "Required MCP registrations look healthy.".to_string()
+        } else {
+            format!("{mcp_failures} MCP registration entries need attention")
+        },
+        repair_actions: if mcp_failures == 0 {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "repair-init",
+                "Repair shared MCP registrations",
+                "Reapply shared MCP configuration across detected hosts.",
+                &["init", "--repair"],
+                RepairTier::Primary,
+            )]
+        },
+    });
+    checks.push(check_task_linked_council(
+        saved_profile.as_ref(),
+        &package_inventory,
+        &worktree_config,
+    ));
+    checks.extend([
+        check_hyphae_db(),
+        drift_state.check.clone(),
+        package_drift_check,
+    ]);
     if deep {
         checks.extend(check_mcp_startups());
     }
@@ -317,6 +590,11 @@ fn build_report_with_saved_profile(
         repair_actions,
         drift: drift_state.report,
         developer_tools: include_developer_tools.then(developer_tools::doctor_report),
+        provider_health,
+        mcp_health,
+        package_inventory: Some(package_inventory),
+        worktree_config: Some(worktree_config),
+        package_drift: Some(package_drift),
     }
 }
 

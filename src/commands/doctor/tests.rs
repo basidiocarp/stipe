@@ -6,6 +6,7 @@ use crate::commands::tool_registry::ToolProbe;
 use std::fs;
 
 use super::config_checks::{codex_notify_adapter_configured_at_path, config_mentions_servers};
+use super::council_checks::check_task_linked_council;
 use super::model::ConfigFormat;
 use super::tool_checks::check_hyphae_db_at_path;
 use super::{host_policy, tool_registry};
@@ -112,6 +113,71 @@ fn test_build_report_includes_host_inventory_checks() {
 
     assert!(names.iter().any(|name| name.contains("host: claude-code")));
     assert!(names.iter().any(|name| name.contains("host: codex")));
+    assert!(names.iter().any(|name| name.contains("task-linked council")));
+}
+
+#[test]
+fn test_task_linked_council_check_passes_when_all_prereqs_exist() {
+    let check = check_task_linked_council(
+        None,
+        &PackageInventory {
+            package_metadata_available: true,
+            metadata_sources: Vec::new(),
+            discovered_packages: vec!["codex:council-reviewer".to_string()],
+            discovered_plugins: Vec::new(),
+        },
+        &WorktreeConfigDiscovery {
+            detected: true,
+            project_root: Some(std::path::PathBuf::from("/tmp/workspace")),
+            discovered_configs: vec![std::path::PathBuf::from("/tmp/workspace/.mcp.json")],
+        },
+    );
+
+    if tool_registry::find("hyphae")
+        .is_some_and(|spec| !matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
+        || tool_registry::find("canopy")
+            .is_some_and(|spec| !matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
+    {
+        return;
+    }
+
+    assert!(check.passed);
+    assert_eq!(
+        check.message,
+        "Task-linked council summon prerequisites look ready."
+    );
+}
+
+#[test]
+fn test_task_linked_council_check_reports_missing_prereqs() {
+    let check = check_task_linked_council(
+        None,
+        &PackageInventory {
+            package_metadata_available: false,
+            metadata_sources: Vec::new(),
+            discovered_packages: Vec::new(),
+            discovered_plugins: Vec::new(),
+        },
+        &WorktreeConfigDiscovery {
+            detected: false,
+            project_root: None,
+            discovered_configs: Vec::new(),
+        },
+    );
+
+    assert!(!check.passed);
+    assert!(check.message.contains("worktree config"));
+    assert!(check.message.contains("Lamella package metadata"));
+    assert!(
+        check.repair_actions
+            .iter()
+            .any(|action| action.command == "stipe init --repair")
+    );
+    assert!(
+        check.repair_actions
+            .iter()
+            .any(|action| action.command == "stipe package")
+    );
 }
 
 #[test]
@@ -177,6 +243,11 @@ fn test_build_report_includes_repair_actions_for_failures() {
         )],
         drift: None,
         developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
     };
 
     assert!(!report.healthy);
@@ -207,6 +278,11 @@ fn test_render_report_snapshot_for_failure() {
         )],
         drift: None,
         developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
     };
 
     assert_eq!(
@@ -248,6 +324,11 @@ fn test_render_report_includes_hook_paths_section() {
         repair_actions: Vec::new(),
         drift: None,
         developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
     };
 
     let lines = render_report(&report, false);
@@ -296,6 +377,11 @@ fn test_render_report_includes_drift_section() {
             }],
         }),
         developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
     };
 
     let lines = render_report(&report, false);

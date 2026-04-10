@@ -111,6 +111,17 @@ enum Commands {
         deep: bool,
     },
 
+    /// Repair packaged skill and plugin state using Lamella with backup and rollback targets
+    Package {
+        /// Optional install profile label used for package drift and audit metadata
+        #[arg(long, value_enum)]
+        profile: Option<commands::install::InstallProfile>,
+
+        /// Show what would change without mutating packaged state
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Remove ecosystem tools and configuration
     Uninstall {
         /// Remove all tools and configuration
@@ -169,6 +180,7 @@ fn main() -> Result<()> {
             developer,
             deep,
         } => commands::doctor::run(json, developer, deep),
+        Commands::Package { profile, dry_run } => commands::package_repair::run(profile, dry_run),
         Commands::Uninstall {
             all,
             dry_run,
@@ -194,6 +206,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Init { .. } => "init",
         Commands::Host { .. } => "host",
         Commands::Doctor { .. } => "doctor",
+        Commands::Package { .. } => "package",
         Commands::Uninstall { .. } => "uninstall",
         Commands::Status => "status",
     }
@@ -256,6 +269,26 @@ mod tests {
         match cli.command {
             Commands::Doctor { deep, .. } => assert!(deep),
             _ => panic!("expected doctor command"),
+        }
+    }
+
+    #[test]
+    fn test_package_accepts_profile_and_dry_run() {
+        let cli = Cli::try_parse_from([
+            "stipe",
+            "package",
+            "--profile",
+            "codex",
+            "--dry-run",
+        ])
+        .expect("package command should parse with profile and dry-run");
+
+        match cli.command {
+            Commands::Package { profile, dry_run } => {
+                assert_eq!(profile, Some(commands::install::InstallProfile::Codex));
+                assert!(dry_run);
+            }
+            _ => panic!("expected package command"),
         }
     }
 
