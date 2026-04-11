@@ -4,6 +4,23 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-04-10
+
+### Changed
+
+- **Doctor and operator copy polish**: `stipe doctor`, `stipe init`,
+  `stipe host`, and install success output now use tighter shared operator
+  wording while keeping the summary-first structure and JSON behavior stable.
+- **Host preview guidance**: `stipe host setup --dry-run` now keeps one clear
+  next step at the host level and uses embedded install or init previews
+  without competing repair prompts.
+
+### Fixed
+
+- **Banner fallback behavior**: The Basidiocarp mushroom banner now degrades
+  cleanly across non-interactive, no-color, ANSI-only, and truecolor terminals,
+  with explicit coverage for the fallback paths.
+
 ## [0.5.12] - 2026-04-10
 
 ### Added

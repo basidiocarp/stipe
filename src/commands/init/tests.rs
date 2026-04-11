@@ -1,7 +1,7 @@
 use super::*;
 use crate::commands::host_policy::{self, HostMode};
 
-use super::render::render_preview;
+use super::render::{render_embedded_preview, render_preview};
 use crate::commands::codex_notify;
 
 struct SnapshotFixture {
@@ -108,7 +108,7 @@ fn test_render_preview_snapshot_for_cursor_target() {
         render_preview(&snapshot),
         vec![
             "Init preview | host bootstrap".to_string(),
-            "Dry run: no changes will be made.".to_string(),
+            "Preview: dry run only; no files will change.".to_string(),
             String::new(),
             "Target: Cursor mode".to_string(),
             "Plan:".to_string(),
@@ -118,8 +118,40 @@ fn test_render_preview_snapshot_for_cursor_target() {
             "  - keep initialize the Hyphae database. The Hyphae database already exists.".to_string(),
             "  - stage patch the local instruction file with ecosystem guidance. Keep the workspace instructions aligned with the installed ecosystem.".to_string(),
             String::new(),
-            "Next step: run `stipe init` when you are ready to apply the host plan.".to_string(),
+            "State: preview only; the host plan is staged but not applied".to_string(),
+            "Next step: run `stipe init` to apply the staged host plan".to_string(),
+            "Optional follow-up: run `stipe doctor` first if you want a status readout before you apply it".to_string(),
         ]
+    );
+}
+
+#[test]
+fn test_render_embedded_preview_omits_footer_actions() {
+    let snapshot = snapshot(SnapshotFixture {
+        target_client: Some("cursor"),
+        selected_hosts: vec![HostMode::Cursor],
+        detected_hosts: vec![HostMode::Cursor],
+        detected_clients: vec!["Cursor"],
+        tools: model::ToolSnapshot {
+            hyphae_installed: true,
+            hyphae_db_exists: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    let lines = render_embedded_preview(&snapshot);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "Preview: dry run only; no files will change.")
+    );
+    assert!(!lines.iter().any(|line| line.starts_with("State:")));
+    assert!(!lines.iter().any(|line| line.starts_with("Next step:")));
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.starts_with("Optional follow-up:"))
     );
 }
 

@@ -8,6 +8,7 @@ pub mod host;
 pub mod host_policy;
 pub mod init;
 pub mod install;
+pub mod output;
 pub mod package_repair;
 pub mod repair;
 pub mod runtime_policy;

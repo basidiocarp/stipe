@@ -12,7 +12,7 @@ mod snapshot;
 
 use baseline::record_current_baseline;
 use plan::build_plan;
-use render::print_preview;
+use render::{print_embedded_preview, print_preview};
 use snapshot::build_snapshot;
 
 #[cfg(test)]
@@ -51,6 +51,12 @@ pub fn run(
 
     ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::new(0))?;
     record_current_baseline(&snapshot, scope)
+}
+
+pub(crate) fn run_embedded_preview(client: Option<&str>, scope: HostConfigScope) -> Result<()> {
+    let snapshot = build_snapshot(client, scope)?;
+    print_embedded_preview(&snapshot);
+    Ok(())
 }
 
 fn init_span_context(client: Option<&str>) -> SpanContext {

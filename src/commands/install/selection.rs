@@ -40,10 +40,11 @@ pub(super) fn resolve_requested_tools(
     None
 }
 
-pub(super) fn format_install_preview(
+fn format_install_preview_with_footer(
     prefix: &Path,
     tools: &[String],
     mode_label: &str,
+    include_footer: bool,
 ) -> Vec<String> {
     let mut lines = vec![
         "Install preview | dry run".to_string(),
@@ -67,10 +68,20 @@ pub(super) fn format_install_preview(
         }
     }
 
-    lines.push(String::new());
-    lines.push("Next step: run `stipe install ...` when this plan looks right.".to_string());
+    if include_footer {
+        lines.push(String::new());
+        lines.push("Next step: run `stipe install ...` to apply this plan.".to_string());
+    }
 
     lines
+}
+
+pub(super) fn format_install_preview(
+    prefix: &Path,
+    tools: &[String],
+    mode_label: &str,
+) -> Vec<String> {
+    format_install_preview_with_footer(prefix, tools, mode_label, true)
 }
 
 pub(super) fn render_install_preview(
@@ -100,6 +111,18 @@ pub(super) fn render_install_preview(
     format_install_preview(prefix, tools, mode_label)
 }
 
+pub(super) fn render_embedded_install_preview(
+    prefix: &Path,
+    tools: &[String],
+    mode_label: &str,
+) -> Vec<String> {
+    if tools.is_empty() {
+        return render_install_preview(prefix, tools, mode_label);
+    }
+
+    format_install_preview_with_footer(prefix, tools, mode_label, false)
+}
+
 pub(super) fn split_requested_tools(tools: &[String]) -> (Vec<String>, Vec<ManualProfileMember>) {
     let mut managed: Vec<String> = Vec::new();
     let mut manual: Vec<ManualProfileMember> = Vec::new();
@@ -117,10 +140,11 @@ pub(super) fn split_requested_tools(tools: &[String]) -> (Vec<String>, Vec<Manua
     (managed, manual)
 }
 
-pub(super) fn render_profile_install_preview(
+fn render_profile_install_preview_with_footer(
     prefix: &Path,
     profile: InstallProfile,
     tools: &[String],
+    include_footer: bool,
 ) -> Vec<String> {
     let (managed, manual) = split_requested_tools(tools);
     let mut lines = vec![
@@ -157,13 +181,31 @@ pub(super) fn render_profile_install_preview(
         }
     }
 
-    lines.push(String::new());
-    lines.push(format!(
-        "Next step: run `stipe install --profile {}` to apply this plan.",
-        profile.profile_name()
-    ));
+    if include_footer {
+        lines.push(String::new());
+        lines.push(format!(
+            "Next step: run `stipe install --profile {}` to apply this plan.",
+            profile.profile_name()
+        ));
+    }
 
     lines
+}
+
+pub(super) fn render_profile_install_preview(
+    prefix: &Path,
+    profile: InstallProfile,
+    tools: &[String],
+) -> Vec<String> {
+    render_profile_install_preview_with_footer(prefix, profile, tools, true)
+}
+
+pub(super) fn render_embedded_profile_install_preview(
+    prefix: &Path,
+    profile: InstallProfile,
+    tools: &[String],
+) -> Vec<String> {
+    render_profile_install_preview_with_footer(prefix, profile, tools, false)
 }
 
 pub(super) fn print_install_preview(prefix: &Path, tools: &[String], mode_label: &str) {

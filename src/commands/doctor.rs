@@ -1,11 +1,13 @@
 use anyhow::Result;
 use colored::Colorize;
+use std::path::Path;
 
 use super::claude_hooks;
 use super::developer_tools;
 use super::host;
 use super::host_policy;
 use super::install;
+use super::output;
 use super::repair::{RepairAction, RepairTier, dedupe_repair_actions};
 use super::runtime_policy;
 use super::tool_registry;
@@ -20,8 +22,8 @@ mod tool_checks;
 use config_checks::check_mcp_config_drift;
 use council_checks::check_task_linked_council;
 use model::{
-    DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary, PackageDrift,
-    PackageInventory, ProviderHealth, WorktreeConfigDiscovery,
+    AuthFreshness, DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary,
+    PackageDrift, PackageInventory, ProviderHealth, WorktreeConfigDiscovery,
 };
 use package_checks::{
     collect_package_drift, collect_package_inventory, collect_worktree_config_discovery,
@@ -190,7 +192,7 @@ fn render_hook_paths(hook_paths: &[claude_hooks::HookPathSnapshot], colorize: bo
     lines
 }
 
-fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
+fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![
         String::new(),
         if colorize {
@@ -211,41 +213,50 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
         lines.push(String::new());
     }
 
-    lines.extend(
-        report
-            .checks
-            .iter()
-            .map(|check| render_check_line(check, colorize)),
-    );
+    lines.extend(render_overview(report, colorize));
     lines.push(String::new());
 
-    lines.extend(render_provider_health(&report.provider_health, colorize));
+    lines.extend(render_provider_health(
+        &report.provider_health,
+        colorize,
+        deep,
+    ));
     if !report.provider_health.is_empty() {
         lines.push(String::new());
     }
 
-    lines.extend(render_mcp_health(&report.mcp_health, colorize));
+    lines.extend(render_mcp_health(&report.mcp_health, colorize, deep));
     if !report.mcp_health.is_empty() {
         lines.push(String::new());
     }
 
+    let host_checks = report
+        .checks
+        .iter()
+        .filter(|check| is_host_check(check))
+        .collect::<Vec<_>>();
+    if !host_checks.is_empty() {
+        lines.extend(render_host_status(&host_checks, colorize));
+        lines.push(String::new());
+    }
+
     if let Some(runtime_policy) = &report.runtime_policy {
-        lines.extend(render_runtime_policy(runtime_policy, colorize));
+        lines.extend(render_runtime_policy(runtime_policy, colorize, deep));
         lines.push(String::new());
     }
 
     if let Some(worktree) = &report.worktree_config {
-        lines.extend(render_worktree_config(worktree, colorize));
+        lines.extend(render_worktree_config(worktree, colorize, deep));
         lines.push(String::new());
     }
 
     if let Some(inventory) = &report.package_inventory {
-        lines.extend(render_package_inventory(inventory, colorize));
+        lines.extend(render_package_inventory(inventory, colorize, deep));
         lines.push(String::new());
     }
 
     if let Some(drift) = &report.package_drift {
-        lines.extend(render_package_drift(drift, colorize));
+        lines.extend(render_package_drift(drift, colorize, deep));
         lines.push(String::new());
     }
 
@@ -262,30 +273,39 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     }
 
     if report.healthy {
-        lines.push(if colorize {
-            "All checks passed.".green().to_string()
-        } else {
-            "All checks passed.".to_string()
-        });
+        lines.extend(render_footer_lines(
+            &report.summary,
+            "stay on the current ecosystem configuration; no repair action is needed",
+            (!deep).then_some(
+                "run `stipe doctor --deep` for the expanded operator report".to_string(),
+            ),
+            colorize,
+        ));
     } else {
-        lines.push(if colorize {
-            "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".yellow().to_string()
-        } else {
-            "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.".to_string()
-        });
         if !report.repair_actions.is_empty() {
-            lines.push(String::new());
-            lines.push(if colorize {
-                "Recommended repair actions:".bold().to_string()
-            } else {
-                "Recommended repair actions:".to_string()
-            });
-            lines.extend(
-                report
-                    .repair_actions
-                    .iter()
-                    .map(|action| format!("  - {}", action.command)),
-            );
+            let repair_plan = build_repair_plan(&report.repair_actions);
+            lines.extend(render_footer_lines(
+                &report.summary,
+                &format!("run `{}`", repair_plan.primary.command),
+                repair_plan
+                    .follow_up
+                    .as_ref()
+                    .map(|action| format!("run `{}`", action.command)),
+                colorize,
+            ));
+
+            let additional_actions = render_additional_repair_actions(&repair_plan, colorize);
+            if !additional_actions.is_empty() {
+                lines.push(String::new());
+                lines.extend(additional_actions);
+            }
+        } else {
+            lines.extend(render_footer_lines(
+                &report.summary,
+                "review the failing sections above",
+                None,
+                colorize,
+            ));
         }
     }
 
@@ -298,7 +318,144 @@ fn render_report(report: &DoctorReport, colorize: bool) -> Vec<String> {
     lines
 }
 
-fn render_provider_health(provider_health: &[ProviderHealth], colorize: bool) -> Vec<String> {
+fn render_overview(report: &DoctorReport, colorize: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Overview:".bold().to_string()
+    } else {
+        "Overview:".to_string()
+    }];
+
+    lines.extend(
+        report
+            .checks
+            .iter()
+            .filter(|check| !is_host_check(check))
+            .map(|check| render_check_line(check, colorize)),
+    );
+
+    let host_checks = report
+        .checks
+        .iter()
+        .filter(|check| is_host_check(check))
+        .collect::<Vec<_>>();
+    if !host_checks.is_empty() {
+        lines.push(render_check_line(
+            &host_summary_check(&host_checks),
+            colorize,
+        ));
+    }
+
+    lines
+}
+
+fn is_host_check(check: &HealthCheck) -> bool {
+    check.name.starts_with("host: ")
+}
+
+fn host_label(check: &HealthCheck) -> &str {
+    check.name.strip_prefix("host: ").unwrap_or(&check.name)
+}
+
+fn host_groups<'a>(checks: &'a [&'a HealthCheck]) -> Vec<(&'a str, Vec<&'a HealthCheck>)> {
+    let mut groups: Vec<(&str, Vec<&HealthCheck>)> = Vec::new();
+    for check in checks {
+        let label = host_label(check);
+        if let Some((_, grouped)) = groups.iter_mut().find(|(existing, _)| *existing == label) {
+            grouped.push(*check);
+        } else {
+            groups.push((label, vec![*check]));
+        }
+    }
+    groups
+}
+
+fn pluralize(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        singular.to_string()
+    } else {
+        plural.to_string()
+    }
+}
+
+fn host_summary_check(host_checks: &[&HealthCheck]) -> HealthCheck {
+    let groups = host_groups(host_checks);
+    let total = groups.len();
+    let ready = groups
+        .iter()
+        .filter(|(_, grouped)| grouped.iter().all(|check| check.passed))
+        .count();
+    let attention = total.saturating_sub(ready);
+
+    let message = if attention == 0 {
+        format!(
+            "{total} {} look ready",
+            pluralize(total, "host mode", "host modes")
+        )
+    } else if ready == 0 {
+        format!(
+            "{attention} {} {} attention",
+            pluralize(attention, "host mode", "host modes"),
+            if attention == 1 { "needs" } else { "need" }
+        )
+    } else {
+        format!(
+            "{ready} ready, {attention} {} {} attention",
+            pluralize(attention, "host mode", "host modes"),
+            if attention == 1 { "needs" } else { "need" }
+        )
+    };
+
+    HealthCheck {
+        name: "host status".to_string(),
+        passed: attention == 0,
+        message,
+        repair_actions: Vec::new(),
+    }
+}
+
+fn render_host_status(host_checks: &[&HealthCheck], colorize: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Host status:".bold().to_string()
+    } else {
+        "Host status:".to_string()
+    }];
+
+    for (label, grouped) in host_groups(host_checks) {
+        let healthy = grouped.iter().all(|check| check.passed);
+        let symbol = if healthy { "✓" } else { "✗" };
+        let message = grouped
+            .iter()
+            .copied()
+            .find(|check| !check.passed)
+            .or_else(|| grouped.last().copied())
+            .map(|check| check.message.clone())
+            .unwrap_or_default();
+        let message = if colorize {
+            if healthy {
+                message.green().to_string()
+            } else {
+                message.yellow().to_string()
+            }
+        } else {
+            message
+        };
+        let label = if colorize {
+            label.bold().to_string()
+        } else {
+            label.to_string()
+        };
+
+        lines.push(format!("  {symbol} {label:<12} {message}"));
+    }
+
+    lines
+}
+
+fn render_provider_health(
+    provider_health: &[ProviderHealth],
+    colorize: bool,
+    deep: bool,
+) -> Vec<String> {
     if provider_health.is_empty() {
         return Vec::new();
     }
@@ -311,33 +468,36 @@ fn render_provider_health(provider_health: &[ProviderHealth], colorize: bool) ->
 
     for provider in provider_health {
         let symbol = if provider.healthy { "✓" } else { "✗" };
+        let status = format!(
+            "{} (auth: {})",
+            provider.status,
+            auth_freshness_label(provider.auth_freshness)
+        );
         let status = if colorize {
             if provider.healthy {
-                provider.status.green().to_string()
+                status.green().to_string()
             } else {
-                provider.status.yellow().to_string()
+                status.yellow().to_string()
             }
         } else {
-            provider.status.clone()
+            status
         };
         lines.push(format!(
-            "  {symbol} {:<12} {:<18} {}",
+            "  {symbol} {:<12} {}",
             provider.host.client_flag(),
-            provider.provider,
             status
         ));
-        if let Some(auth_detail) = &provider.auth_detail {
-            lines.push(format!("    auth: {:?}", provider.auth_freshness).to_lowercase());
+        if (!provider.healthy || deep)
+            && let Some(auth_detail) = &provider.auth_detail
+        {
             lines.push(format!("    detail: {auth_detail}"));
-        } else {
-            lines.push(format!("    auth: {:?}", provider.auth_freshness).to_lowercase());
         }
     }
 
     lines
 }
 
-fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<String> {
+fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool, deep: bool) -> Vec<String> {
     if mcp_health.is_empty() {
         return Vec::new();
     }
@@ -350,21 +510,26 @@ fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<Str
 
     for mcp in mcp_health {
         let symbol = if mcp.healthy { "✓" } else { "✗" };
+        let status = format!(
+            "{} (auth: {})",
+            mcp.status,
+            auth_freshness_label(mcp.auth_freshness)
+        );
         let status = if colorize {
             if mcp.healthy {
-                mcp.status.green().to_string()
+                status.green().to_string()
             } else {
-                mcp.status.yellow().to_string()
+                status.yellow().to_string()
             }
         } else {
-            mcp.status.clone()
+            status
         };
         lines.push(format!(
             "  {symbol} {:<12} {}",
             mcp.host.client_flag(),
             status
         ));
-        if !mcp.config_paths.is_empty() {
+        if (!mcp.healthy || deep) && !mcp.config_paths.is_empty() {
             let paths = mcp
                 .config_paths
                 .iter()
@@ -376,13 +541,22 @@ fn render_mcp_health(mcp_health: &[model::McpHealth], colorize: bool) -> Vec<Str
         if !mcp.missing_servers.is_empty() {
             lines.push(format!("    missing: {}", mcp.missing_servers.join(", ")));
         }
-        lines.push(format!("    auth: {:?}", mcp.auth_freshness).to_lowercase());
+        if deep && !mcp.registered_servers.is_empty() {
+            lines.push(format!(
+                "    registered: {}",
+                mcp.registered_servers.join(", ")
+            ));
+        }
     }
 
     lines
 }
 
-fn render_worktree_config(report: &WorktreeConfigDiscovery, colorize: bool) -> Vec<String> {
+fn render_worktree_config(
+    report: &WorktreeConfigDiscovery,
+    colorize: bool,
+    deep: bool,
+) -> Vec<String> {
     let mut lines = vec![if colorize {
         "Worktree config discovery:".bold().to_string()
     } else {
@@ -401,12 +575,18 @@ fn render_worktree_config(report: &WorktreeConfigDiscovery, colorize: bool) -> V
     if report.discovered_configs.is_empty() {
         lines.push("  configs: none discovered".to_string());
     } else {
-        lines.extend(
-            report
-                .discovered_configs
-                .iter()
-                .map(|path| format!("  config: {}", host_policy::format_user_path(path))),
-        );
+        lines.push(format!(
+            "  configs: {} discovered",
+            report.discovered_configs.len()
+        ));
+        if deep {
+            lines.extend(
+                report
+                    .discovered_configs
+                    .iter()
+                    .map(|path| format!("  config: {}", host_policy::format_user_path(path))),
+            );
+        }
     }
 
     lines
@@ -415,6 +595,7 @@ fn render_worktree_config(report: &WorktreeConfigDiscovery, colorize: bool) -> V
 fn render_runtime_policy(
     report: &runtime_policy::RuntimePolicyReport,
     colorize: bool,
+    deep: bool,
 ) -> Vec<String> {
     let mut lines = vec![if colorize {
         "Runtime policy:".bold().to_string()
@@ -439,12 +620,18 @@ fn render_runtime_policy(
     if report.config_paths.is_empty() {
         lines.push("  config: none discovered".to_string());
     } else {
-        lines.extend(
-            report
-                .config_paths
-                .iter()
-                .map(|path| format!("  config: {}", host_policy::format_user_path(path))),
-        );
+        lines.push(format!(
+            "  config: {} file(s) discovered",
+            report.config_paths.len()
+        ));
+        if deep {
+            lines.extend(
+                report
+                    .config_paths
+                    .iter()
+                    .map(|path| format!("  config path: {}", host_policy::format_user_path(path))),
+            );
+        }
     }
 
     if let Some(load_error) = &report.load_error {
@@ -454,27 +641,46 @@ fn render_runtime_policy(
     if report.remembered_decisions.is_empty() {
         lines.push("  approval memory: none recorded".to_string());
     } else {
-        lines.push("  approval memory:".to_string());
-        lines.extend(report.remembered_decisions.iter().map(|decision| {
-            format!(
-                "    - {} {} ({}, source: {}, updated: {})",
-                match decision.decision {
-                    runtime_policy::PolicyDecision::Allow => "allow",
-                    runtime_policy::PolicyDecision::Deny => "deny",
-                },
-                decision.subject,
-                match decision.scope {
-                    runtime_policy::PolicyScope::Project => "project",
-                    runtime_policy::PolicyScope::User => "user",
-                },
-                match decision.source {
-                    runtime_policy::DecisionSource::OperatorProfile => "operator-profile",
-                    runtime_policy::DecisionSource::OperatorPolicyFile => "operator-policy-file",
-                    runtime_policy::DecisionSource::ImportedConfig => "imported-config",
-                },
-                decision.updated_at_unix
-            )
-        }));
+        let allow_count = report
+            .remembered_decisions
+            .iter()
+            .filter(|decision| decision.decision == runtime_policy::PolicyDecision::Allow)
+            .count();
+        let deny_count = report
+            .remembered_decisions
+            .iter()
+            .filter(|decision| decision.decision == runtime_policy::PolicyDecision::Deny)
+            .count();
+        lines.push(format!(
+            "  approval memory: {allow_count} allow, {deny_count} deny"
+        ));
+        if deep {
+            lines.extend(report.remembered_decisions.iter().map(|decision| {
+                let mut line = format!(
+                    "    - {} {} ({}, source: {}, updated: {})",
+                    match decision.decision {
+                        runtime_policy::PolicyDecision::Allow => "allow",
+                        runtime_policy::PolicyDecision::Deny => "deny",
+                    },
+                    decision.subject,
+                    match decision.scope {
+                        runtime_policy::PolicyScope::Project => "project",
+                        runtime_policy::PolicyScope::User => "user",
+                    },
+                    match decision.source {
+                        runtime_policy::DecisionSource::OperatorProfile => "operator-profile",
+                        runtime_policy::DecisionSource::OperatorPolicyFile =>
+                            "operator-policy-file",
+                        runtime_policy::DecisionSource::ImportedConfig => "imported-config",
+                    },
+                    decision.updated_at_unix
+                );
+                if let Some(note) = &decision.note {
+                    line.push_str(&format!("; note: {note}"));
+                }
+                line
+            }));
+        }
     }
 
     if let Some(active) = &report.active_install_profile {
@@ -499,7 +705,7 @@ fn render_runtime_policy(
     lines
 }
 
-fn render_package_inventory(report: &PackageInventory, colorize: bool) -> Vec<String> {
+fn render_package_inventory(report: &PackageInventory, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![if colorize {
         "Package and plugin inventory:".bold().to_string()
     } else {
@@ -514,40 +720,73 @@ fn render_package_inventory(report: &PackageInventory, colorize: bool) -> Vec<St
             "no"
         }
     ));
-    if !report.metadata_sources.is_empty() {
-        lines.extend(
-            report
-                .metadata_sources
-                .iter()
-                .map(|path| format!("  metadata: {}", host_policy::format_user_path(path))),
-        );
+    if report.metadata_sources.is_empty() {
+        lines.push("  metadata sources: none discovered".to_string());
+    } else {
+        lines.push(format!(
+            "  metadata sources: {} discovered",
+            report.metadata_sources.len()
+        ));
+        if deep {
+            lines.extend(
+                report
+                    .metadata_sources
+                    .iter()
+                    .map(|path| format!("  metadata: {}", host_policy::format_user_path(path))),
+            );
+        }
     }
     if report.discovered_packages.is_empty() {
         lines.push("  packages: none discovered".to_string());
     } else {
         lines.push(format!(
-            "  packages: {}",
-            report.discovered_packages.join(", ")
+            "  packages: {} discovered",
+            report.discovered_packages.len()
         ));
+        lines.push(format!(
+            "  families: {}",
+            summarize_package_families(&report.discovered_packages)
+        ));
+        if deep {
+            lines.push(format!(
+                "  package detail: {}",
+                report.discovered_packages.join(", ")
+            ));
+        }
     }
     if report.discovered_plugins.is_empty() {
         lines.push("  plugins: none discovered".to_string());
     } else {
         lines.push(format!(
-            "  plugins: {}",
-            report.discovered_plugins.join(", ")
+            "  plugins: {} discovered ({})",
+            report.discovered_plugins.len(),
+            summarize_plugin_roots(&report.discovered_plugins)
         ));
+        if deep {
+            lines.push(format!(
+                "  plugin detail: {}",
+                report.discovered_plugins.join(", ")
+            ));
+        }
     }
 
     lines
 }
 
-fn render_package_drift(report: &PackageDrift, colorize: bool) -> Vec<String> {
+fn render_package_drift(report: &PackageDrift, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![if colorize {
         "Package drift:".bold().to_string()
     } else {
         "Package drift:".to_string()
     }];
+    if !report.metadata_available
+        && report.expected_packages.is_empty()
+        && report.missing_packages.is_empty()
+    {
+        lines.push("  status: no saved install profile; checks skipped".to_string());
+        return lines;
+    }
+
     lines.push(format!(
         "  metadata available: {}",
         if report.metadata_available {
@@ -556,24 +795,263 @@ fn render_package_drift(report: &PackageDrift, colorize: bool) -> Vec<String> {
             "no"
         }
     ));
-    if report.expected_packages.is_empty() {
-        lines.push("  expected: none".to_string());
-    } else {
+    lines.push(format!(
+        "  expected packages: {}",
+        report.expected_packages.len()
+    ));
+    if deep && !report.expected_packages.is_empty() {
         lines.push(format!(
-            "  expected: {}",
+            "  expected detail: {}",
             report.expected_packages.join(", ")
         ));
     }
+    if deep && !report.installed_packages.is_empty() {
+        lines.push(format!(
+            "  installed detail: {}",
+            report.installed_packages.join(", ")
+        ));
+    }
     if report.missing_packages.is_empty() {
-        lines.push("  missing: none".to_string());
+        lines.push("  missing packages: none".to_string());
     } else {
         let missing = if colorize {
             report.missing_packages.join(", ").yellow().to_string()
         } else {
             report.missing_packages.join(", ")
         };
-        lines.push(format!("  missing: {missing}"));
+        lines.push(format!("  missing packages: {missing}"));
     }
+    lines
+}
+
+fn summarize_package_families(packages: &[String]) -> String {
+    let mut families: Vec<(String, usize)> = Vec::new();
+    for package in packages {
+        let family = package.split(':').next().unwrap_or(package).to_string();
+        if let Some((_, count)) = families.iter_mut().find(|(name, _)| *name == family) {
+            *count += 1;
+        } else {
+            families.push((family, 1));
+        }
+    }
+    families
+        .into_iter()
+        .map(|(family, count)| format!("{family} ({count})"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn summarize_plugin_roots(plugins: &[String]) -> String {
+    plugins
+        .iter()
+        .map(|plugin| {
+            if let Some((_, tail)) = plugin.rsplit_once(':') {
+                return tail.to_string();
+            }
+            Path::new(plugin)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or(plugin)
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn auth_freshness_label(auth: AuthFreshness) -> &'static str {
+    match auth {
+        AuthFreshness::Fresh => "fresh",
+        AuthFreshness::Stale => "stale",
+        AuthFreshness::Missing => "missing",
+        AuthFreshness::Unknown => "unknown",
+    }
+}
+
+fn render_repair_actions(repair_actions: &[RepairAction], colorize: bool) -> Vec<String> {
+    if repair_actions.is_empty() {
+        return Vec::new();
+    }
+
+    let plan = build_repair_plan(repair_actions);
+    let mut lines = vec![if colorize {
+        "Recommended repair plan:".bold().to_string()
+    } else {
+        "Recommended repair plan:".to_string()
+    }];
+    lines.push("Best next command:".to_string());
+    lines.push(format!("  - {}", plan.primary.command));
+    if let Some(follow_up) = &plan.follow_up {
+        lines.push("Optional follow-up:".to_string());
+        lines.push(format!("  - {}", follow_up.command));
+    }
+    lines.extend(render_additional_repair_actions(&plan, colorize));
+    lines
+}
+
+#[derive(Clone)]
+struct RepairPlan {
+    primary: RepairAction,
+    follow_up: Option<RepairAction>,
+    remaining_primary: Vec<RepairAction>,
+    secondary: Vec<RepairAction>,
+    manual: Vec<RepairAction>,
+}
+
+fn build_repair_plan(repair_actions: &[RepairAction]) -> RepairPlan {
+    let mut actions = repair_actions.to_vec();
+    actions.sort_by_key(repair_action_priority);
+
+    let primary = actions
+        .iter()
+        .find(|action| action.tier == RepairTier::Primary)
+        .cloned()
+        .or_else(|| actions.first().cloned())
+        .expect("repair plan requires at least one action");
+
+    let follow_up = actions
+        .iter()
+        .find(|action| is_follow_up_candidate(action, &primary, &actions))
+        .cloned();
+
+    let mut remaining_primary = Vec::new();
+    let mut secondary = Vec::new();
+    let mut manual = Vec::new();
+
+    for action in actions {
+        if action.command == primary.command
+            || follow_up
+                .as_ref()
+                .is_some_and(|candidate| candidate.command == action.command)
+            || should_suppress_repair_action(&action, &primary, repair_actions)
+        {
+            continue;
+        }
+
+        match action.tier {
+            RepairTier::Primary => remaining_primary.push(action),
+            RepairTier::Secondary => secondary.push(action),
+            RepairTier::Manual => manual.push(action),
+        }
+    }
+
+    RepairPlan {
+        primary,
+        follow_up,
+        remaining_primary,
+        secondary,
+        manual,
+    }
+}
+
+fn repair_action_priority(action: &RepairAction) -> (u8, u8, String) {
+    let tier_rank = match action.tier {
+        RepairTier::Primary => 0,
+        RepairTier::Secondary => 1,
+        RepairTier::Manual => 2,
+    };
+    let command_rank = if action.command == "stipe init --repair" {
+        0
+    } else if action.command.starts_with("stipe host setup ") {
+        1
+    } else if action.command == "stipe package" {
+        2
+    } else if action.command.starts_with("stipe install ") {
+        3
+    } else if action.command == "stipe host doctor" {
+        4
+    } else {
+        10
+    };
+    (tier_rank, command_rank, action.command.clone())
+}
+
+fn is_follow_up_candidate(
+    action: &RepairAction,
+    primary: &RepairAction,
+    all_actions: &[RepairAction],
+) -> bool {
+    action.command != primary.command
+        && !should_suppress_repair_action(action, primary, all_actions)
+}
+
+fn should_suppress_repair_action(
+    action: &RepairAction,
+    primary: &RepairAction,
+    all_actions: &[RepairAction],
+) -> bool {
+    if action.command == "stipe host doctor"
+        && (primary.command == "stipe init --repair"
+            || all_actions
+                .iter()
+                .any(|candidate| candidate.command.starts_with("stipe host setup ")))
+    {
+        return true;
+    }
+
+    false
+}
+
+fn render_footer_lines(
+    state: &str,
+    next_step: &str,
+    optional_follow_up: Option<String>,
+    colorize: bool,
+) -> Vec<String> {
+    output::render_footer(state.to_string(), next_step.to_string(), optional_follow_up)
+        .into_iter()
+        .map(|line| {
+            if colorize {
+                if line.starts_with("Next step:") {
+                    line.bold().to_string()
+                } else {
+                    line.dimmed().to_string()
+                }
+            } else {
+                line
+            }
+        })
+        .collect()
+}
+
+fn render_additional_repair_actions(plan: &RepairPlan, colorize: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    let grouped = [
+        (
+            "Additional repair actions:",
+            !plan.remaining_primary.is_empty(),
+        ),
+        ("Then consider:", !plan.secondary.is_empty()),
+        ("Manual follow-up:", !plan.manual.is_empty()),
+    ];
+
+    if grouped.iter().all(|(_, present)| !present) {
+        return lines;
+    }
+
+    for (heading, present) in grouped {
+        if !present {
+            continue;
+        }
+
+        lines.push(if colorize {
+            heading.bold().to_string()
+        } else {
+            heading.to_string()
+        });
+
+        let actions = match heading {
+            "Additional repair actions:" => &plan.remaining_primary,
+            "Then consider:" => &plan.secondary,
+            "Manual follow-up:" => &plan.manual,
+            _ => unreachable!(),
+        };
+        lines.extend(
+            actions
+                .iter()
+                .map(|action| format!("  - {}", action.command)),
+        );
+    }
+
     lines
 }
 
@@ -727,7 +1205,7 @@ pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
         return Ok(());
     }
 
-    for line in render_report(&report, true) {
+    for line in render_report(&report, true, deep) {
         println!("{line}");
     }
 

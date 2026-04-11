@@ -173,7 +173,7 @@ fn test_render_install_preview_snapshot_for_explicit_tools() {
                 temp_dir.join("hyphae").display()
             ),
             String::new(),
-            "Next step: run `stipe install ...` when this plan looks right.".to_string(),
+            "Next step: run `stipe install ...` to apply this plan.".to_string(),
         ]
     );
 
@@ -201,6 +201,20 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
             "  volva           backend operations CLI".to_string(),
         ]
     );
+}
+
+#[test]
+fn test_render_embedded_install_preview_omits_next_step() {
+    let temp_dir = std::env::temp_dir().join("stipe-install-preview-embedded");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let lines =
+        render_embedded_install_preview(&temp_dir, &["hyphae".to_string()], "minimal profile");
+
+    assert!(!lines.iter().any(|line| line.starts_with("Next step:")));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -254,6 +268,22 @@ fn test_render_profile_install_preview_snapshot() {
             "Next step: run `stipe install --profile minimal` to apply this plan.".to_string(),
         ]
     );
+}
+
+#[test]
+fn test_render_embedded_profile_install_preview_omits_next_step() {
+    let install_root = std::path::Path::new("/tmp/tools");
+    let preview = render_embedded_profile_install_preview(
+        install_root,
+        InstallProfile::Cursor,
+        &[
+            "mycelium".to_string(),
+            "hyphae".to_string(),
+            "rhizome".to_string(),
+        ],
+    );
+
+    assert!(!preview.iter().any(|line| line.starts_with("Next step:")));
 }
 
 #[test]
@@ -513,10 +543,10 @@ fn test_render_install_success_summary_stages_next_step() {
         render_install_success_summary(Some(InstallProfile::Codex), false),
         vec![
             "Installation complete.".to_string(),
-            "The local canopy is ready for host wiring.".to_string(),
             "Profile checkpoint: Codex host mode is saved for this project.".to_string(),
-            "Next step: run `stipe init` to wire hosts and MCP state.".to_string(),
-            "If you want a status readout first, `stipe doctor` will show what still needs attention.".to_string(),
+            "State: the local canopy is ready for host wiring".to_string(),
+            "Next step: run `stipe init` to wire hosts and shared MCP state".to_string(),
+            "Optional follow-up: run `stipe doctor` first if you want a status readout before wiring hosts".to_string(),
         ]
     );
 }
@@ -527,11 +557,11 @@ fn test_render_install_success_summary_mentions_manual_follow_up_when_needed() {
         render_install_success_summary(Some(InstallProfile::Standard), true),
         vec![
             "Installation complete.".to_string(),
-            "The managed canopy is in place; finish the manual follow-up to complete the setup."
-                .to_string(),
             "Profile checkpoint: standard profile is saved for this project.".to_string(),
-            "Next step: run `stipe init` to wire hosts and MCP state.".to_string(),
-            "If you want a status readout first, `stipe doctor` will show what still needs attention.".to_string(),
+            "State: the managed canopy is in place; finish the manual follow-up to complete setup"
+                .to_string(),
+            "Next step: run `stipe init` to wire hosts and shared MCP state".to_string(),
+            "Optional follow-up: run `stipe doctor` first if you want a status readout before wiring hosts".to_string(),
         ]
     );
 }

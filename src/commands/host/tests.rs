@@ -120,9 +120,78 @@ fn test_render_doctor_snapshot_for_failure() {
             "",
             "  cursor         ✗ Cursor is not configured",
             "",
-            "Recommended repair actions:",
-            "  - stipe host setup cursor",
+            "State: 1 host needs attention.",
+            "Next step: run `stipe host setup cursor`",
             "",
+        ]
+    );
+}
+
+#[test]
+fn test_render_doctor_skips_duplicate_optional_follow_up_in_additional_actions() {
+    let report = crate::commands::host::model::HostDoctorReport {
+        healthy: false,
+        summary: "2 hosts need attention.".to_string(),
+        checks: vec![crate::commands::host::model::HostDoctorCheck {
+            host: HostMode::Cursor,
+            passed: false,
+            message: "Cursor is not configured".to_string(),
+            repair_actions: vec![],
+        }],
+        repair_actions: vec![
+            RepairAction::stipe(
+                "host setup cursor",
+                "Set up Cursor",
+                "Restore the Cursor MCP config.",
+                &["host", "setup", "cursor"],
+                RepairTier::Primary,
+            ),
+            RepairAction::stipe(
+                "install cursor",
+                "Install Cursor",
+                "Install Cursor before setup.",
+                &["install", "cursor"],
+                RepairTier::Secondary,
+            ),
+            RepairAction::stipe(
+                "host doctor",
+                "Inspect host health",
+                "Inspect per-host state.",
+                &["host", "doctor"],
+                RepairTier::Secondary,
+            ),
+        ],
+    };
+
+    let lines = render_doctor(&report, false);
+    let install_cursor = "  - stipe install cursor".to_string();
+
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "Optional follow-up: run `stipe install cursor`")
+    );
+    assert_eq!(
+        lines.iter().filter(|line| **line == install_cursor).count(),
+        0
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "Additional repair actions:")
+    );
+    assert!(lines.iter().any(|line| line == "  - stipe host doctor"));
+}
+
+#[test]
+fn test_render_setup_preview_keeps_host_level_next_step() {
+    assert_eq!(
+        render_setup_preview(HostMode::Cursor),
+        vec![
+            "Host setup preview | Cursor mode".to_string(),
+            "State: preview only; the host rollout is staged but not applied".to_string(),
+            "Next step: review the embedded install and init previews below, then rerun `stipe host setup cursor` without `--dry-run` to apply the host flow".to_string(),
+            "Optional follow-up: run `stipe install --profile cursor --dry-run` to inspect the install surface on its own".to_string(),
         ]
     );
 }

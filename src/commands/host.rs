@@ -22,7 +22,7 @@ pub(crate) use model::HostCommand;
 #[cfg(test)]
 use model::HostInventoryEntry;
 #[cfg(test)]
-use render::{render_doctor, render_list};
+use render::{render_doctor, render_list, render_setup_preview};
 
 pub fn run(command: HostCommand) -> Result<()> {
     let span_context = host_span_context();

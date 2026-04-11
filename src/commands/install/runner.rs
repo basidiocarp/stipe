@@ -16,9 +16,10 @@ use crate::commands::install::release::{
 };
 use crate::commands::install::save_selected_profile;
 use crate::commands::install::selection::{
-    print_install_preview, print_profile_install_preview, resolve_requested_tools,
-    split_requested_tools,
+    print_install_preview, print_profile_install_preview, render_embedded_profile_install_preview,
+    resolve_requested_tools, split_requested_tools,
 };
+use crate::commands::output;
 use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 
@@ -389,6 +390,32 @@ pub(crate) fn run(
     }
 }
 
+pub(crate) fn run_embedded_preview(profile: InstallProfile) -> Result<()> {
+    let prefix = install_bin_dir()?;
+    let requested = resolve_requested_tools(false, Some(profile), &[]).unwrap_or_else(|| {
+        tool_registry::specs_for_profile(profile)
+            .into_iter()
+            .map(|spec| spec.name.to_string())
+            .collect()
+    });
+
+    for (index, line) in render_embedded_profile_install_preview(&prefix, profile, &requested)
+        .into_iter()
+        .enumerate()
+    {
+        if index == 0 {
+            println!("{}", line.yellow());
+        } else if line.starts_with("Profile:") || line.ends_with(':') {
+            println!("{}", line.bold());
+        } else {
+            println!("{line}");
+        }
+    }
+
+    println!();
+    Ok(())
+}
+
 pub(crate) fn selected_profile_for_persistence(
     failures: &[String],
     profile: Option<InstallProfile>,
@@ -429,11 +456,11 @@ pub(crate) fn render_install_success_summary(
 ) -> Vec<String> {
     let mut lines = vec!["Installation complete.".to_string()];
 
-    if has_manual_follow_up {
-        lines.push("The managed canopy is in place; finish the manual follow-up to complete the setup.".to_string());
+    let state = if has_manual_follow_up {
+        "the managed canopy is in place; finish the manual follow-up to complete setup"
     } else {
-        lines.push("The local canopy is ready for host wiring.".to_string());
-    }
+        "the local canopy is ready for host wiring"
+    };
 
     if let Some(profile) = profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
         lines.push(format!(
@@ -442,11 +469,13 @@ pub(crate) fn render_install_success_summary(
         ));
     }
 
-    lines.push("Next step: run `stipe init` to wire hosts and MCP state.".to_string());
-    lines.push(
-        "If you want a status readout first, `stipe doctor` will show what still needs attention."
-            .to_string(),
-    );
+    lines.extend(output::render_footer(
+        state,
+        "run `stipe init` to wire hosts and shared MCP state",
+        Some(
+            "run `stipe doctor` first if you want a status readout before wiring hosts".to_string(),
+        ),
+    ));
 
     lines
 }
@@ -457,8 +486,6 @@ fn print_install_success_summary(profile: Option<InstallProfile>, has_manual_fol
     for (index, line) in lines.into_iter().enumerate() {
         if index == 0 {
             println!("{}", line.green().bold());
-        } else if index == 1 {
-            println!("{}", line.dimmed());
         } else if line.starts_with("Profile checkpoint:") {
             println!("{}", line.dimmed());
         } else if line.starts_with("Next step:") {

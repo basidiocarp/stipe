@@ -1,6 +1,7 @@
 use super::*;
 use crate::commands::codex_notify;
 use crate::commands::developer_tools::DeveloperToolTier;
+use crate::commands::host_policy::HostMode;
 use crate::commands::repair::{RepairAction, RepairTier};
 use crate::commands::runtime_policy::{
     DecisionSource, PolicyDecision, PolicyScope, RememberedDecision, RuntimePolicyReport,
@@ -10,13 +11,22 @@ use std::fs;
 
 use super::config_checks::{codex_notify_adapter_configured_at_path, config_mentions_servers};
 use super::council_checks::check_task_linked_council;
-use super::model::ConfigFormat;
+use super::model::{ConfigFormat, McpHealth};
 use super::tool_checks::check_hyphae_db_at_path;
 use super::{host_policy, tool_registry};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn unique_test_dir(label: &str) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!("stipe-{label}-{nonce}"))
+}
 
 #[test]
 fn test_check_hyphae_db_exists() {
-    let temp_dir = std::env::temp_dir().join("stipe-test-hyphae-exists");
+    let temp_dir = unique_test_dir("test-hyphae-exists");
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -33,7 +43,7 @@ fn test_check_hyphae_db_exists() {
 
 #[test]
 fn test_check_hyphae_db_missing() {
-    let temp_dir = std::env::temp_dir().join("stipe-test-hyphae-missing");
+    let temp_dir = unique_test_dir("test-hyphae-missing");
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
 
@@ -298,18 +308,17 @@ fn test_render_report_snapshot_for_failure() {
     };
 
     assert_eq!(
-        render_report(&report, false),
+        render_report(&report, false, false),
         vec![
             "",
             "Basidiocarp Ecosystem Health Check",
             &"─".repeat(75),
             "",
+            "Overview:",
             "  hyphae               ✗ not found in PATH",
             "",
-            "Some checks failed. Use 'stipe init --repair' to repair shared MCP state, 'stipe host doctor' to inspect per-host state, or 'stipe host setup <host>' to restore a specific host.",
-            "",
-            "Recommended repair actions:",
-            "  - stipe install hyphae",
+            "State: 1 checks need attention.",
+            "Next step: run `stipe install hyphae`",
             "",
         ]
     );
@@ -344,7 +353,7 @@ fn test_render_report_includes_hook_paths_section() {
         package_drift: None,
     };
 
-    let lines = render_report(&report, false);
+    let lines = render_report(&report, false, false);
     assert!(lines.iter().any(|line| line == "Hooks:"));
     assert!(
         lines
@@ -398,7 +407,7 @@ fn test_render_report_includes_drift_section() {
         package_drift: None,
     };
 
-    let lines = render_report(&report, false);
+    let lines = render_report(&report, false, false);
     assert!(
         lines
             .iter()
@@ -462,18 +471,374 @@ fn test_render_report_includes_runtime_policy_section() {
         package_drift: None,
     };
 
-    let lines = render_report(&report, false);
+    let lines = render_report(&report, false, false);
     assert!(lines.iter().any(|line| line == "Runtime policy:"));
     assert!(
         lines
             .iter()
             .any(|line| line.contains("policy scope precedence: project -> user"))
     );
-    assert!(lines.iter().any(|line| line.contains("approval memory")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("approval memory: 1 allow, 0 deny"))
+    );
     assert!(
         lines
             .iter()
             .any(|line| line.contains("active install profile decision: allow"))
+    );
+    assert!(lines.iter().any(|line| line == "State: All checks passed."));
+    assert!(lines.iter().any(|line| line
+        == "Next step: stay on the current ecosystem configuration; no repair action is needed"));
+    assert!(lines.iter().any(|line| line
+        == "Optional follow-up: run `stipe doctor --deep` for the expanded operator report"));
+}
+
+#[test]
+fn test_render_provider_health_compacts_healthy_entries() {
+    let lines = render_provider_health(
+        &[ProviderHealth {
+            host: HostMode::Codex,
+            provider: "Codex host mode".to_string(),
+            available: true,
+            healthy: true,
+            status: "provider ready".to_string(),
+            auth_freshness: AuthFreshness::Fresh,
+            auth_detail: Some("auth config appears fresh (~/.codex/config.toml)".to_string()),
+        }],
+        false,
+        false,
+    );
+
+    assert_eq!(
+        lines,
+        vec![
+            "Providers:".to_string(),
+            "  ✓ codex        provider ready (auth: fresh)".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_render_mcp_health_keeps_detail_for_unhealthy_entries_only() {
+    let lines = render_mcp_health(
+        &[
+            McpHealth {
+                host: HostMode::Codex,
+                config_paths: vec![std::path::PathBuf::from("/tmp/codex.toml")],
+                required_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+                registered_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+                missing_servers: Vec::new(),
+                healthy: true,
+                status: "required MCP servers are registered".to_string(),
+                auth_freshness: AuthFreshness::Fresh,
+            },
+            McpHealth {
+                host: HostMode::ClaudeCode,
+                config_paths: vec![std::path::PathBuf::from("/tmp/claude.json")],
+                required_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+                registered_servers: Vec::new(),
+                missing_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+                healthy: false,
+                status: "missing MCP registration for hyphae, rhizome".to_string(),
+                auth_freshness: AuthFreshness::Fresh,
+            },
+        ],
+        false,
+        false,
+    );
+
+    assert_eq!(
+        lines,
+        vec![
+            "MCP status:".to_string(),
+            "  ✓ codex        required MCP servers are registered (auth: fresh)".to_string(),
+            "  ✗ claude-code  missing MCP registration for hyphae, rhizome (auth: fresh)"
+                .to_string(),
+            "    config: /tmp/claude.json".to_string(),
+            "    missing: hyphae, rhizome".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_render_report_summarizes_host_checks_before_detail() {
+    let report = DoctorReport {
+        schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
+        healthy: false,
+        summary: "1 checks need attention.".to_string(),
+        install_profile: None,
+        checks: vec![
+            HealthCheck {
+                name: "mycelium".to_string(),
+                passed: true,
+                message: "installed".to_string(),
+                repair_actions: Vec::new(),
+            },
+            HealthCheck {
+                name: "host: codex".to_string(),
+                passed: true,
+                message: "Codex host mode detected on this machine".to_string(),
+                repair_actions: Vec::new(),
+            },
+            HealthCheck {
+                name: "host: codex".to_string(),
+                passed: true,
+                message:
+                    "Codex host mode already points at Hyphae via notify in ~/.codex/config.toml."
+                        .to_string(),
+                repair_actions: Vec::new(),
+            },
+            HealthCheck {
+                name: "host: cursor".to_string(),
+                passed: false,
+                message: "Cursor mode is not detected on this machine".to_string(),
+                repair_actions: Vec::new(),
+            },
+            HealthCheck {
+                name: "host: cursor".to_string(),
+                passed: false,
+                message: "Cursor is not detected on this machine yet.".to_string(),
+                repair_actions: Vec::new(),
+            },
+        ],
+        hook_paths: Vec::new(),
+        repair_actions: Vec::new(),
+        drift: None,
+        developer_tools: None,
+        provider_health: Vec::new(),
+        mcp_health: Vec::new(),
+        runtime_policy: None,
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
+    };
+
+    let lines = render_report(&report, false, false);
+    assert!(lines.iter().any(|line| line == "Overview:"));
+    assert!(lines.iter().any(|line| line.contains("host status")
+        && line.contains("1 ready, 1 host mode needs attention")));
+    assert!(lines.iter().any(|line| line == "Host status:"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("codex") && line.contains("already points at Hyphae"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("cursor") && line.contains("not detected on this machine"))
+    );
+}
+
+#[test]
+fn test_render_package_inventory_prefers_counts_and_families() {
+    let lines = render_package_inventory(
+        &PackageInventory {
+            package_metadata_available: true,
+            metadata_sources: vec![std::path::PathBuf::from("/tmp/lamella/resources")],
+            discovered_packages: vec![
+                "codex:core".to_string(),
+                "codex:workflow".to_string(),
+                "claude:core".to_string(),
+            ],
+            discovered_plugins: vec![
+                "/tmp/plugins/cache".to_string(),
+                "/tmp/plugins/lamella".to_string(),
+            ],
+        },
+        false,
+        false,
+    );
+
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "Package and plugin inventory:")
+    );
+    assert!(lines.iter().any(|line| line == "  packages: 3 discovered"));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "  families: codex (2), claude (1)")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "  plugins: 2 discovered (cache, lamella)")
+    );
+}
+
+#[test]
+fn test_render_package_drift_skips_cleanly_without_saved_profile() {
+    let lines = render_package_drift(
+        &PackageDrift {
+            metadata_available: false,
+            expected_packages: Vec::new(),
+            installed_packages: Vec::new(),
+            missing_packages: Vec::new(),
+        },
+        false,
+        false,
+    );
+
+    assert_eq!(
+        lines,
+        vec![
+            "Package drift:".to_string(),
+            "  status: no saved install profile; checks skipped".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_render_repair_actions_prioritizes_and_groups_follow_up() {
+    let lines = render_repair_actions(
+        &[
+            RepairAction::stipe(
+                "repair-init",
+                "Repair shared MCP registrations",
+                "Reapply shared MCP configuration across detected hosts.",
+                &["init", "--repair"],
+                RepairTier::Primary,
+            ),
+            RepairAction::stipe(
+                "host-doctor",
+                "Inspect host health",
+                "Inspect host/provider health and run targeted setup for missing provider configuration.",
+                &["host", "doctor"],
+                RepairTier::Secondary,
+            ),
+            RepairAction::stipe(
+                "install-volva",
+                "Install volva",
+                "Add volva to PATH.",
+                &["install", "volva"],
+                RepairTier::Manual,
+            ),
+        ],
+        false,
+    );
+
+    assert_eq!(
+        lines,
+        vec![
+            "Recommended repair plan:".to_string(),
+            "Best next command:".to_string(),
+            "  - stipe init --repair".to_string(),
+            "Optional follow-up:".to_string(),
+            "  - stipe install volva".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_render_report_deep_widens_human_sections() {
+    let report = DoctorReport {
+        schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
+        healthy: true,
+        summary: "All checks passed.".to_string(),
+        install_profile: None,
+        checks: vec![HealthCheck {
+            name: "runtime policy".to_string(),
+            passed: true,
+            message: "No remembered approvals or deny decisions are currently stored.".to_string(),
+            repair_actions: Vec::new(),
+        }],
+        hook_paths: Vec::new(),
+        repair_actions: Vec::new(),
+        drift: None,
+        developer_tools: None,
+        provider_health: vec![ProviderHealth {
+            host: HostMode::Codex,
+            provider: "Codex host mode".to_string(),
+            available: true,
+            healthy: true,
+            status: "provider ready".to_string(),
+            auth_freshness: AuthFreshness::Fresh,
+            auth_detail: Some("auth config appears fresh (~/.codex/config.toml)".to_string()),
+        }],
+        mcp_health: vec![McpHealth {
+            host: HostMode::Codex,
+            config_paths: vec![std::path::PathBuf::from("/tmp/codex.toml")],
+            required_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+            registered_servers: vec!["hyphae".to_string(), "rhizome".to_string()],
+            missing_servers: Vec::new(),
+            healthy: true,
+            status: "required MCP servers are registered".to_string(),
+            auth_freshness: AuthFreshness::Fresh,
+        }],
+        runtime_policy: Some(RuntimePolicyReport {
+            configured: true,
+            config_paths: vec![std::path::PathBuf::from("/tmp/runtime-policy.toml")],
+            precedence: vec![PolicyScope::Project, PolicyScope::User],
+            load_error: None,
+            remembered_decisions: vec![RememberedDecision {
+                subject: "install-profile:codex".to_string(),
+                scope: PolicyScope::User,
+                decision: PolicyDecision::Allow,
+                source: DecisionSource::OperatorProfile,
+                updated_at_unix: 42,
+                note: Some("Remembered approval".to_string()),
+            }],
+            active_install_profile: None,
+        }),
+        package_inventory: Some(PackageInventory {
+            package_metadata_available: true,
+            metadata_sources: vec![std::path::PathBuf::from("/tmp/lamella/resources")],
+            discovered_packages: vec!["codex:core".to_string(), "codex:workflow".to_string()],
+            discovered_plugins: vec!["/tmp/plugins/cache".to_string()],
+        }),
+        worktree_config: Some(WorktreeConfigDiscovery {
+            detected: true,
+            project_root: Some(std::path::PathBuf::from("/tmp/workspace")),
+            discovered_configs: vec![std::path::PathBuf::from(
+                "/tmp/workspace/.codex/config.toml",
+            )],
+        }),
+        package_drift: Some(PackageDrift {
+            metadata_available: true,
+            expected_packages: vec!["codex:core".to_string()],
+            installed_packages: vec!["codex:core".to_string()],
+            missing_packages: Vec::new(),
+        }),
+    };
+
+    let shallow = render_report(&report, false, false);
+    let deep = render_report(&report, false, true);
+
+    assert!(!shallow.iter().any(|line| line.contains("package detail:")));
+    assert!(
+        deep.iter()
+            .any(|line| line.contains("package detail: codex:core, codex:workflow"))
+    );
+    assert!(
+        !shallow
+            .iter()
+            .any(|line| line.contains("registered: hyphae, rhizome"))
+    );
+    assert!(
+        deep.iter()
+            .any(|line| line.contains("registered: hyphae, rhizome"))
+    );
+    assert!(
+        !shallow
+            .iter()
+            .any(|line| line.contains("note: Remembered approval"))
+    );
+    assert!(
+        deep.iter()
+            .any(|line| line.contains("note: Remembered approval"))
+    );
+    assert!(
+        !shallow
+            .iter()
+            .any(|line| line.contains("/tmp/workspace/.codex/config.toml"))
+    );
+    assert!(
+        deep.iter()
+            .any(|line| line.contains("/tmp/workspace/.codex/config.toml"))
     );
 }
 

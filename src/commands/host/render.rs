@@ -5,9 +5,26 @@ use crate::commands::host_policy;
 use crate::commands::host_policy::{HostConfigScope, HostMode};
 use crate::commands::init;
 use crate::commands::install;
+use crate::commands::output;
 
 use super::doctor_report::build_host_doctor_report;
 use super::inventory::build_inventory;
+
+pub(super) fn render_setup_preview(mode: HostMode) -> Vec<String> {
+    let mut lines = vec![format!("Host setup preview | {}", mode.label())];
+    lines.extend(output::render_footer(
+        "preview only; the host rollout is staged but not applied",
+        format!(
+            "review the embedded install and init previews below, then rerun `stipe host setup {}` without `--dry-run` to apply the host flow",
+            mode.client_flag()
+        ),
+        Some(format!(
+            "run `stipe install --profile {} --dry-run` to inspect the install surface on its own",
+            mode.install_profile().profile_name()
+        )),
+    ));
+    lines
+}
 
 fn render_inventory(colorize: bool) -> Vec<String> {
     let inventory = build_inventory();
@@ -114,32 +131,22 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
     }
 
     if dry_run {
-        println!(
-            "{}",
-            format!("Host setup preview | {}", mode.label()).bold()
-        );
-        println!(
-            "{}",
-            "Roll out the matching install profile first, then aim init at the selected host."
-                .dimmed()
-        );
-        println!(
-            "{}",
-            "No files change in preview mode; this is the operator checklist before launch."
-                .dimmed()
-        );
+        for (index, line) in render_setup_preview(mode).into_iter().enumerate() {
+            if index == 0 {
+                println!("{}", line.bold());
+            } else if line.starts_with("Next step:") {
+                println!("{}", line.bold());
+            } else {
+                println!("{}", line.dimmed());
+            }
+        }
         println!();
+        install::run_embedded_preview(mode.install_profile())?;
+        return init::run_embedded_preview(Some(mode.client_flag()), scope);
     }
 
-    install::run(
-        false,
-        Some(mode.install_profile()),
-        dry_run,
-        false,
-        None,
-        &[],
-    )?;
-    init::run(Some(mode.client_flag()), scope, dry_run, false, false)
+    install::run(false, Some(mode.install_profile()), false, false, None, &[])?;
+    init::run(Some(mode.client_flag()), scope, false, false, false)
 }
 
 pub fn run_doctor(mode: Option<HostMode>, json: bool) -> Result<()> {
@@ -192,20 +199,73 @@ pub(super) fn render_doctor(
     }
 
     lines.push(String::new());
-    if !report.repair_actions.is_empty() {
-        lines.push(if colorize {
-            "Recommended repair actions:".bold().to_string()
-        } else {
-            "Recommended repair actions:".to_string()
-        });
-        lines.extend(
-            report
-                .repair_actions
-                .iter()
-                .map(|action| format!("  - {}", action.command)),
-        );
-        lines.push(String::new());
+    if report.healthy {
+        lines.extend(render_footer_lines(
+            &report.summary,
+            "continue with the current host configuration; no repair action is required",
+            None,
+            colorize,
+        ));
+    } else if let Some(primary) = report.repair_actions.first() {
+        let optional_follow_up = report
+            .repair_actions
+            .iter()
+            .skip(1)
+            .find(|action| action.command != primary.command)
+            .map(|action| format!("run `{}`", action.command));
+        lines.extend(render_footer_lines(
+            &report.summary,
+            &format!("run `{}`", primary.command),
+            optional_follow_up.clone(),
+            colorize,
+        ));
+
+        let additional_actions = report
+            .repair_actions
+            .iter()
+            .filter(|action| action.command != primary.command)
+            .filter(|action| {
+                optional_follow_up
+                    .as_ref()
+                    .is_none_or(|follow_up| follow_up != &format!("run `{}`", action.command))
+            })
+            .map(|action| format!("  - {}", action.command))
+            .collect::<Vec<_>>();
+
+        if !additional_actions.is_empty() {
+            lines.push(String::new());
+            lines.push(if colorize {
+                "Additional repair actions:".bold().to_string()
+            } else {
+                "Additional repair actions:".to_string()
+            });
+            lines.extend(additional_actions);
+        }
     }
 
+    lines.push(String::new());
+
     lines
+}
+
+fn render_footer_lines(
+    state: &str,
+    next_step: &str,
+    optional_follow_up: Option<String>,
+    colorize: bool,
+) -> Vec<String> {
+    output::render_footer(state.to_string(), next_step.to_string(), optional_follow_up)
+        .into_iter()
+        .map(|line| {
+            if colorize {
+                if line.starts_with("Next step:") {
+                    line.bold().to_string()
+                } else {
+                    line.dimmed().to_string()
+                }
+            } else {
+                line
+            }
+        })
+        .collect()
 }
