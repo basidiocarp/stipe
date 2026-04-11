@@ -102,6 +102,12 @@ run doctor       ─►    host-aware checks       ─►    repair guidance
 - Approval memory and runtime policy for repeated host setup decisions
 - Hook and notification adapter installation
 - Ecosystem and host-specific doctor flows
+- Resolved host-side status and customization state before it is handed to portable consumers
+
+When Stipe resolves statusline or host customization state, it should emit
+Septa's `resolved-status-customization-v1` contract instead of forcing Lamella
+or Cap to parse raw host config blobs directly. Stipe still owns repair and
+host-specific resolution; the portable shape is just the shared boundary.
 
 ## Foundation Boundary
 
