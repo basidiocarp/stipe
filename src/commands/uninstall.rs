@@ -169,6 +169,7 @@ mod tests {
                 "canopy".to_string(),
                 "cortina".to_string(),
                 "volva".to_string(),
+                "annulus".to_string(),
                 "stipe".to_string(),
             ]
         );

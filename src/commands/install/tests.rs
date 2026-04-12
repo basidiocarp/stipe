@@ -49,7 +49,7 @@ fn test_profile_tools_cover_expected_sets() {
     assert_eq!(
         full_stack,
         vec![
-            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva"
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus"
         ]
     );
 
@@ -93,6 +93,7 @@ fn test_resolve_requested_tools_handles_all_mode() {
             "canopy".to_string(),
             "cortina".to_string(),
             "volva".to_string(),
+            "annulus".to_string(),
         ]
     );
 }
@@ -199,6 +200,7 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
             "  canopy          coordination runtime".to_string(),
             "  cortina         hook runner & session tracking".to_string(),
             "  volva           backend operations CLI".to_string(),
+            "  annulus         operator utilities".to_string(),
         ]
     );
 }

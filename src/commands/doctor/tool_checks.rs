@@ -80,6 +80,13 @@ fn missing_tool_actions(tool: &ToolSpec) -> Vec<RepairAction> {
             &["install", "volva"],
             RepairTier::Primary,
         )],
+        "annulus" => vec![RepairAction::stipe(
+            "install-annulus",
+            "Install Annulus",
+            "Install the operator utilities CLI.",
+            &["install", "annulus"],
+            RepairTier::Primary,
+        )],
         _ => Vec::new(),
     }
 }
@@ -192,12 +199,12 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
             name: spec.name.to_string(),
             passed: true,
-            message: if spec.name == "volva" {
-                "Optional backend operations CLI not installed".to_string()
-            } else {
-                "Optional coordination runtime not installed".to_string()
+            message: match spec.name {
+                "volva" => "Optional backend operations CLI not installed".to_string(),
+                "annulus" => "Optional operator utilities CLI not installed".to_string(),
+                _ => "Optional coordination runtime not installed".to_string(),
             },
-            repair_actions: if spec.name == "volva" {
+            repair_actions: if matches!(spec.name, "volva" | "annulus") {
                 missing_tool_actions(spec)
             } else {
                 Vec::new()
