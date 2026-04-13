@@ -1089,7 +1089,9 @@ fn build_report_with_saved_profile(
             .map(|spec| check_tool(spec, deep))
             .collect::<Vec<_>>()
     };
-    let hook_paths = claude_hooks::hook_path_snapshots();
+    let mut hook_paths = claude_hooks::hook_path_snapshots();
+    // Also check lamella hook paths if available
+    hook_paths.extend(claude_hooks::lamella_hook_path_snapshots());
     let drift_state = check_mcp_config_drift();
     let provider_failures = provider_health
         .iter()

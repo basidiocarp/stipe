@@ -418,6 +418,115 @@ pub fn claude_hooks_detail(_configured: bool) -> String {
     }
 }
 
+/// Check lamella hook path staleness by running the lamella validator script
+pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
+    let mut snapshots = Vec::new();
+
+    // Try to find the lamella validator script in order of preference:
+    // 1. LAMELLA_HOME env var (if set)
+    // 2. Common install locations
+    // 3. $PATH search for 'lamella-validate-hooks' wrapper (future-proofing)
+
+    let validator_script = if let Ok(lamella_home) = std::env::var("LAMELLA_HOME") {
+        // Check LAMELLA_HOME/scripts/validate-hooks.js
+        let path = PathBuf::from(&lamella_home).join("scripts/validate-hooks.js");
+        if path.exists() {
+            Some(path)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let validator_script = validator_script.or_else(|| {
+        // Try common install locations
+        let candidates = [
+            "~/.lamella/scripts/validate-hooks.js",
+            "~/.local/share/lamella/scripts/validate-hooks.js",
+            "~/.config/lamella/scripts/validate-hooks.js",
+        ];
+
+        for candidate in &candidates {
+            let path = if let Some(stripped) = candidate.strip_prefix("~/") {
+                if let Some(home) = dirs::home_dir() {
+                    home.join(stripped)
+                } else {
+                    continue;
+                }
+            } else {
+                PathBuf::from(candidate)
+            };
+
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        None
+    });
+
+    // If no script found in standard locations, check $PATH for 'lamella-validate-hooks'
+    let validator_script = validator_script.or_else(|| {
+        if Command::new("which")
+            .arg("lamella-validate-hooks")
+            .output()
+            .is_ok_and(|output| output.status.success())
+        {
+            Some(PathBuf::from("lamella-validate-hooks"))
+        } else {
+            None
+        }
+    });
+
+    // Run the validator if found
+    if let Some(validator_path) = validator_script {
+        if let Ok(output) = Command::new("node")
+            .arg(&validator_path)
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let combined = format!("{stdout}{stderr}");
+
+            // Parse output lines for [OK] and [STALE] patterns
+            for line in combined.lines() {
+                if let Some(rest) = line.strip_prefix("[OK]") {
+                    // Extract event name and path from format: [OK]    event → /path
+                    if let Some(content) = rest.trim().split(" → ").next() {
+                        let event = content.trim().to_string();
+                        if let Some(path_str) = rest.split(" → ").nth(1) {
+                            let hook_path = PathBuf::from(path_str.trim());
+                            snapshots.push(HookPathSnapshot {
+                                event,
+                                path: hook_path,
+                                passed: true,
+                            });
+                        }
+                    }
+                } else if let Some(rest) = line.strip_prefix("[STALE]") {
+                    // Extract event name and path from format: [STALE] event → /path (reason)
+                    if let Some(content) = rest.trim().split(" → ").next() {
+                        let event = content.trim().to_string();
+                        if let Some(path_part) = rest.split(" → ").nth(1) {
+                            if let Some(path_str) = path_part.split(" (").next() {
+                                let hook_path = PathBuf::from(path_str.trim());
+                                snapshots.push(HookPathSnapshot {
+                                    event,
+                                    path: hook_path,
+                                    passed: false,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    snapshots
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
