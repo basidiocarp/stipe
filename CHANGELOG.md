@@ -4,6 +4,10 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add hymenium to the tool registry (install/update/doctor/status/ecosystem support)
+
 ## [0.5.13] - 2026-04-10
 
 ### Changed

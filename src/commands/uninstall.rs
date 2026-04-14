@@ -170,6 +170,7 @@ mod tests {
                 "cortina".to_string(),
                 "volva".to_string(),
                 "annulus".to_string(),
+                "hymenium".to_string(),
                 "stipe".to_string(),
             ]
         );
