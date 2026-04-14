@@ -4,9 +4,13 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.14] - 2026-04-14
+
 ### Added
 
-- Add hymenium to the tool registry (install/update/doctor/status/ecosystem support)
+- **Hymenium in tool registry**: `stipe install`, `update`, `doctor`, `status`, and `ecosystem` now include hymenium (workflow orchestration engine). Optional doctor coverage, FullStack install profile.
+- **Annulus in tool registry**: annulus registered as an optional full-stack tool with install, update, uninstall, doctor, and status coverage.
+- **Lamella hook paths in doctor**: `stipe doctor` now resolves and reports lamella-installed hook paths with tiered path resolution and stale/broken classification.
 
 ## [0.5.13] - 2026-04-10
 
