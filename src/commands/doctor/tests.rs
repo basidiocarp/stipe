@@ -692,46 +692,6 @@ fn test_render_package_drift_skips_cleanly_without_saved_profile() {
     );
 }
 
-#[test]
-fn test_render_repair_actions_prioritizes_and_groups_follow_up() {
-    let lines = render_repair_actions(
-        &[
-            RepairAction::stipe(
-                "repair-init",
-                "Repair shared MCP registrations",
-                "Reapply shared MCP configuration across detected hosts.",
-                &["init", "--repair"],
-                RepairTier::Primary,
-            ),
-            RepairAction::stipe(
-                "host-doctor",
-                "Inspect host health",
-                "Inspect host/provider health and run targeted setup for missing provider configuration.",
-                &["host", "doctor"],
-                RepairTier::Secondary,
-            ),
-            RepairAction::stipe(
-                "install-volva",
-                "Install volva",
-                "Add volva to PATH.",
-                &["install", "volva"],
-                RepairTier::Manual,
-            ),
-        ],
-        false,
-    );
-
-    assert_eq!(
-        lines,
-        vec![
-            "Recommended repair plan:".to_string(),
-            "Best next command:".to_string(),
-            "  - stipe init --repair".to_string(),
-            "Optional follow-up:".to_string(),
-            "  - stipe install volva".to_string(),
-        ]
-    );
-}
 
 #[test]
 fn test_render_report_deep_widens_human_sections() {

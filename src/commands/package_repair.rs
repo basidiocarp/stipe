@@ -79,6 +79,7 @@ impl LamellaInvocation {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
     let profile = resolve_profile(profile);
     let lamella_invocations = lamella_invocations(profile);
@@ -142,7 +143,7 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
                 } else {
                     Some(&failure.rollback)
                 },
-                Some(failure_message.clone()),
+                Some(&failure_message),
             ));
             return Err(anyhow!(failure_message));
         }
@@ -185,6 +186,7 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
             for line in rollback_summary_lines(&rollback) {
                 println!("{line}");
             }
+            let error_string = error.to_string();
             append_audit_log_best_effort(&build_audit_event(
                 "failed",
                 profile,
@@ -192,7 +194,7 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
                 &lamella_invocations,
                 &backups,
                 Some(&rollback),
-                Some(error.to_string()),
+                Some(&error_string),
             ));
             let failure_message = format_failed_package_repair_message(&error, &rollback);
             Err(anyhow!(failure_message))
@@ -314,6 +316,7 @@ fn package_state_targets_for_surface(home: &Path, surface: PackageSurface) -> Ve
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn prepare_backups(
     targets: &[PathBuf],
 ) -> std::result::Result<Vec<PackageBackup>, BackupPreparationFailure> {
@@ -324,6 +327,7 @@ fn prepare_backups(
     prepare_backups_with_timestamp(targets, timestamp)
 }
 
+#[allow(clippy::result_large_err)]
 fn prepare_backups_with_timestamp(
     targets: &[PathBuf],
     timestamp: u64,
@@ -529,7 +533,7 @@ fn build_audit_event(
     lamella_invocations: &[LamellaInvocation],
     backups: &[PackageBackup],
     rollback: Option<&RollbackSummary>,
-    error: Option<String>,
+    error: Option<&str>,
 ) -> serde_json::Value {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -588,7 +592,7 @@ fn append_audit_log_best_effort(entry: &serde_json::Value) {
             "{}",
             format!("Warning: failed to write package audit log: {error}").yellow()
         );
-    };
+    }
 }
 
 #[cfg(test)]
@@ -615,11 +619,11 @@ fn append_audit_log_with_path(entry: &serde_json::Value, log_path: &Path) -> Res
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&log_path)
+        .open(log_path)
         .with_context(|| {
             format!(
                 "failed to open audit log at {}",
-                host_policy::format_user_path(&log_path)
+                host_policy::format_user_path(log_path)
             )
         })?;
     writeln!(file, "{}", serde_json::to_string(entry)?)?;
@@ -900,7 +904,7 @@ mod tests {
             &[LamellaInvocation::codex_install()],
             &[],
             Some(&summary),
-            Some("lamella failed".to_string()),
+            Some("lamella failed"),
         );
 
         let rollback = event

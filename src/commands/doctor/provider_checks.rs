@@ -185,7 +185,7 @@ fn host_config_paths(mode: HostMode) -> Vec<PathBuf> {
 fn auth_freshness_for_paths(paths: &[PathBuf]) -> AuthFreshness {
     let existing = paths
         .iter()
-        .filter_map(|path| path.exists().then_some(path))
+        .filter(|path| path.exists())
         .collect::<Vec<_>>();
 
     if existing.is_empty() {

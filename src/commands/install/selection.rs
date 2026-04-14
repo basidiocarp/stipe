@@ -111,18 +111,6 @@ pub(super) fn render_install_preview(
     format_install_preview(prefix, tools, mode_label)
 }
 
-pub(super) fn render_embedded_install_preview(
-    prefix: &Path,
-    tools: &[String],
-    mode_label: &str,
-) -> Vec<String> {
-    if tools.is_empty() {
-        return render_install_preview(prefix, tools, mode_label);
-    }
-
-    format_install_preview_with_footer(prefix, tools, mode_label, false)
-}
-
 pub(super) fn split_requested_tools(tools: &[String]) -> (Vec<String>, Vec<ManualProfileMember>) {
     let mut managed: Vec<String> = Vec::new();
     let mut manual: Vec<ManualProfileMember> = Vec::new();

@@ -72,9 +72,26 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 5] = [
 ];
 
 const CORTINA_STATUSLINE_COMMAND: &str = "cortina statusline";
+const ANNULUS_STATUSLINE_COMMAND: &str = "annulus statusline";
+
+const DEFAULT_ANNULUS_CONFIG: &str = "\
+# Annulus statusline configuration
+# Run `annulus statusline --help` for available options.
+
+# Provider auto-detection is the default.
+# Uncomment to lock to a specific provider:
+# provider = \"claude\"
+";
 
 pub fn cortina_installed() -> bool {
     Command::new("cortina")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn annulus_available() -> bool {
+    Command::new("annulus")
         .arg("--version")
         .output()
         .is_ok_and(|output| output.status.success())
@@ -172,11 +189,24 @@ fn statusline_configured(root: &serde_json::Value) -> bool {
             && status_line
                 .get("command")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|existing| command_matches(existing, CORTINA_STATUSLINE_COMMAND))
+                .is_some_and(|existing| {
+                    command_matches(existing, CORTINA_STATUSLINE_COMMAND)
+                        || command_matches(existing, ANNULUS_STATUSLINE_COMMAND)
+                })
     })
 }
 
-fn install_statusline(root: &mut serde_json::Value) {
+fn annulus_statusline_configured(root: &serde_json::Value) -> bool {
+    root.get("statusLine").is_some_and(|status_line| {
+        status_line.get("type").and_then(serde_json::Value::as_str) == Some("command")
+            && status_line
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|existing| command_matches(existing, ANNULUS_STATUSLINE_COMMAND))
+    })
+}
+
+fn install_statusline(root: &mut serde_json::Value, command: &str) {
     let root_obj = if let Some(obj) = root.as_object_mut() {
         obj
     } else {
@@ -189,7 +219,7 @@ fn install_statusline(root: &mut serde_json::Value) {
         "statusLine".to_string(),
         json!({
             "type": "command",
-            "command": CORTINA_STATUSLINE_COMMAND,
+            "command": command,
         }),
     );
 }
@@ -234,13 +264,28 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
         }
     }
 
+    let mut wrote_annulus = false;
     if !statusline_configured(&root) {
-        install_statusline(&mut root);
+        let statusline_command = if annulus_available() {
+            wrote_annulus = true;
+            ANNULUS_STATUSLINE_COMMAND
+        } else {
+            CORTINA_STATUSLINE_COMMAND
+        };
+        install_statusline(&mut root, statusline_command);
+        changed = true;
+    } else if !annulus_statusline_configured(&root) && annulus_available() {
+        // Upgrade: cortina statusline → annulus statusline
+        install_statusline(&mut root, ANNULUS_STATUSLINE_COMMAND);
+        wrote_annulus = true;
         changed = true;
     }
 
     if changed {
         write_settings(settings_path, &root)?;
+    }
+    if wrote_annulus {
+        ensure_annulus_config()?;
     }
 
     Ok(true)
@@ -402,20 +447,79 @@ pub fn install_claude_hooks(scope: HostConfigScope, verbose: u8) -> Result<bool>
 pub fn claude_hooks_detail(_configured: bool) -> String {
     let configured = configured_paths();
     let candidate_paths = host_policy::claude_hook_settings_paths();
+    let statusline_label = if annulus_statusline_is_configured() {
+        "Annulus"
+    } else {
+        "Cortina"
+    };
     if !configured.is_empty() {
         format!(
-            "Claude Code hooks and Cortina statusline are installed in {}.",
+            "Claude Code hooks and {statusline_label} statusline are installed in {}.",
             host_policy::format_config_path_list(&configured)
         )
     } else if cortina_installed() {
         format!(
-            "Run `stipe host setup claude-code --scope <{}>` to install Cortina Claude hooks and statusline in {}.",
+            "Run `stipe host setup claude-code --scope <{}>` to install Claude hooks and statusline in {}.",
             host_policy::supported_scope_hint(HostMode::ClaudeCode),
             host_policy::format_config_path_list(&candidate_paths)
         )
     } else {
         "Cortina is not installed, so Claude hook registration cannot be completed yet.".to_string()
     }
+}
+
+fn annulus_statusline_configured_at_path(settings_path: &Path) -> bool {
+    let Ok(root) = load_or_create_settings(settings_path) else {
+        return false;
+    };
+    annulus_statusline_configured(&root)
+}
+
+pub fn annulus_statusline_is_configured() -> bool {
+    host_policy::claude_hook_settings_paths()
+        .iter()
+        .any(|path| annulus_statusline_configured_at_path(path))
+}
+
+fn ensure_annulus_config() -> Result<()> {
+    let config_dir = dirs::config_dir().map(|d| d.join("annulus"));
+    let Some(config_dir) = config_dir else {
+        return Ok(());
+    };
+    let config_path = config_dir.join("statusline.toml");
+    if config_path.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(&config_dir)
+        .with_context(|| format!("creating annulus config directory {}", config_dir.display()))?;
+    fs::write(&config_path, DEFAULT_ANNULUS_CONFIG)
+        .with_context(|| format!("writing default annulus config {}", config_path.display()))?;
+    Ok(())
+}
+
+pub fn install_annulus_statusline(scope: HostConfigScope, verbose: u8) -> Result<bool> {
+    let Some(settings_path) = host_policy::claude_hook_settings_path(scope) else {
+        return Ok(false);
+    };
+
+    let mut root = load_or_create_settings(&settings_path)?;
+
+    if annulus_statusline_configured(&root) {
+        return Ok(false);
+    }
+
+    install_statusline(&mut root, ANNULUS_STATUSLINE_COMMAND);
+    write_settings(&settings_path, &root)?;
+    ensure_annulus_config()?;
+
+    if verbose > 0 {
+        eprintln!(
+            "  Wrote annulus statusline to {}",
+            settings_path.display()
+        );
+    }
+
+    Ok(true)
 }
 
 /// Check lamella hook path staleness by running the lamella validator script

@@ -76,9 +76,7 @@ pub(super) fn print_preview(snapshot: &InitSnapshot) {
             || line.starts_with("Optional follow-up:")
         {
             println!("{}", line.dimmed());
-        } else if line.starts_with("Next step:") {
-            println!("{}", line.bold());
-        } else if line.ends_with(':') {
+        } else if line.starts_with("Next step:") || line.ends_with(':') {
             println!("{}", line.bold());
         } else {
             println!("{line}");

@@ -439,9 +439,8 @@ fn persist_install_profile_state(profile: InstallProfile) -> Result<()> {
         );
         if let Some(policy_path) = policy_path {
             println!(
-                "{} {} ({})",
+                "{} Updated approval memory and runtime policy ({})",
                 "✓".green(),
-                "Updated approval memory and runtime policy",
                 policy_path.display()
             );
         }

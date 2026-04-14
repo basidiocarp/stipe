@@ -124,6 +124,7 @@ fn verify_registered_mcp_servers(context: &EcosystemContext, emit_stdout: bool) 
     }
 }
 
+#[allow(clippy::too_many_lines, reason = "sequential host-setup steps are clearest in one function")]
 fn configure_claude_code(
     context: &EcosystemContext,
     scope: HostConfigScope,
@@ -221,6 +222,27 @@ fn configure_claude_code(
             "  {} {} not found in PATH — skipping Claude hook registration.",
             "!".yellow(),
             "cortina".bold()
+        );
+    }
+
+    // Statusline: prefer annulus over cortina when annulus is installed
+    if context.annulus_probe.is_installed() {
+        match claude_hooks::install_annulus_statusline(scope, options.verbose) {
+            Ok(true) => {
+                if options.emit_stdout {
+                    println!("    - Annulus statusline");
+                }
+            }
+            Ok(false) => { /* already configured */ }
+            Err(err) => failures.push(format!("Annulus statusline configuration failed: {err}")),
+        }
+    } else if !context.cortina_probe.is_installed()
+        && !context.annulus_probe.is_installed()
+        && options.emit_stdout
+    {
+        eprintln!(
+            "  {} Neither annulus nor cortina found — skipping statusline.",
+            "!".yellow()
         );
     }
 

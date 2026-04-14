@@ -64,7 +64,7 @@ fn resolve_banner_color_profile(
     }
 
     if colorterm
-        .map(|value| value.to_ascii_lowercase())
+        .map(str::to_ascii_lowercase)
         .is_some_and(|value| value.contains("truecolor") || value.contains("24bit"))
     {
         return BannerColorProfile::TrueColor;

@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use anyhow::Result;
 use colored::Colorize;
 use std::path::Path;
@@ -192,6 +194,7 @@ fn render_hook_paths(hook_paths: &[claude_hooks::HookPathSnapshot], colorize: bo
     lines
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![
         String::new(),
@@ -281,31 +284,29 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
             ),
             colorize,
         ));
+    } else if report.repair_actions.is_empty() {
+        lines.extend(render_footer_lines(
+            &report.summary,
+            "review the failing sections above",
+            None,
+            colorize,
+        ));
     } else {
-        if !report.repair_actions.is_empty() {
-            let repair_plan = build_repair_plan(&report.repair_actions);
-            lines.extend(render_footer_lines(
-                &report.summary,
-                &format!("run `{}`", repair_plan.primary.command),
-                repair_plan
-                    .follow_up
-                    .as_ref()
-                    .map(|action| format!("run `{}`", action.command)),
-                colorize,
-            ));
+        let repair_plan = build_repair_plan(&report.repair_actions);
+        lines.extend(render_footer_lines(
+            &report.summary,
+            &format!("run `{}`", repair_plan.primary.command),
+            repair_plan
+                .follow_up
+                .as_ref()
+                .map(|action| format!("run `{}`", action.command)),
+            colorize,
+        ));
 
-            let additional_actions = render_additional_repair_actions(&repair_plan, colorize);
-            if !additional_actions.is_empty() {
-                lines.push(String::new());
-                lines.extend(additional_actions);
-            }
-        } else {
-            lines.extend(render_footer_lines(
-                &report.summary,
-                "review the failing sections above",
-                None,
-                colorize,
-            ));
+        let additional_actions = render_additional_repair_actions(&repair_plan, colorize);
+        if !additional_actions.is_empty() {
+            lines.push(String::new());
+            lines.extend(additional_actions);
         }
     }
 
@@ -676,7 +677,7 @@ fn render_runtime_policy(
                     decision.updated_at_unix
                 );
                 if let Some(note) = &decision.note {
-                    line.push_str(&format!("; note: {note}"));
+                    let _ = write!(line, "; note: {note}");
                 }
                 line
             }));
@@ -867,26 +868,6 @@ fn auth_freshness_label(auth: AuthFreshness) -> &'static str {
     }
 }
 
-fn render_repair_actions(repair_actions: &[RepairAction], colorize: bool) -> Vec<String> {
-    if repair_actions.is_empty() {
-        return Vec::new();
-    }
-
-    let plan = build_repair_plan(repair_actions);
-    let mut lines = vec![if colorize {
-        "Recommended repair plan:".bold().to_string()
-    } else {
-        "Recommended repair plan:".to_string()
-    }];
-    lines.push("Best next command:".to_string());
-    lines.push(format!("  - {}", plan.primary.command));
-    if let Some(follow_up) = &plan.follow_up {
-        lines.push("Optional follow-up:".to_string());
-        lines.push(format!("  - {}", follow_up.command));
-    }
-    lines.extend(render_additional_repair_actions(&plan, colorize));
-    lines
-}
 
 #[derive(Clone)]
 struct RepairPlan {
@@ -1068,6 +1049,7 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_report_with_saved_profile(
     saved_profile: Option<install::SavedInstallProfile>,
     include_developer_tools: bool,

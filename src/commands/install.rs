@@ -18,7 +18,6 @@ use profile_config::{load_profile_from_path, save_profile_to_path};
 use release::{GitHubRelease, ReleaseAsset, extract_tarball, find_matching_asset, platform_key};
 #[cfg(test)]
 use selection::{
-    format_install_preview, render_embedded_install_preview,
-    render_embedded_profile_install_preview, render_install_preview,
+    format_install_preview, render_embedded_profile_install_preview, render_install_preview,
     render_profile_install_preview, resolve_requested_tools, split_requested_tools,
 };

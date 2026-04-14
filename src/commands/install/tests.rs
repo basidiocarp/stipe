@@ -207,19 +207,6 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
     );
 }
 
-#[test]
-fn test_render_embedded_install_preview_omits_next_step() {
-    let temp_dir = std::env::temp_dir().join("stipe-install-preview-embedded");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let lines =
-        render_embedded_install_preview(&temp_dir, &["hyphae".to_string()], "minimal profile");
-
-    assert!(!lines.iter().any(|line| line.starts_with("Next step:")));
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
 
 #[test]
 fn test_split_requested_tools_keeps_manual_members_out_of_managed_installs() {

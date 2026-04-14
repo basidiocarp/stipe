@@ -28,6 +28,8 @@ impl Default for SnapshotFixture {
                 rhizome_broken: false,
                 cortina_installed: false,
                 cortina_broken: false,
+                annulus_installed: false,
+                annulus_broken: false,
                 hyphae_db_exists: false,
             },
             codex: model::CodexSnapshot {
@@ -322,6 +324,8 @@ fn test_render_preview_mentions_claude_hooks_when_cortina_is_available() {
             hyphae_broken: false,
             rhizome_broken: false,
             cortina_broken: false,
+            annulus_installed: false,
+            annulus_broken: false,
             hyphae_db_exists: true,
         },
         ..Default::default()
@@ -368,6 +372,8 @@ fn test_render_preview_reports_multiple_detected_hosts() {
             hyphae_broken: false,
             rhizome_broken: false,
             cortina_broken: false,
+            annulus_installed: false,
+            annulus_broken: false,
             hyphae_db_exists: true,
         },
         ..Default::default()
@@ -457,6 +463,8 @@ fn test_claude_hooks_step_skips_broken_cortina_with_repair_guidance() {
             rhizome_broken: false,
             cortina_installed: false,
             cortina_broken: true,
+            annulus_installed: false,
+            annulus_broken: false,
             hyphae_db_exists: true,
         },
         ..Default::default()

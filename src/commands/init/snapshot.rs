@@ -55,6 +55,9 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
     let cortina_probe = tool_registry::find("cortina").map(tool_registry::probe);
     let cortina_installed = matches!(cortina_probe, Some(ToolProbe::Installed(_)));
     let cortina_broken = matches!(cortina_probe, Some(ToolProbe::Broken));
+    let annulus_probe = tool_registry::find("annulus").map(tool_registry::probe);
+    let annulus_installed = matches!(annulus_probe, Some(ToolProbe::Installed(_)));
+    let annulus_broken = matches!(annulus_probe, Some(ToolProbe::Broken));
     let hyphae_db_exists = dirs::data_dir()
         .map(|dir| dir.join("hyphae").join("hyphae.db"))
         .is_some_and(|db_path| db_path.exists());
@@ -71,6 +74,8 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
             rhizome_broken,
             cortina_installed,
             cortina_broken,
+            annulus_installed,
+            annulus_broken,
             hyphae_db_exists,
         },
         codex: CodexSnapshot {

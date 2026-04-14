@@ -132,9 +132,7 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
 
     if dry_run {
         for (index, line) in render_setup_preview(mode).into_iter().enumerate() {
-            if index == 0 {
-                println!("{}", line.bold());
-            } else if line.starts_with("Next step:") {
+            if index == 0 || line.starts_with("Next step:") {
                 println!("{}", line.bold());
             } else {
                 println!("{}", line.dimmed());

@@ -32,6 +32,7 @@ fn test_render_status_report_snapshot() {
         rhizome_probe: ToolProbe::Installed("0.4.0".to_string()),
         canopy_probe: ToolProbe::Missing,
         cortina_probe: ToolProbe::Broken,
+        annulus_probe: ToolProbe::Missing,
         cap_probe: ToolProbe::Missing,
         codex_version: Some("0.31.0".to_string()),
     };
@@ -48,6 +49,7 @@ fn test_render_status_report_snapshot() {
             "  rhizome   v0.4.0   ✓ installed".to_string(),
             "  canopy    —        ✗ not installed (optional outside the coordination runtime path: stipe install canopy)".to_string(),
             "  cortina   !        ✗ installed but broken".to_string(),
+            "  annulus   —        ✗ not installed".to_string(),
             "  cap       —        ✗ not installed (optional: git clone https://github.com/basidiocarp/cap && cd cap && npm i && npm run dev:all)".to_string(),
             "  codex     v0.31.0  ✓ installed".to_string(),
             String::new(),

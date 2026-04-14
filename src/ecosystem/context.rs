@@ -13,6 +13,7 @@ pub(super) struct EcosystemContext {
     pub(super) rhizome_probe: ToolProbe,
     pub(super) canopy_probe: ToolProbe,
     pub(super) cortina_probe: ToolProbe,
+    pub(super) annulus_probe: ToolProbe,
     pub(super) cap_probe: ToolProbe,
     pub(super) codex_version: Option<String>,
 }
@@ -36,6 +37,7 @@ impl EcosystemContext {
             rhizome_probe: tool_probe("rhizome"),
             canopy_probe: tool_probe("canopy"),
             cortina_probe: tool_probe("cortina"),
+            annulus_probe: tool_probe("annulus"),
             cap_probe: tool_probe("cap"),
             codex_version: discover_codex_version(),
         }
@@ -56,6 +58,7 @@ impl EcosystemContext {
             "rhizome" => Some(&self.rhizome_probe),
             "canopy" => Some(&self.canopy_probe),
             "cortina" => Some(&self.cortina_probe),
+            "annulus" => Some(&self.annulus_probe),
             "cap" => Some(&self.cap_probe),
             _ => None,
         }

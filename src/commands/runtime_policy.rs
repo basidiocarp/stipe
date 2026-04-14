@@ -311,10 +311,10 @@ fn install_profile_subject(profile: InstallProfile) -> String {
     format!("install-profile:{}", profile.profile_name())
 }
 
-fn effective_install_profile_decision<'a>(
-    remembered_decisions: &'a [RememberedDecision],
+fn effective_install_profile_decision(
+    remembered_decisions: &[RememberedDecision],
     profile: InstallProfile,
-) -> Option<&'a RememberedDecision> {
+) -> Option<&RememberedDecision> {
     let subject = install_profile_subject(profile);
     for scope in precedence_order() {
         if let Some(decision) = remembered_decisions

@@ -117,6 +117,30 @@ fn codex_notify_step(snapshot: &InitSnapshot) -> Option<InitStep> {
         })
 }
 
+fn annulus_statusline_step(snapshot: &InitSnapshot) -> Option<InitStep> {
+    snapshot
+        .claude_host_selected_or_detected()
+        .then(|| InitStep {
+            status: if !snapshot.tools.annulus_installed {
+                InitStepStatus::Skipped
+            } else if claude_hooks::annulus_statusline_is_configured() {
+                InitStepStatus::AlreadyOk
+            } else {
+                InitStepStatus::Planned
+            },
+            title: "configure annulus as the Claude Code statusline".to_string(),
+            detail: if !snapshot.tools.annulus_installed && snapshot.tools.annulus_broken {
+                "Annulus is installed but broken, so statusline configuration is skipped. Run 'stipe install annulus' first.".to_string()
+            } else if !snapshot.tools.annulus_installed {
+                "Annulus is not installed yet, so statusline configuration is skipped.".to_string()
+            } else if claude_hooks::annulus_statusline_is_configured() {
+                "Annulus statusline is already configured in Claude Code settings.".to_string()
+            } else {
+                "Annulus will be configured as the Claude Code statusline provider for richer token and cost data.".to_string()
+            },
+        })
+}
+
 fn claude_hooks_step(snapshot: &InitSnapshot) -> Option<InitStep> {
     snapshot
         .claude_host_selected_or_detected()
@@ -161,6 +185,9 @@ fn build_steps(snapshot: &InitSnapshot) -> Vec<InitStep> {
         steps.push(step);
     }
     if let Some(step) = claude_hooks_step(snapshot) {
+        steps.push(step);
+    }
+    if let Some(step) = annulus_statusline_step(snapshot) {
         steps.push(step);
     }
 

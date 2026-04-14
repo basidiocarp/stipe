@@ -25,6 +25,8 @@ pub(super) struct ToolSnapshot {
     pub(super) rhizome_broken: bool,
     pub(super) cortina_installed: bool,
     pub(super) cortina_broken: bool,
+    pub(super) annulus_installed: bool,
+    pub(super) annulus_broken: bool,
     pub(super) hyphae_db_exists: bool,
 }
 
