@@ -269,6 +269,9 @@ fn test_build_report_includes_repair_actions_for_failures() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     assert!(!report.healthy);
@@ -305,6 +308,9 @@ fn test_render_report_snapshot_for_failure() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     assert_eq!(
@@ -351,6 +357,9 @@ fn test_render_report_includes_hook_paths_section() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     let lines = render_report(&report, false, false);
@@ -405,6 +414,9 @@ fn test_render_report_includes_drift_section() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     let lines = render_report(&report, false, false);
@@ -469,6 +481,9 @@ fn test_render_report_includes_runtime_policy_section() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     let lines = render_report(&report, false, false);
@@ -613,6 +628,9 @@ fn test_render_report_summarizes_host_checks_before_detail() {
         package_inventory: None,
         worktree_config: None,
         package_drift: None,
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     let lines = render_report(&report, false, false);
@@ -692,7 +710,6 @@ fn test_render_package_drift_skips_cleanly_without_saved_profile() {
     );
 }
 
-
 #[test]
 fn test_render_report_deep_widens_human_sections() {
     let report = DoctorReport {
@@ -763,6 +780,9 @@ fn test_render_report_deep_widens_human_sections() {
             installed_packages: vec!["codex:core".to_string()],
             missing_packages: Vec::new(),
         }),
+        mcp_server_health: Vec::new(),
+        api_key_health: Vec::new(),
+        plugin_inventory: None,
     };
 
     let shallow = render_report(&report, false, false);

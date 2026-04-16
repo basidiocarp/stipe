@@ -513,10 +513,7 @@ pub fn install_annulus_statusline(scope: HostConfigScope, verbose: u8) -> Result
     ensure_annulus_config()?;
 
     if verbose > 0 {
-        eprintln!(
-            "  Wrote annulus statusline to {}",
-            settings_path.display()
-        );
+        eprintln!("  Wrote annulus statusline to {}", settings_path.display());
     }
 
     Ok(true)
@@ -534,11 +531,7 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
     let validator_script = if let Ok(lamella_home) = std::env::var("LAMELLA_HOME") {
         // Check LAMELLA_HOME/scripts/validate-hooks.js
         let path = PathBuf::from(&lamella_home).join("scripts/validate-hooks.js");
-        if path.exists() {
-            Some(path)
-        } else {
-            None
-        }
+        if path.exists() { Some(path) } else { None }
     } else {
         None
     };
@@ -585,10 +578,7 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
 
     // Run the validator if found
     if let Some(validator_path) = validator_script {
-        if let Ok(output) = Command::new("node")
-            .arg(&validator_path)
-            .output()
-        {
+        if let Ok(output) = Command::new("node").arg(&validator_path).output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             let combined = format!("{stdout}{stderr}");

@@ -207,7 +207,6 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
     );
 }
 
-
 #[test]
 fn test_split_requested_tools_keeps_manual_members_out_of_managed_installs() {
     let (managed, manual) = split_requested_tools(&[

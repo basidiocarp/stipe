@@ -124,7 +124,10 @@ fn verify_registered_mcp_servers(context: &EcosystemContext, emit_stdout: bool) 
     }
 }
 
-#[allow(clippy::too_many_lines, reason = "sequential host-setup steps are clearest in one function")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "sequential host-setup steps are clearest in one function"
+)]
 fn configure_claude_code(
     context: &EcosystemContext,
     scope: HostConfigScope,

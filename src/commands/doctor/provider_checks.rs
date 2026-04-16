@@ -9,7 +9,7 @@ use crate::commands::host;
 use crate::commands::host_policy;
 use crate::commands::host_policy::HostMode;
 
-use super::model::{AuthFreshness, McpHealth, ProviderHealth};
+use super::model::{ApiKeyHealth, ApiKeyStatus, AuthFreshness, McpHealth, ProviderHealth};
 
 const REQUIRED_MCP_SERVERS: &[&str] = &["hyphae", "rhizome"];
 const AUTH_STALE_AFTER_DAYS: u64 = 30;
@@ -239,4 +239,165 @@ fn auth_detail_for_paths(paths: &[PathBuf], freshness: AuthFreshness) -> Option<
         detail,
         host_policy::format_user_path(newest_path)
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Provider / API key presence checks
+// ---------------------------------------------------------------------------
+
+/// Expected key prefix for Anthropic API keys.
+const ANTHROPIC_KEY_PREFIX: &str = "sk-ant-";
+
+/// Collect API key and backend config health entries.
+///
+/// Checks performed:
+/// - `ANTHROPIC_API_KEY` env var: present and non-empty, warn if format is unexpected.
+/// - Volva backend config file: `~/.volva/auth/anthropic.json` existence and JSON validity.
+///
+/// Keys are **never** logged.  Missing keys produce warnings, not errors.
+#[must_use]
+pub(super) fn collect_api_key_health() -> Vec<ApiKeyHealth> {
+    vec![check_anthropic_api_key(), check_volva_backend_config()]
+}
+
+fn check_anthropic_api_key() -> ApiKeyHealth {
+    let key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+    check_anthropic_api_key_value(&key)
+}
+
+/// Core key-format logic, split out for deterministic testing without env mutation.
+fn check_anthropic_api_key_value(key: &str) -> ApiKeyHealth {
+    if key.is_empty() {
+        return ApiKeyHealth {
+            provider: "anthropic".to_string(),
+            status: ApiKeyStatus::Missing,
+            note: "ANTHROPIC_API_KEY is not set; some hosts use managed auth instead".to_string(),
+        };
+    }
+    if !key.starts_with(ANTHROPIC_KEY_PREFIX) {
+        return ApiKeyHealth {
+            provider: "anthropic".to_string(),
+            status: ApiKeyStatus::UnexpectedFormat,
+            // Key value is never echoed.
+            note: format!(
+                "ANTHROPIC_API_KEY is set but does not start with `{ANTHROPIC_KEY_PREFIX}`"
+            ),
+        };
+    }
+    ApiKeyHealth {
+        provider: "anthropic".to_string(),
+        status: ApiKeyStatus::Configured,
+        note: "ANTHROPIC_API_KEY is set with expected format".to_string(),
+    }
+}
+
+fn volva_auth_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".volva").join("auth").join("anthropic.json"))
+}
+
+fn check_volva_backend_config() -> ApiKeyHealth {
+    let Some(path) = volva_auth_config_path() else {
+        return ApiKeyHealth {
+            provider: "volva-backend".to_string(),
+            status: ApiKeyStatus::Missing,
+            note: "cannot determine home directory for volva auth config".to_string(),
+        };
+    };
+
+    if !path.exists() {
+        return ApiKeyHealth {
+            provider: "volva-backend".to_string(),
+            status: ApiKeyStatus::Missing,
+            note: "~/.volva/auth/anthropic.json not found; run `volva auth login anthropic` or set ANTHROPIC_API_KEY".to_string(),
+        };
+    }
+
+    // Verify the file is parseable JSON; do not log any content.
+    match fs::read_to_string(&path) {
+        Err(err) => ApiKeyHealth {
+            provider: "volva-backend".to_string(),
+            status: ApiKeyStatus::UnexpectedFormat,
+            note: format!("volva auth config exists but could not be read: {err}"),
+        },
+        Ok(content) => {
+            if serde_json::from_str::<Value>(&content).is_ok() {
+                ApiKeyHealth {
+                    provider: "volva-backend".to_string(),
+                    status: ApiKeyStatus::Configured,
+                    note: "~/.volva/auth/anthropic.json present and valid JSON".to_string(),
+                }
+            } else {
+                ApiKeyHealth {
+                    provider: "volva-backend".to_string(),
+                    status: ApiKeyStatus::UnexpectedFormat,
+                    note: "~/.volva/auth/anthropic.json exists but is not valid JSON".to_string(),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tests call `check_anthropic_api_key_value` directly to avoid env mutation
+    /// and the associated race conditions in parallel test runs.
+
+    #[test]
+    fn anthropic_key_missing_when_value_is_empty() {
+        let check = check_anthropic_api_key_value("");
+        assert_eq!(check.status, ApiKeyStatus::Missing);
+        assert!(!check.note.is_empty());
+    }
+
+    #[test]
+    fn anthropic_key_unexpected_format_when_prefix_wrong() {
+        let check = check_anthropic_api_key_value("wrong-format-key");
+        assert_eq!(check.status, ApiKeyStatus::UnexpectedFormat);
+        // Key value must not appear in output.
+        assert!(!check.note.contains("wrong-format-key"));
+    }
+
+    #[test]
+    fn anthropic_key_configured_when_prefix_correct() {
+        let check = check_anthropic_api_key_value("sk-ant-testkey123");
+        assert_eq!(check.status, ApiKeyStatus::Configured);
+        // Key value must not appear in output.
+        assert!(!check.note.contains("testkey123"));
+    }
+
+    #[test]
+    fn anthropic_key_output_never_contains_key_value() {
+        // A well-formatted key must never appear in the output note.
+        let check = check_anthropic_api_key_value("sk-ant-supersecret999");
+        assert!(!check.note.contains("supersecret999"), "key leaked in note");
+
+        // A malformed key must also not appear verbatim.
+        let check = check_anthropic_api_key_value("bad-secret-key-xyz");
+        assert!(
+            !check.note.contains("bad-secret-key-xyz"),
+            "key leaked in note"
+        );
+    }
+
+    #[test]
+    fn volva_backend_config_check_does_not_panic() {
+        // We cannot inject the home dir, so just verify the function returns a sensible
+        // result on this machine (present or missing — both are valid).
+        let check = check_volva_backend_config();
+        let _ = match check.status {
+            ApiKeyStatus::Configured => "configured",
+            ApiKeyStatus::Missing => "missing",
+            ApiKeyStatus::UnexpectedFormat => "unexpected-format",
+        };
+    }
+
+    #[test]
+    fn collect_api_key_health_returns_two_entries() {
+        let health = collect_api_key_health();
+        assert_eq!(health.len(), 2);
+        assert!(health.iter().any(|h| h.provider == "anthropic"));
+        assert!(health.iter().any(|h| h.provider == "volva-backend"));
+    }
 }

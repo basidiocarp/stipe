@@ -18,19 +18,25 @@ mod config_checks;
 mod council_checks;
 mod model;
 mod package_checks;
+mod plugin_inventory_checks;
 mod provider_checks;
+mod server_checks;
 mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
 use council_checks::check_task_linked_council;
 use model::{
-    AuthFreshness, DoctorReport, DriftFinding, DriftReport, HealthCheck, InstallProfileSummary,
-    PackageDrift, PackageInventory, ProviderHealth, WorktreeConfigDiscovery,
+    ApiKeyHealth, ApiKeyStatus, AuthFreshness, DoctorReport, DriftFinding, DriftReport,
+    HealthCheck, InstallProfileSummary, McpServerHealth, McpServerStatus, PackageDrift,
+    PackageInventory, PluginInventory, PluginPathStatus, ProviderHealth, VersionDriftStatus,
+    WorktreeConfigDiscovery,
 };
 use package_checks::{
     collect_package_drift, collect_package_inventory, collect_worktree_config_discovery,
 };
-use provider_checks::{collect_mcp_health, collect_provider_health};
+use plugin_inventory_checks::collect_plugin_inventory;
+use provider_checks::{collect_api_key_health, collect_mcp_health, collect_provider_health};
+use server_checks::collect_mcp_server_health;
 use tool_checks::{check_hyphae_db, check_mcp_startups, check_profile_tools, check_tool};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -265,6 +271,24 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
 
     lines.extend(render_hook_paths(&report.hook_paths, colorize));
     if !report.hook_paths.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines.extend(render_mcp_server_health(
+        &report.mcp_server_health,
+        colorize,
+    ));
+    if !report.mcp_server_health.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines.extend(render_api_key_health(&report.api_key_health, colorize));
+    if !report.api_key_health.is_empty() {
+        lines.push(String::new());
+    }
+
+    if let Some(plugin_inventory) = &report.plugin_inventory {
+        lines.extend(render_plugin_inventory(plugin_inventory, colorize, deep));
         lines.push(String::new());
     }
 
@@ -825,6 +849,158 @@ fn render_package_drift(report: &PackageDrift, colorize: bool, deep: bool) -> Ve
     lines
 }
 
+fn render_mcp_server_health(servers: &[McpServerHealth], colorize: bool) -> Vec<String> {
+    if servers.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![if colorize {
+        "MCP server health:".bold().to_string()
+    } else {
+        "MCP server health:".to_string()
+    }];
+
+    for server in servers {
+        let (symbol, status_str) = match server.status {
+            McpServerStatus::Running => ("✓", "running"),
+            McpServerStatus::InstalledNotResponding => ("~", "installed-not-responding"),
+            McpServerStatus::NotInstalled => ("✗", "not-installed"),
+        };
+        let healthy = server.status == McpServerStatus::Running;
+        let status_line = if colorize {
+            if healthy {
+                status_str.green().to_string()
+            } else if server.status == McpServerStatus::InstalledNotResponding {
+                status_str.yellow().to_string()
+            } else {
+                status_str.red().to_string()
+            }
+        } else {
+            status_str.to_string()
+        };
+        let name = if colorize {
+            server.name.bold().to_string()
+        } else {
+            server.name.clone()
+        };
+        lines.push(format!("  {symbol} {name:<12} {status_line}"));
+        if let Some(detail) = &server.detail {
+            lines.push(format!("    detail: {detail}"));
+        }
+    }
+
+    lines
+}
+
+fn render_api_key_health(keys: &[ApiKeyHealth], colorize: bool) -> Vec<String> {
+    if keys.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = vec![if colorize {
+        "Provider keys:".bold().to_string()
+    } else {
+        "Provider keys:".to_string()
+    }];
+
+    for key in keys {
+        let (symbol, status_str) = match key.status {
+            ApiKeyStatus::Configured => ("✓", "configured"),
+            ApiKeyStatus::Missing => ("~", "missing"),
+            ApiKeyStatus::UnexpectedFormat => ("~", "unexpected-format"),
+        };
+        let healthy = key.status == ApiKeyStatus::Configured;
+        let status_display = if colorize {
+            if healthy {
+                status_str.green().to_string()
+            } else {
+                status_str.yellow().to_string()
+            }
+        } else {
+            status_str.to_string()
+        };
+        let provider = if colorize {
+            key.provider.bold().to_string()
+        } else {
+            key.provider.clone()
+        };
+        lines.push(format!("  {symbol} {provider:<18} {status_display}"));
+        lines.push(format!("    note: {}", key.note));
+    }
+
+    lines
+}
+
+fn render_plugin_inventory(report: &PluginInventory, colorize: bool, deep: bool) -> Vec<String> {
+    let mut lines = vec![if colorize {
+        "Plugin and hook inventory:".bold().to_string()
+    } else {
+        "Plugin and hook inventory:".to_string()
+    }];
+
+    lines.push(format!(
+        "  validator: {}",
+        if report.annulus_validator_used {
+            "annulus validate-hooks"
+        } else {
+            "direct path checks"
+        }
+    ));
+    lines.push(format!("  skills: {}", report.skills_count));
+    lines.push(format!("  hooks: {}", report.hooks_count));
+
+    let stale_str = report.stale_count.to_string();
+    let missing_str = report.missing_count.to_string();
+    let stale_display = if colorize && report.stale_count > 0 {
+        stale_str.yellow().to_string()
+    } else {
+        stale_str
+    };
+    let missing_display = if colorize && report.missing_count > 0 {
+        missing_str.red().to_string()
+    } else {
+        missing_str
+    };
+    lines.push(format!("  stale: {stale_display}"));
+    lines.push(format!("  missing: {missing_display}"));
+
+    if deep && !report.items.is_empty() {
+        lines.push(String::new());
+        for item in &report.items {
+            let path_label = match item.path_status {
+                PluginPathStatus::Valid => "valid",
+                PluginPathStatus::Stale => "stale",
+                PluginPathStatus::Missing => "missing",
+            };
+            let drift_label = match item.version_drift {
+                VersionDriftStatus::UpToDate => "up-to-date",
+                VersionDriftStatus::Behind => "behind",
+                VersionDriftStatus::Unknown => "unknown",
+            };
+            let version_detail = match (&item.installed_version, &item.pinned_version) {
+                (Some(installed), Some(pinned))
+                    if item.version_drift == VersionDriftStatus::Behind =>
+                {
+                    format!(" (installed: {installed}, pinned: {pinned})")
+                }
+                (Some(installed), _) => format!(" (v{installed})"),
+                _ => String::new(),
+            };
+            lines.push(format!(
+                "  {} [{}] {} path={path_label} drift={drift_label}{version_detail}",
+                match item.path_status {
+                    PluginPathStatus::Valid => "✓",
+                    PluginPathStatus::Stale | PluginPathStatus::Missing => "✗",
+                },
+                item.category,
+                item.name,
+            ));
+        }
+    }
+
+    lines
+}
+
 fn summarize_package_families(packages: &[String]) -> String {
     let mut families: Vec<(String, usize)> = Vec::new();
     for package in packages {
@@ -867,7 +1043,6 @@ fn auth_freshness_label(auth: AuthFreshness) -> &'static str {
         AuthFreshness::Unknown => "unknown",
     }
 }
-
 
 #[derive(Clone)]
 struct RepairPlan {
@@ -1057,6 +1232,9 @@ fn build_report_with_saved_profile(
 ) -> DoctorReport {
     let provider_health = collect_provider_health();
     let mcp_health = collect_mcp_health();
+    let mcp_server_health = collect_mcp_server_health();
+    let api_key_health = collect_api_key_health();
+    let plugin_inventory = collect_plugin_inventory();
     let runtime_policy =
         runtime_policy::collect_runtime_policy(saved_profile.as_ref().map(|saved| saved.profile));
     let package_inventory = collect_package_inventory();
@@ -1174,6 +1352,9 @@ fn build_report_with_saved_profile(
         package_inventory: Some(package_inventory),
         worktree_config: Some(worktree_config),
         package_drift: Some(package_drift),
+        mcp_server_health,
+        api_key_health,
+        plugin_inventory: Some(plugin_inventory),
     }
 }
 

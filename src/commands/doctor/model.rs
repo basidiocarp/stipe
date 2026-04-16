@@ -9,6 +9,92 @@ use serde::Serialize;
 
 pub(super) use crate::commands::init::baseline::{DriftFinding, DriftReport};
 
+// ---------------------------------------------------------------------------
+// MCP server binary health
+// ---------------------------------------------------------------------------
+
+/// Coarse status for a single registered MCP server binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum McpServerStatus {
+    NotInstalled,
+    InstalledNotResponding,
+    Running,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(super) struct McpServerHealth {
+    pub(super) name: String,
+    pub(super) status: McpServerStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) detail: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Provider API key health
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum ApiKeyStatus {
+    Configured,
+    Missing,
+    UnexpectedFormat,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(super) struct ApiKeyHealth {
+    pub(super) provider: String,
+    pub(super) status: ApiKeyStatus,
+    /// Human-readable note — keys are never included.
+    pub(super) note: String,
+}
+
+// ---------------------------------------------------------------------------
+// Plugin and hook inventory
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum PluginPathStatus {
+    Valid,
+    Stale,
+    Missing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum VersionDriftStatus {
+    UpToDate,
+    Behind,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(super) struct PluginInventoryItem {
+    /// Logical name of the skill / hook / command.
+    pub(super) name: String,
+    /// Category: "skill", "hook", "command".
+    pub(super) category: String,
+    pub(super) path_status: PluginPathStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) installed_version: Option<String>,
+    pub(super) version_drift: VersionDriftStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) pinned_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(super) struct PluginInventory {
+    /// Whether `annulus validate-hooks` was available and used.
+    pub(super) annulus_validator_used: bool,
+    pub(super) items: Vec<PluginInventoryItem>,
+    pub(super) skills_count: usize,
+    pub(super) hooks_count: usize,
+    pub(super) stale_count: usize,
+    pub(super) missing_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub(super) struct HealthCheck {
     pub(super) name: String,
@@ -45,6 +131,15 @@ pub(super) struct DoctorReport {
     pub(super) worktree_config: Option<WorktreeConfigDiscovery>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) package_drift: Option<PackageDrift>,
+    /// MCP server binary health (presence + responsiveness).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub(super) mcp_server_health: Vec<McpServerHealth>,
+    /// Provider and API key presence / format checks.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub(super) api_key_health: Vec<ApiKeyHealth>,
+    /// Installed lamella skills, hooks, and commands with version drift.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) plugin_inventory: Option<PluginInventory>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
