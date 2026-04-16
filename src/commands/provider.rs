@@ -143,24 +143,32 @@ fn run_setup(provider: &str, yes: bool) -> Result<()> {
 fn setup_anthropic(yes: bool) -> Result<()> {
     let existing = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
 
+    if yes {
+        if existing.is_empty() {
+            // Non-interactive mode requires a key already present in the environment.
+            bail!("Cannot set up Anthropic non-interactively without an existing ANTHROPIC_API_KEY in the environment");
+        }
+        // Key is already set — persist it to the default destination and report success.
+        println!("ANTHROPIC_API_KEY is already set (value masked as ***).");
+        write_to_env_destination(&existing, true)?;
+        println!("\nProvider status after setup:");
+        print_provider_list();
+        return Ok(());
+    }
+
     if !existing.is_empty() {
         // Key is already present — show status and confirm before proceeding.
         println!("ANTHROPIC_API_KEY is already set (value masked as ***).");
 
-        if !yes && !confirm("Replace the existing key? [y/N] ")? {
+        if !confirm("Replace the existing key? [y/N] ")? {
             println!("No changes made.");
             return Ok(());
         }
     }
 
-    if yes {
-        // In non-interactive mode there is no key to supply — surface an error.
-        bail!("--yes requires ANTHROPIC_API_KEY to already be set; set it before running with --yes");
-    }
-
     let key = prompt_for_api_key()?;
     validate_anthropic_key(&key)?;
-    write_to_env_destination(&key, yes)?;
+    write_to_env_destination(&key, false)?;
 
     println!("\nProvider status after setup:");
     print_provider_list();
