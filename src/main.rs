@@ -136,6 +136,12 @@ enum Commands {
         tools: Vec<String>,
     },
 
+    /// Inspect and configure ecosystem providers
+    Provider {
+        #[command(subcommand)]
+        command: commands::provider::ProviderCommand,
+    },
+
     /// Show ecosystem status
     Status,
 }
@@ -186,6 +192,7 @@ fn main() -> Result<()> {
             dry_run,
             tools,
         } => commands::uninstall::run(all, dry_run, &tools),
+        Commands::Provider { command } => commands::provider::run(command),
         Commands::Status => commands::status::run(),
     }
 }
@@ -208,6 +215,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Doctor { .. } => "doctor",
         Commands::Package { .. } => "package",
         Commands::Uninstall { .. } => "uninstall",
+        Commands::Provider { .. } => "provider",
         Commands::Status => "status",
     }
 }

@@ -36,18 +36,18 @@ pub(super) struct McpServerHealth {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum ApiKeyStatus {
+pub(crate) enum ApiKeyStatus {
     Configured,
     Missing,
     UnexpectedFormat,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(super) struct ApiKeyHealth {
-    pub(super) provider: String,
-    pub(super) status: ApiKeyStatus,
+pub(crate) struct ApiKeyHealth {
+    pub(crate) provider: String,
+    pub(crate) status: ApiKeyStatus,
     /// Human-readable note — keys are never included.
-    pub(super) note: String,
+    pub(crate) note: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ pub(super) enum ConfigFormat {
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub(super) enum AuthFreshness {
+pub(crate) enum AuthFreshness {
     Fresh,
     Stale,
     Missing,
@@ -166,30 +166,30 @@ pub(super) enum AuthFreshness {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(super) struct ProviderHealth {
-    pub(super) host: HostMode,
-    pub(super) provider: String,
-    pub(super) available: bool,
-    pub(super) healthy: bool,
-    pub(super) status: String,
-    pub(super) auth_freshness: AuthFreshness,
+pub(crate) struct ProviderHealth {
+    pub(crate) host: HostMode,
+    pub(crate) provider: String,
+    pub(crate) available: bool,
+    pub(crate) healthy: bool,
+    pub(crate) status: String,
+    pub(crate) auth_freshness: AuthFreshness,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) auth_detail: Option<String>,
+    pub(crate) auth_detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(super) struct McpHealth {
-    pub(super) host: HostMode,
+pub(crate) struct McpHealth {
+    pub(crate) host: HostMode,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub(super) config_paths: Vec<PathBuf>,
-    pub(super) required_servers: Vec<String>,
+    pub(crate) config_paths: Vec<PathBuf>,
+    pub(crate) required_servers: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub(super) registered_servers: Vec<String>,
+    pub(crate) registered_servers: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub(super) missing_servers: Vec<String>,
-    pub(super) healthy: bool,
-    pub(super) status: String,
-    pub(super) auth_freshness: AuthFreshness,
+    pub(crate) missing_servers: Vec<String>,
+    pub(crate) healthy: bool,
+    pub(crate) status: String,
+    pub(crate) auth_freshness: AuthFreshness,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

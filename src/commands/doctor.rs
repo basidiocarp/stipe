@@ -16,10 +16,10 @@ use super::tool_registry;
 
 mod config_checks;
 mod council_checks;
-mod model;
+pub(crate) mod model;
 mod package_checks;
 mod plugin_inventory_checks;
-mod provider_checks;
+pub(crate) mod provider_checks;
 mod server_checks;
 mod tool_checks;
 

@@ -14,7 +14,7 @@ use super::model::{ApiKeyHealth, ApiKeyStatus, AuthFreshness, McpHealth, Provide
 const REQUIRED_MCP_SERVERS: &[&str] = &["hyphae", "rhizome"];
 const AUTH_STALE_AFTER_DAYS: u64 = 30;
 
-pub(super) fn collect_provider_health() -> Vec<ProviderHealth> {
+pub(crate) fn collect_provider_health() -> Vec<ProviderHealth> {
     host::build_inventory()
         .into_iter()
         .map(|entry| {
@@ -41,7 +41,7 @@ pub(super) fn collect_provider_health() -> Vec<ProviderHealth> {
         .collect()
 }
 
-pub(super) fn collect_mcp_health() -> Vec<McpHealth> {
+pub(crate) fn collect_mcp_health() -> Vec<McpHealth> {
     host_policy::supported_host_modes()
         .iter()
         .copied()
@@ -256,7 +256,7 @@ const ANTHROPIC_KEY_PREFIX: &str = "sk-ant-";
 ///
 /// Keys are **never** logged.  Missing keys produce warnings, not errors.
 #[must_use]
-pub(super) fn collect_api_key_health() -> Vec<ApiKeyHealth> {
+pub(crate) fn collect_api_key_health() -> Vec<ApiKeyHealth> {
     vec![check_anthropic_api_key(), check_volva_backend_config()]
 }
 

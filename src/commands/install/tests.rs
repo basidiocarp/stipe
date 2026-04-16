@@ -584,8 +584,8 @@ fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
 
     host_policy::with_project_root_override(project_root.clone(), || {
         runtime_policy::with_config_dir_override(config_root.clone(), || {
-            test(project_root.clone(), config_root.clone())
-        })
+            test(project_root.clone(), config_root.clone());
+        });
     });
 
     let _ = fs::remove_dir_all(project_root);
