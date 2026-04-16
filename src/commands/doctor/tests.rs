@@ -711,6 +711,7 @@ fn test_render_package_drift_skips_cleanly_without_saved_profile() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn test_render_report_deep_widens_human_sections() {
     let report = DoctorReport {
         schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
