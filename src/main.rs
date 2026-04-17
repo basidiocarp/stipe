@@ -3,9 +3,11 @@ use clap::{Parser, Subcommand};
 use spore::logging::{LogOutput, LoggingConfig, SpanContext, SpanEvents, root_span, workflow_span};
 use tracing::Level;
 
+mod backup;
 mod banner;
 mod commands;
 mod ecosystem;
+mod lockfile;
 pub(crate) mod verify;
 
 #[derive(Parser)]
@@ -145,6 +147,12 @@ enum Commands {
 
     /// Show ecosystem status
     Status,
+
+    /// Restore from a previous backup
+    Rollback {
+        #[command(flatten)]
+        args: commands::rollback::RollbackArgs,
+    },
 }
 
 fn main() -> Result<()> {
@@ -195,6 +203,7 @@ fn main() -> Result<()> {
         } => commands::uninstall::run(all, dry_run, &tools),
         Commands::Provider { command } => commands::provider::run(command),
         Commands::Status => commands::status::run(),
+        Commands::Rollback { args } => commands::rollback::run(&args),
     }
 }
 
@@ -218,6 +227,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Uninstall { .. } => "uninstall",
         Commands::Provider { .. } => "provider",
         Commands::Status => "status",
+        Commands::Rollback { .. } => "rollback",
     }
 }
 

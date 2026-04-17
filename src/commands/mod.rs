@@ -12,6 +12,7 @@ pub mod output;
 pub mod package_repair;
 pub mod provider;
 pub mod repair;
+pub mod rollback;
 pub mod runtime_policy;
 pub mod self_update;
 pub mod status;
