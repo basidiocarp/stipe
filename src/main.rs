@@ -41,6 +41,10 @@ enum Commands {
         #[arg(long)]
         source_dir: Option<std::path::PathBuf>,
 
+        /// Override any existing install lock
+        #[arg(long)]
+        force: bool,
+
         /// Specific tools to install
         tools: Vec<String>,
     },
@@ -58,6 +62,10 @@ enum Commands {
         /// Check for updates without installing
         #[arg(long)]
         check: bool,
+
+        /// Override any existing install lock
+        #[arg(long)]
+        force: bool,
 
         /// Specific tools to update
         tools: Vec<String>,
@@ -173,14 +181,16 @@ fn main() -> Result<()> {
             dry_run,
             from_source,
             source_dir,
+            force,
             tools,
-        } => commands::install::run(all, profile, dry_run, from_source, source_dir, &tools),
+        } => commands::install::run(all, profile, dry_run, from_source, source_dir, force, &tools),
         Commands::Update {
             profile,
             all,
             check,
+            force,
             tools,
-        } => commands::update::run(all, profile, check, &tools),
+        } => commands::update::run(all, profile, check, force, &tools),
         Commands::SelfCmd { command } => commands::self_update::run(command),
         Commands::Init {
             client,

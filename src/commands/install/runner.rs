@@ -264,9 +264,10 @@ pub(crate) fn run(
     dry_run: bool,
     from_source: bool,
     source_dir: Option<PathBuf>,
+    force: bool,
     tools: &[String],
 ) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(false)
+    let _lock = crate::lockfile::acquire_lock(force)
         .context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
@@ -371,6 +372,19 @@ pub(crate) fn run(
     let (tools_to_install, manual_tools) = split_requested_tools(&tools_to_install);
 
     println!();
+
+    // Collect the binary paths that will be installed so the backup can capture them.
+    let mut installed_binary_paths: Vec<(String, PathBuf)> = Vec::new();
+    for tool in &tools_to_install {
+        let tool_path = prefix.join(tool);
+        installed_binary_paths.push((tool.clone(), tool_path));
+    }
+
+    // Create a backup before proceeding with any installations.
+    let timestamp = crate::backup::backup_timestamp();
+    let stipe_version = env!("CARGO_PKG_VERSION");
+    crate::backup::create_backup(&timestamp, stipe_version, &installed_binary_paths, &[])
+        .context("could not create pre-install backup")?;
 
     if from_source {
         let monorepo_root = source_dir.unwrap_or_else(default_monorepo_root);

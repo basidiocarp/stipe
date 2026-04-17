@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use spore::logging::{SpanContext, workflow_span};
+use std::path::PathBuf;
 use std::process::Command;
 
 use super::install;
@@ -298,8 +299,11 @@ pub fn run(
     all: bool,
     profile: Option<InstallProfile>,
     check: bool,
+    force: bool,
     tools: &[String],
 ) -> Result<()> {
+    let _lock = crate::lockfile::acquire_lock(force)
+        .context("could not acquire install lock")?;
     let span_context = update_span_context();
     let _workflow_span = workflow_span("update", &span_context).entered();
     if profile == Some(InstallProfile::DeveloperTools) {
@@ -320,6 +324,20 @@ pub fn run(
         }
         return Ok(());
     };
+
+    // Create a backup before proceeding with any updates (unless we're just checking).
+    if !check {
+        let mut binary_paths: Vec<(String, PathBuf)> = Vec::new();
+        let prefix = install::install_bin_dir()?;
+        for tool in &tools_to_check {
+            let tool_path = prefix.join(tool);
+            binary_paths.push((tool.clone(), tool_path));
+        }
+        let timestamp = crate::backup::backup_timestamp();
+        let stipe_version = env!("CARGO_PKG_VERSION");
+        crate::backup::create_backup(&timestamp, stipe_version, &binary_paths, &[])
+            .context("could not create pre-update backup")?;
+    }
 
     let client = crate::commands::github::github_client();
     let mut failures = Vec::new();

@@ -113,8 +113,43 @@ mod tests {
 
     #[test]
     fn acquire_and_release_lock() {
-        // Just verify the functions don't panic on a fresh state
-        // (full path test would require mocking dirs::data_local_dir)
-        assert!(lock_path().to_str().is_some());
+        // Test acquire/release round-trip with a test-specific lock path
+        let tmp_lock = std::env::temp_dir().join("stipe-test-install.lock");
+
+        // Clean up any previous test lock file
+        let _ = fs::remove_file(&tmp_lock);
+
+        with_lock_path_override(tmp_lock.clone(), || {
+            // Acquire the lock
+            let guard = acquire_lock(false).expect("should acquire lock");
+            assert!(tmp_lock.exists());
+
+            // Drop the guard to release
+            drop(guard);
+
+            // Lock file should be cleaned up
+            assert!(!tmp_lock.exists());
+        });
+    }
+
+    #[test]
+    fn stale_lock_can_be_reclaimed() {
+        let tmp_lock = std::env::temp_dir().join("stipe-test-stale.lock");
+        let _ = fs::remove_file(&tmp_lock);
+
+        with_lock_path_override(tmp_lock.clone(), || {
+            // Create a stale lock (timestamp = 0, effectively very old)
+            let old_record = LockRecord {
+                pid: 9999,
+                timestamp_secs: 0,
+            };
+            let json = serde_json::to_string(&old_record).unwrap();
+            fs::write(&tmp_lock, json).unwrap();
+
+            // Should be able to acquire even without force (it's stale)
+            let guard = acquire_lock(false).expect("should reclaim stale lock");
+            drop(guard);
+            assert!(!tmp_lock.exists());
+        });
     }
 }

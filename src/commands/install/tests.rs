@@ -351,6 +351,7 @@ updated_at_unix = 42
             true,
             false,
             None,
+            false,
             &Vec::new(),
         )
         .expect_err("project-scoped deny should block install");
@@ -382,6 +383,7 @@ updated_at_unix = "not-an-integer"
             true,
             false,
             None,
+            false,
             &Vec::new(),
         )
         .expect_err("policy load failures should block install");
@@ -413,6 +415,7 @@ updated_at_unix = 84
             true,
             false,
             None,
+            false,
             &Vec::new(),
         )
         .expect_err("user-scoped deny should block install when no project override exists");
@@ -470,6 +473,7 @@ updated_at_unix = 240
                         true,
                         false,
                         None,
+                        false,
                         &Vec::new(),
                     )
                 },
@@ -497,6 +501,7 @@ fn test_install_run_persists_profile_and_approval_memory_on_success() {
                         false,
                         false,
                         None,
+                        false,
                         &Vec::new(),
                     )
                 },

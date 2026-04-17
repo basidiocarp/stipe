@@ -1,5 +1,6 @@
 use crate::backup;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::io;
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Args)]
@@ -52,12 +53,24 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
 
     if !args.force {
         eprintln!(
-            "This will restore {} binaries and {} config files. Pass --force to skip this prompt.",
+            "This will restore {} binaries and {} config files.",
             manifest.binaries.len(),
             manifest.config_files.len()
         );
-        // For now, proceed anyway (no interactive stdin in non-interactive contexts).
-        // This message warns the user what will happen.
+        eprint!("Type 'y' or 'yes' to confirm, anything else to abort: ");
+        use std::io::Write;
+        let _ = io::stderr().flush();
+
+        let stdin = io::stdin();
+        let mut line = String::new();
+        stdin.read_line(&mut line)
+            .context("Failed to read confirmation from stdin")?;
+
+        let response = line.trim().to_lowercase();
+        if response != "y" && response != "yes" {
+            eprintln!("Rollback cancelled.");
+            return Ok(());
+        }
     }
 
     backup::restore_from_backup(&manifest)?;
