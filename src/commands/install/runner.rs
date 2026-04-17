@@ -22,6 +22,7 @@ use crate::commands::install::selection::{
 use crate::commands::output;
 use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
+use crate::verify;
 
 pub(crate) fn install_tool(
     tool: &str,
@@ -117,6 +118,31 @@ pub(crate) fn install_tool(
         install_path.display()
     );
 
+    // Best-effort completeness check. Binary may not be on PATH yet (shell refresh
+    // required), so we warn rather than hard-fail when integration points are missing.
+    let report = verify::check_completeness(tool, prefix);
+    if !report.all_passed() {
+        let failing: Vec<String> = report
+            .failed_points()
+            .iter()
+            .filter_map(|r| r.detail.clone())
+            .collect();
+        eprintln!(
+            "  {} Post-install note: some integration points are not yet active: {}",
+            "!".yellow(),
+            failing.join("; ")
+        );
+        eprintln!(
+            "  {} Run `stipe init` to complete host wiring, then `stipe doctor` to verify.",
+            "→".yellow()
+        );
+    }
+
+    // Record stipe ownership so doctor can distinguish managed vs user-added tools.
+    if let Err(error) = verify::write_ownership_state(tool, &report) {
+        eprintln!("  {} Could not write ownership state: {error}", "!".yellow());
+    }
+
     Ok(())
 }
 
@@ -196,6 +222,28 @@ pub(crate) fn install_from_source(
         version,
         binary.display()
     );
+
+    // Best-effort completeness check and ownership record for source installs.
+    let source_install_dir = binary
+        .parent()
+        .map_or_else(|| std::path::PathBuf::from("."), std::path::Path::to_path_buf);
+    let report = verify::check_completeness(tool_name, &source_install_dir);
+    if !report.all_passed() {
+        let failing: Vec<String> = report
+            .failed_points()
+            .iter()
+            .filter_map(|r| r.detail.clone())
+            .collect();
+        eprintln!(
+            "  {} Post-install note: some integration points are not yet active: {}",
+            "!".yellow(),
+            failing.join("; ")
+        );
+    }
+
+    if let Err(error) = verify::write_ownership_state(tool_name, &report) {
+        eprintln!("  {} Could not write ownership state: {error}", "!".yellow());
+    }
 
     Ok(version)
 }

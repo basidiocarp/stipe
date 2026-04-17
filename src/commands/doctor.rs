@@ -13,6 +13,7 @@ use super::output;
 use super::repair::{RepairAction, RepairTier, dedupe_repair_actions};
 use super::runtime_policy;
 use super::tool_registry;
+use crate::verify;
 
 mod config_checks;
 mod council_checks;
@@ -1317,6 +1318,14 @@ fn build_report_with_saved_profile(
     if deep {
         checks.extend(check_mcp_startups());
     }
+
+    // Additive ownership check: surface stipe-managed vs user-managed tools.
+    // Does not affect the overall healthy flag for tools not in the registry.
+    let ownership_check = check_install_ownership();
+    if let Some(check) = ownership_check {
+        checks.push(check);
+    }
+
     checks.extend(host_health_checks());
 
     let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
@@ -1356,6 +1365,60 @@ fn build_report_with_saved_profile(
         api_key_health,
         plugin_inventory: Some(plugin_inventory),
     }
+}
+
+/// Check which ecosystem tools are stipe-managed vs user-added.
+///
+/// Returns a single informational health check. Always passes — this is additive
+/// metadata and does not block a healthy doctor report.
+fn check_install_ownership() -> Option<HealthCheck> {
+    let specs = tool_registry::doctor_specs();
+    if specs.is_empty() {
+        return None;
+    }
+
+    let mut managed: Vec<&'static str> = Vec::new();
+    let mut untracked: Vec<&'static str> = Vec::new();
+
+    for spec in &specs {
+        let installed = matches!(
+            tool_registry::probe_with_level(spec, tool_registry::VerifyLevel::Version),
+            tool_registry::ToolProbe::Installed(_) | tool_registry::ToolProbe::Broken
+        );
+        if !installed {
+            continue;
+        }
+
+        if verify::is_stipe_managed(spec.name) {
+            managed.push(spec.name);
+        } else {
+            untracked.push(spec.name);
+        }
+    }
+
+    let message = match (managed.is_empty(), untracked.is_empty()) {
+        (true, true) => "No ecosystem tools detected.".to_string(),
+        (false, true) => format!(
+            "All detected tools are stipe-managed: {}.",
+            managed.join(", ")
+        ),
+        (true, false) => format!(
+            "All detected tools are user-managed (not installed by stipe): {}.",
+            untracked.join(", ")
+        ),
+        (false, false) => format!(
+            "stipe-managed: {}; user-managed: {}.",
+            managed.join(", "),
+            untracked.join(", ")
+        ),
+    };
+
+    Some(HealthCheck {
+        name: "install ownership".to_string(),
+        passed: true,
+        message,
+        repair_actions: Vec::new(),
+    })
 }
 
 fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {

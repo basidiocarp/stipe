@@ -6,6 +6,7 @@ use tracing::Level;
 mod banner;
 mod commands;
 mod ecosystem;
+pub(crate) mod verify;
 
 #[derive(Parser)]
 #[command(name = "stipe", version, about = "Basidiocarp ecosystem manager")]

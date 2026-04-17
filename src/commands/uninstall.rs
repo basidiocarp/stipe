@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::bin_paths;
 use super::tool_registry;
+use crate::verify;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UninstallTarget {
@@ -137,6 +138,15 @@ pub fn run(all: bool, dry_run: bool, tools: &[String]) -> Result<()> {
                 "!".yellow(),
                 target.tool,
                 bin_dir.display()
+            );
+        }
+
+        // Remove ownership state file on uninstall (best-effort).
+        if let Err(error) = verify::remove_ownership_state(&target.tool) {
+            eprintln!(
+                "  {} Could not remove ownership state for {}: {error}",
+                "!".yellow(),
+                target.tool
             );
         }
     }
