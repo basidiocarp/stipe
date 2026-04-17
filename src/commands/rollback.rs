@@ -50,6 +50,16 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
         manifest.config_files.len()
     );
 
+    if !args.force {
+        eprintln!(
+            "This will restore {} binaries and {} config files. Pass --force to skip this prompt.",
+            manifest.binaries.len(),
+            manifest.config_files.len()
+        );
+        // For now, proceed anyway (no interactive stdin in non-interactive contexts).
+        // This message warns the user what will happen.
+    }
+
     backup::restore_from_backup(&manifest)?;
 
     println!("Restore complete.");

@@ -582,9 +582,13 @@ fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
     fs::create_dir_all(&project_root).expect("create project root");
     fs::create_dir_all(&config_root).expect("create config root");
 
+    let lock_path = project_root.join("install.lock");
+
     host_policy::with_project_root_override(project_root.clone(), || {
         runtime_policy::with_config_dir_override(config_root.clone(), || {
-            test(project_root.clone(), config_root.clone());
+            crate::lockfile::with_lock_path_override(lock_path, || {
+                test(project_root.clone(), config_root.clone());
+            });
         });
     });
 

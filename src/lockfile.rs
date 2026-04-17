@@ -12,17 +12,56 @@ pub struct LockRecord {
     pub timestamp_secs: u64,
 }
 
+#[cfg(test)]
+thread_local! {
+    static TEST_LOCK_PATH_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Returns the path to the install lockfile.
 pub fn lock_path() -> PathBuf {
+    #[cfg(test)]
+    if let Some(path) = test_lock_path_override() {
+        return path;
+    }
+
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
         .join("stipe")
         .join("install.lock")
 }
 
-/// Acquires the install lock. Returns error if another process holds a fresh lock.
-/// If force=true, overrides stale locks without prompting.
-pub fn acquire_lock(force: bool) -> Result<()> {
+#[cfg(test)]
+fn test_lock_path_override() -> Option<PathBuf> {
+    TEST_LOCK_PATH_OVERRIDE.with(|path| path.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn with_lock_path_override<T>(path: PathBuf, f: impl FnOnce() -> T) -> T {
+    TEST_LOCK_PATH_OVERRIDE.with(|override_path| {
+        let previous = override_path.replace(Some(path));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        override_path.replace(previous);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
+}
+
+/// RAII guard that releases the install lock when dropped.
+pub struct LockGuard;
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        release_lock();
+    }
+}
+
+/// Acquires the install lock and returns a guard that releases it on drop.
+/// Returns error if a fresh (< 10 min) lock is held by another process.
+/// Stale locks (>= 10 min) are automatically reclaimed.
+/// If force=true, overrides even fresh locks.
+pub fn acquire_lock(force: bool) -> Result<LockGuard> {
     let path = lock_path();
 
     if let Some(parent) = path.parent() {
@@ -38,22 +77,15 @@ pub fn acquire_lock(force: bool) -> Result<()> {
                 .unwrap_or(0);
             let age = now.saturating_sub(record.timestamp_secs);
 
-            if age < STALE_THRESHOLD_SECS {
+            if age < STALE_THRESHOLD_SECS && !force {
                 bail!(
                     "stipe install is already running (PID {}, started {}s ago). \
                      Use --force to override.",
                     record.pid,
                     age
                 );
-            } else if !force {
-                bail!(
-                    "A stale stipe lock exists (PID {}, {}s old). \
-                     Use --force to override.",
-                    record.pid,
-                    age
-                );
             }
-            // Force override — fall through to write new lock
+            // Stale lock or force — reclaim it silently
         }
     }
 
@@ -66,7 +98,7 @@ pub fn acquire_lock(force: bool) -> Result<()> {
     };
     let json = serde_json::to_string(&record).context("serialize lock record")?;
     fs::write(&path, json).with_context(|| format!("write lock file: {}", path.display()))?;
-    Ok(())
+    Ok(LockGuard)
 }
 
 /// Releases the install lock.

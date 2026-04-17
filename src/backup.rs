@@ -25,6 +25,7 @@ pub struct BinaryRecord {
 pub struct ConfigRecord {
     pub original_path: PathBuf,
     pub backup_path: PathBuf,
+    /// FNV-inspired hash for change detection, not cryptographic.
     pub checksum: String,
 }
 
@@ -82,7 +83,7 @@ pub fn create_backup(
         let backup_path = cfg_dir.join(file_name);
         let content = fs::read(path)
             .with_context(|| format!("read config {}", path.display()))?;
-        let checksum = format!("{:x}", md5_checksum(&content));
+        let checksum = format!("{:x}", hash_checksum(&content));
         fs::write(&backup_path, &content)
             .with_context(|| format!("backup config {}", path.display()))?;
         config_files.push(ConfigRecord {
@@ -153,7 +154,9 @@ pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
     Ok(())
 }
 
-fn md5_checksum(data: &[u8]) -> u128 {
+/// Simple FNV-inspired hash used for change detection in backup manifests.
+/// Not cryptographic — for equality checking only.
+fn hash_checksum(data: &[u8]) -> u128 {
     // Simple FNV-1a hash as checksum (avoids adding md5 dep)
     let mut hash: u128 = 0xcbf29ce484222325_u64 as u128;
     for &byte in data {

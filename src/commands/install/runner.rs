@@ -266,6 +266,8 @@ pub(crate) fn run(
     source_dir: Option<PathBuf>,
     tools: &[String],
 ) -> Result<()> {
+    let _lock = crate::lockfile::acquire_lock(false)
+        .context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;
