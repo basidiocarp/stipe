@@ -17,6 +17,7 @@ use crate::verify;
 
 mod config_checks;
 mod council_checks;
+mod instruction_checks;
 pub(crate) mod model;
 mod package_checks;
 mod plugin_inventory_checks;
@@ -26,6 +27,7 @@ mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
 use council_checks::check_task_linked_council;
+use instruction_checks::check_instruction_files;
 use model::{
     ApiKeyHealth, ApiKeyStatus, AuthFreshness, DoctorReport, DriftFinding, DriftReport,
     HealthCheck, InstallProfileSummary, McpServerHealth, McpServerStatus, PackageDrift,
@@ -1328,6 +1330,9 @@ fn build_report_with_saved_profile(
     }
 
     checks.extend(host_health_checks());
+
+    // Check that instruction files (CLAUDE.md, AGENTS.md) exist at expected ecosystem locations.
+    checks.extend(check_instruction_files());
 
     let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
     let healthy = checks.iter().all(|check| check.passed) && hook_failures == 0;
