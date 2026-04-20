@@ -33,7 +33,7 @@ fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
     pins.insert("rhizome", "0.7.14");
     pins.insert("canopy", "0.5.21");
     pins.insert("cortina", "0.2.22");
-    pins.insert("stipe", "0.5.21");
+    pins.insert("stipe", "0.5.22");
     pins.insert("volva", "0.2.4");
     pins.insert("hymenium", "0.5.0");
     pins.insert("annulus", "0.5.3");
