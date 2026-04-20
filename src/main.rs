@@ -161,6 +161,18 @@ enum Commands {
         #[command(flatten)]
         args: commands::rollback::RollbackArgs,
     },
+
+    /// Create manual backups of ecosystem tools and data
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BackupCommand {
+    /// Backup the Hyphae database and binary
+    Hyphae,
 }
 
 fn main() -> Result<()> {
@@ -214,6 +226,9 @@ fn main() -> Result<()> {
         Commands::Provider { command } => commands::provider::run(command),
         Commands::Status => commands::status::run(),
         Commands::Rollback { args } => commands::rollback::run(&args),
+        Commands::Backup { command } => match command {
+            BackupCommand::Hyphae => commands::backup::backup_hyphae(),
+        },
     }
 }
 
@@ -238,6 +253,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Provider { .. } => "provider",
         Commands::Status => "status",
         Commands::Rollback { .. } => "rollback",
+        Commands::Backup { .. } => "backup",
     }
 }
 

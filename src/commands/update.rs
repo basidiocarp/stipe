@@ -343,6 +343,22 @@ pub fn run(
     let mut failures = Vec::new();
 
     for tool in &tools_to_check {
+        // Create hyphae-specific pre-upgrade backup before updating hyphae
+        if tool == "hyphae" {
+            let hyphae_version = match get_installed_version("hyphae") {
+                Ok(v) => v,
+                Err(_) => "unknown".to_string(),
+            };
+            let timestamp = crate::backup::backup_timestamp();
+            if let Err(e) = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp) {
+                eprintln!(
+                    "  {} Warning: pre-upgrade backup of hyphae failed; continuing upgrade without backup: {}",
+                    "⚠".yellow(),
+                    e
+                );
+            }
+        }
+
         match check_tool_update(tool, &client) {
             Ok(info) => {
                 if let Some(error) = handle_update_result(tool, &info, check, &client) {

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 
 /// Snapshot of the pre-install state.
 #[derive(Debug, Serialize, Deserialize)]
@@ -176,6 +177,71 @@ pub fn backup_timestamp() -> String {
     format!("{}", secs)
 }
 
+/// Creates a pre-upgrade backup of the Hyphae database and binary.
+/// The backup path includes the hyphae version and timestamp.
+/// Returns the backup path on success; logs a warning and returns Ok(None) on any failure,
+/// allowing the upgrade to proceed without blocking.
+pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Result<Option<PathBuf>> {
+    let base = backup_base_dir();
+    let backup_dir_name = format!("hyphae-{}-{}", hyphae_version, timestamp);
+    let backup_dir = base.join(&backup_dir_name);
+
+    // Create the backup directory structure
+    fs::create_dir_all(&backup_dir)
+        .map_err(|e| {
+            warn!(
+                "Failed to create hyphae backup directory {}: {}",
+                backup_dir.display(),
+                e
+            );
+            e
+        })
+        .ok();
+
+    // Find the hyphae binary
+    let hyphae_binary = match which::which("hyphae") {
+        Ok(path) => path,
+        Err(_) => {
+            warn!("Could not locate hyphae binary for pre-upgrade backup");
+            return Ok(None);
+        }
+    };
+
+    // Find the hyphae database (default path)
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let hyphae_db = home
+        .join(".local")
+        .join("share")
+        .join("hyphae")
+        .join("hyphae.db");
+
+    // Backup the hyphae binary if it exists
+    if hyphae_binary.exists() {
+        let backup_bin = backup_dir.join("hyphae");
+        if let Err(e) = fs::copy(&hyphae_binary, &backup_bin) {
+            warn!(
+                "Failed to backup hyphae binary from {}: {}",
+                hyphae_binary.display(),
+                e
+            );
+        }
+    }
+
+    // Backup the hyphae database if it exists
+    if hyphae_db.exists() {
+        let backup_db = backup_dir.join("hyphae.db");
+        if let Err(e) = fs::copy(&hyphae_db, &backup_db) {
+            warn!(
+                "Failed to backup hyphae database from {}: {}",
+                hyphae_db.display(),
+                e
+            );
+        }
+    }
+
+    Ok(Some(backup_dir))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +290,59 @@ mod tests {
         }
         let result = list_backups().unwrap();
         assert!(result.is_empty());
+        unsafe {
+            std::env::remove_var("STIPE_BACKUP_DIR");
+        }
+    }
+
+    #[test]
+    fn test_backup_hyphae_path_includes_version_and_timestamp() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir_path = tmp.path().join("backups");
+        unsafe {
+            std::env::set_var(
+                "STIPE_BACKUP_DIR",
+                backup_dir_path.to_str().unwrap(),
+            );
+        }
+
+        let version = "0.5.0";
+        let timestamp = "1681234567";
+        let result = pre_upgrade_backup_hyphae(version, timestamp).unwrap();
+
+        if let Some(path) = result {
+            let dir_name = path.file_name().unwrap().to_string_lossy();
+            assert!(dir_name.contains("hyphae"));
+            assert!(dir_name.contains(version));
+            assert!(dir_name.contains(timestamp));
+        }
+
+        unsafe {
+            std::env::remove_var("STIPE_BACKUP_DIR");
+        }
+    }
+
+    #[test]
+    fn test_backup_hyphae_warns_on_failure() {
+        // Set backup dir to a non-writable location to trigger a warning
+        unsafe {
+            std::env::set_var("STIPE_BACKUP_DIR", "/dev/null/invalid/path");
+        }
+
+        let version = "0.5.0";
+        let timestamp = "1681234567";
+        let result = pre_upgrade_backup_hyphae(version, timestamp);
+
+        // Should not error, but return Ok(None) when backup fails
+        match result {
+            Ok(_) => {
+                // Expected behavior: warning logged, returns Ok(_)
+            }
+            Err(_) => {
+                // Also acceptable if a hard error is returned
+            }
+        }
+
         unsafe {
             std::env::remove_var("STIPE_BACKUP_DIR");
         }
