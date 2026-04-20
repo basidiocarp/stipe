@@ -1,4 +1,4 @@
-use super::model::{HealthCheck, PackageInventory, WorktreeConfigDiscovery};
+use super::model::{HealthCheck, PackageInventory, PluginInventory, WorktreeConfigDiscovery};
 use crate::commands::install::SavedInstallProfile;
 use crate::commands::repair::{RepairAction, RepairTier};
 use crate::commands::tool_registry::{self, ToolProbe};
@@ -6,15 +6,24 @@ use crate::commands::tool_registry::{self, ToolProbe};
 pub(super) fn check_task_linked_council(
     saved_profile: Option<&SavedInstallProfile>,
     package_inventory: &PackageInventory,
+    plugin_inventory: &PluginInventory,
     worktree_config: &WorktreeConfigDiscovery,
 ) -> HealthCheck {
     let has_worktree_context = worktree_config.detected && worktree_config.project_root.is_some();
     let hyphae_ready = tool_ready("hyphae");
     let canopy_ready = tool_ready("canopy");
+
+    // Accept "council" in a package name (legacy) or the `task-linked-council`
+    // skill present in the plugin inventory (current lamella layout).
     let council_packages_present = package_inventory
         .discovered_packages
         .iter()
         .any(|package| package.contains("council"));
+    let council_skill_present = plugin_inventory
+        .items
+        .iter()
+        .any(|item| item.category == "skill" && item.name == "task-linked-council");
+    let council_present = council_packages_present || council_skill_present;
 
     let mut missing = Vec::new();
     if !has_worktree_context {
@@ -28,7 +37,7 @@ pub(super) fn check_task_linked_council(
     }
     if !package_inventory.package_metadata_available {
         missing.push("Lamella package metadata");
-    } else if !council_packages_present {
+    } else if !council_present {
         missing.push("council role bundles");
     }
 

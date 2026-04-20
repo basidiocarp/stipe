@@ -84,7 +84,7 @@ pub(super) struct PluginInventoryItem {
     pub(super) pinned_version: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub(super) struct PluginInventory {
     /// Whether `annulus validate-hooks` was available and used.
     pub(super) annulus_validator_used: bool,

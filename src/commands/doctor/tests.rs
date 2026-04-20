@@ -11,7 +11,7 @@ use std::fs;
 
 use super::config_checks::{codex_notify_adapter_configured_at_path, config_mentions_servers};
 use super::council_checks::check_task_linked_council;
-use super::model::{ConfigFormat, McpHealth};
+use super::model::{ConfigFormat, McpHealth, PluginInventory};
 use super::tool_checks::check_hyphae_db_at_path;
 use super::{host_policy, tool_registry};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -144,6 +144,7 @@ fn test_task_linked_council_check_passes_when_all_prereqs_exist() {
             discovered_packages: vec!["codex:council-reviewer".to_string()],
             discovered_plugins: Vec::new(),
         },
+        &PluginInventory::default(),
         &WorktreeConfigDiscovery {
             detected: true,
             project_root: Some(std::path::PathBuf::from("/tmp/workspace")),
@@ -176,6 +177,7 @@ fn test_task_linked_council_check_reports_missing_prereqs() {
             discovered_packages: Vec::new(),
             discovered_plugins: Vec::new(),
         },
+        &PluginInventory::default(),
         &WorktreeConfigDiscovery {
             detected: false,
             project_root: None,

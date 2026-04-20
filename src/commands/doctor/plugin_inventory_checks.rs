@@ -98,6 +98,10 @@ fn try_annulus_validate_hooks() -> (bool, Vec<PluginInventoryItem>) {
 // ---------------------------------------------------------------------------
 
 /// Candidate roots where lamella resources live.
+///
+/// Returns roots in priority order.  When installed Claude plugins are found
+/// at `~/.claude/plugins/lamella`, that root is returned alone so the source
+/// tree is not also counted (which would double-report every skill).
 fn lamella_resource_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
@@ -109,6 +113,17 @@ fn lamella_resource_roots() -> Vec<PathBuf> {
     }
 
     if let Some(home) = dirs::home_dir() {
+        // Installed Claude plugins take priority: skills live here after
+        // `lamella install` runs.
+        let claude_plugins = home.join(".claude").join("plugins").join("lamella");
+        if claude_plugins.exists() {
+            if !roots.iter().any(|r| r == &claude_plugins) {
+                roots.push(claude_plugins);
+            }
+            // Found installed plugins — do not also count the source tree.
+            return roots;
+        }
+
         for candidate in [
             home.join(".lamella"),
             home.join(".local").join("share").join("lamella"),
@@ -120,7 +135,7 @@ fn lamella_resource_roots() -> Vec<PathBuf> {
         }
     }
 
-    // Workspace sibling: ~/projects/basidiocarp/lamella
+    // Workspace sibling fallback when nothing else is present.
     if let Some(home) = dirs::home_dir() {
         let workspace_lamella = home.join("projects").join("basidiocarp").join("lamella");
         if workspace_lamella.exists() && !roots.iter().any(|r| r == &workspace_lamella) {
@@ -131,45 +146,51 @@ fn lamella_resource_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// Read skill names from a lamella resources directory.
+/// Walk `root` recursively and collect every `SKILL.md` as one skill entry.
+///
+/// Handles two layouts:
+/// - **Installed plugins** (`~/.claude/plugins/lamella`): skills live at
+///   `<plugin>/skills/<name>/SKILL.md`.
+/// - **Source tree** (`lamella/`): skills live at
+///   `resources/skills/<category>/<name>/SKILL.md`.
+///
+/// In both cases the skill name is the directory that directly contains
+/// `SKILL.md`.
 fn discover_lamella_skills(root: &Path) -> Vec<PluginInventoryItem> {
-    let resources = root.join("resources");
-    if !resources.exists() {
-        return Vec::new();
-    }
+    // Iterative DFS to avoid recursion depth issues on deep trees.
+    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
+    let mut items: Vec<PluginInventoryItem> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let Ok(entries) = fs::read_dir(&resources) else {
-        return Vec::new();
-    };
-
-    let mut items = Vec::new();
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
             continue;
         };
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or_default();
-        if extension != "md" {
-            continue;
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some("SKILL.md") {
+                // Skill name is the parent directory name.
+                let Some(name) = path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                else {
+                    continue;
+                };
+                if seen.insert(name.to_string()) {
+                    items.push(PluginInventoryItem {
+                        name: name.to_string(),
+                        category: "skill".to_string(),
+                        path_status: PluginPathStatus::Valid,
+                        installed_version: None,
+                        version_drift: VersionDriftStatus::Unknown,
+                        pinned_version: None,
+                    });
+                }
+            }
         }
-
-        let path_status = if path.exists() {
-            PluginPathStatus::Valid
-        } else {
-            PluginPathStatus::Missing
-        };
-
-        items.push(PluginInventoryItem {
-            name: name.to_string(),
-            category: "skill".to_string(),
-            path_status,
-            installed_version: None,
-            version_drift: VersionDriftStatus::Unknown,
-            pinned_version: None,
-        });
     }
 
     items.sort_by(|a, b| a.name.cmp(&b.name));
@@ -375,20 +396,47 @@ mod tests {
     }
 
     #[test]
-    fn discover_lamella_skills_returns_only_md_files() {
+    fn discover_lamella_skills_finds_skill_md_recursively() {
         use std::fs;
         let dir = std::env::temp_dir().join(format!("stipe-plugin-inv-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let resources = dir.join("resources");
-        fs::create_dir_all(&resources).unwrap();
-        fs::write(resources.join("my-skill.md"), "# skill").unwrap();
-        fs::write(resources.join("other.txt"), "not a skill").unwrap();
+
+        // Simulate installed-plugins layout: <plugin>/skills/<name>/SKILL.md
+        let skill_dir = dir.join("core-base").join("skills").join("my-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "# skill").unwrap();
+
+        // A non-SKILL.md file should not be counted.
+        fs::write(skill_dir.join("references.md"), "# refs").unwrap();
 
         let skills = discover_lamella_skills(&dir);
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "my-skill");
         assert_eq!(skills[0].category, "skill");
         assert_eq!(skills[0].path_status, PluginPathStatus::Valid);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_lamella_skills_deduplicates_by_name() {
+        use std::fs;
+        let dir = std::env::temp_dir().join(format!(
+            "stipe-plugin-inv-dedup-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+
+        // Two plugins each containing the same skill name.
+        for plugin in ["plugin-a", "plugin-b"] {
+            let skill_dir = dir.join(plugin).join("skills").join("shared-skill");
+            fs::create_dir_all(&skill_dir).unwrap();
+            fs::write(skill_dir.join("SKILL.md"), "# skill").unwrap();
+        }
+
+        let skills = discover_lamella_skills(&dir);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "shared-skill");
 
         let _ = fs::remove_dir_all(&dir);
     }

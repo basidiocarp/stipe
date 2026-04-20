@@ -1308,6 +1308,7 @@ fn build_report_with_saved_profile(
     checks.push(check_task_linked_council(
         saved_profile.as_ref(),
         &package_inventory,
+        &plugin_inventory,
         &worktree_config,
     ));
     checks.extend([
