@@ -28,16 +28,16 @@ use super::model::{PluginInventory, PluginInventoryItem, PluginPathStatus, Versi
 /// which is still the correct reference for version drift.
 fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
-    pins.insert("mycelium", "0.8.17");
-    pins.insert("hyphae", "0.10.11");
-    pins.insert("rhizome", "0.7.11");
-    pins.insert("canopy", "0.5.10");
-    pins.insert("cortina", "0.2.16");
-    pins.insert("stipe", "0.5.15");
-    pins.insert("volva", "0.1.3");
-    pins.insert("hymenium", "0.3.0");
-    pins.insert("annulus", "0.5.0");
-    pins.insert("cap", "0.11.3");
+    pins.insert("mycelium", "0.8.18");
+    pins.insert("hyphae", "0.10.17");
+    pins.insert("rhizome", "0.7.14");
+    pins.insert("canopy", "0.5.21");
+    pins.insert("cortina", "0.2.22");
+    pins.insert("stipe", "0.5.21");
+    pins.insert("volva", "0.2.4");
+    pins.insert("hymenium", "0.5.0");
+    pins.insert("annulus", "0.5.3");
+    pins.insert("cap", "0.11.8");
     pins.insert("spore", "0.4.10");
     pins
 }
