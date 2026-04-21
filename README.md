@@ -183,9 +183,10 @@ stipe install [--all] [--profile <name>] [tools...]
 stipe host list
 stipe host setup <host>
 stipe host doctor [host]
-stipe init
+stipe init [--client <CLIENT>] [--repair]
 stipe doctor
-stipe update --all
+stipe update [--all] [--profile <PROFILE>] [tools...]
+stipe rollback [--list] [--to <TIMESTAMP>]
 ```
 
 ---
