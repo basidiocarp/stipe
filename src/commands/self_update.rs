@@ -110,7 +110,7 @@ fn run_update(check: bool) -> Result<()> {
     progress.set_style(
         ProgressStyle::default_bar()
             .template("{bar:30.cyan/blue} {bytes}/{total_bytes}")
-            .unwrap()
+            .expect("valid progress bar template")
             .progress_chars("=>-"),
     );
     let data = download_binary(asset, &progress, &client)?;

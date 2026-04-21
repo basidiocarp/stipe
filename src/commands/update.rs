@@ -347,7 +347,14 @@ pub fn run(
         if tool == "hyphae" {
             let hyphae_version = match get_installed_version("hyphae") {
                 Ok(v) => v,
-                Err(_) => "unknown".to_string(),
+                Err(e) => {
+                    eprintln!(
+                        "  {} Warning: could not determine installed hyphae version for backup label: {}",
+                        "⚠".yellow(),
+                        e
+                    );
+                    "unknown".to_string()
+                }
             };
             let timestamp = crate::backup::backup_timestamp();
             if let Err(e) = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp) {

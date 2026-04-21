@@ -5,6 +5,7 @@ use std::process::{Command, Output};
 
 use crate::commands::codex_notify;
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::commands::tool_registry;
 
 use super::EcosystemOptions;
 use super::clients::{self, McpClient};
@@ -125,8 +126,15 @@ pub(super) fn initialize_hyphae_db_if_needed(
     {
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("creating {}", data_dir.display()))?;
+        // Resolve the binary through the tool registry rather than relying on PATH.
+        // PATH may not yet include the install directory if hyphae was just installed
+        // and the shell session has not been refreshed.
+        let hyphae_spec = tool_registry::find("hyphae")
+            .ok_or_else(|| anyhow::anyhow!("hyphae is not listed in the tool registry"))?;
+        let hyphae_bin = tool_registry::resolve_binary_path(hyphae_spec)
+            .ok_or_else(|| anyhow::anyhow!("hyphae binary not found; ensure it is installed and accessible"))?;
         let _subprocess_span = subprocess_span("hyphae stats", &span_context).entered();
-        match Command::new("hyphae").arg("stats").output() {
+        match Command::new(&hyphae_bin).arg("stats").output() {
             Ok(output) if output.status.success() => {
                 if emit_stdout {
                     println!("  {} Hyphae database initialized", "\u{2713}".green());

@@ -78,18 +78,25 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
     println!("Restore complete.");
     println!("Running stipe doctor to verify restored state...");
 
-    // Run doctor after restore
+    // Run doctor after restore and propagate failure so the operator knows if the
+    // restored state is unhealthy.
     let status = std::process::Command::new("stipe")
         .arg("doctor")
         .status();
 
     match status {
-        Ok(s) if s.success() => println!("Doctor: all checks passed."),
-        Ok(_) => eprintln!("Doctor reported issues. Check 'stipe doctor' for details."),
-        Err(e) => eprintln!("Could not run doctor: {}", e),
+        Ok(s) if s.success() => {
+            println!("Doctor: all checks passed.");
+            Ok(())
+        }
+        Ok(s) => Err(anyhow::anyhow!(
+            "Rollback complete but 'stipe doctor' reported issues (exit {s}). \
+             Run 'stipe doctor' for details."
+        )),
+        Err(e) => Err(anyhow::anyhow!(
+            "Rollback complete but could not run 'stipe doctor': {e}"
+        )),
     }
-
-    Ok(())
 }
 
 fn list_backups() -> Result<()> {

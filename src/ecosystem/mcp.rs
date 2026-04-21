@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::ecosystem::status::claude_is_available;
 
 fn current_project_root() -> Option<PathBuf> {
     host_policy::project_root()
@@ -69,6 +70,15 @@ pub(super) fn register_mcp(
     let scope_name = host_policy::scope_name(scope);
     let span_context = span_context_for_registration(name);
     let _tool_span = tool_span("register_mcp", &span_context).entered();
+
+    // Guard before shelling out: a missing `claude` binary produces a confusing
+    // ENOENT error that looks like a registration bug rather than a missing host.
+    if !claude_is_available() {
+        return Err(anyhow!(
+            "cannot register MCP server '{name}': Claude Code (`claude`) is not installed \
+             or not on PATH. Install Claude Code first, then re-run `stipe init`."
+        ));
+    }
 
     if mcp_exists(name, scope) {
         if verbose > 0 {

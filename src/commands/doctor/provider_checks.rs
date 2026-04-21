@@ -222,9 +222,17 @@ fn auth_detail_for_paths(paths: &[PathBuf], freshness: AuthFreshness) -> Option<
         .iter()
         .filter(|path| path.exists())
         .max_by_key(|path| {
-            fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .ok()
+            match fs::metadata(path).and_then(|metadata| metadata.modified()) {
+                Ok(time) => Some(time),
+                Err(err) => {
+                    eprintln!(
+                        "  doctor: could not read metadata for {}: {}",
+                        path.display(),
+                        err
+                    );
+                    None
+                }
+            }
         })?;
 
     let detail = match freshness {

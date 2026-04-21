@@ -264,7 +264,19 @@ fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<()> {
             );
         }
         let content = fs::read_to_string(&config_path)?;
-        serde_json::from_str(&content).unwrap_or_else(|_| json!({}))
+        match serde_json::from_str(&content) {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!(
+                    "  Warning: {} is not valid JSON ({}); treating as empty config. \
+                     Original backed up to {}.",
+                    config_path.display(),
+                    err,
+                    backup.display()
+                );
+                json!({})
+            }
+        }
     } else {
         json!({})
     };

@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tar::EntryType;
+use wait_timeout::ChildExt;
 
 use crate::commands::github::GitHubClient;
 use crate::commands::tool_registry;
@@ -232,7 +233,16 @@ pub(crate) fn verify_binary_with_timeout(path: &Path, timeout: Duration) -> Resu
         ));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    // Use split_whitespace().last() to extract the version token, consistent with
+    // get_installed_version in update.rs. This is more robust when a binary prefixes
+    // the version with its own name (e.g. "hyphae 0.5.1").
+    // Note: version strings are read from stdout only. Some tools write their version
+    // to stderr instead; those would require reading output.stderr here.
+    let raw = String::from_utf8_lossy(&output.stdout);
+    raw.split_whitespace()
+        .last()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("Empty version output from {}", path.display()))
 }
 
 pub(crate) fn verify_functional(
@@ -451,20 +461,15 @@ fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> std::io
         Ok::<Vec<u8>, std::io::Error>(buf)
     });
 
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("command timed out after {}s", timeout.as_secs()),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
+    // Block until the child exits or the deadline is reached. Using wait_timeout
+    // avoids the busy-poll that would otherwise spin at 10ms intervals.
+    let Some(status) = child.wait_timeout(timeout)? else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("command timed out after {}s", timeout.as_secs()),
+        ));
     };
 
     let stdout = stdout_handle

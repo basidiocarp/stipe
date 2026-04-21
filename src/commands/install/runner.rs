@@ -57,7 +57,7 @@ pub(crate) fn install_tool(
     progress.set_style(
         ProgressStyle::default_bar()
             .template("{bar:30.cyan/blue} {bytes}/{total_bytes}")
-            .unwrap()
+            .expect("valid progress bar template")
             .progress_chars("=>-"),
     );
     let data = download_binary(asset, &progress, client)?;
@@ -89,13 +89,11 @@ pub(crate) fn install_tool(
     // with SIGKILL (exit 137) on execution.
     #[cfg(target_os = "macos")]
     {
+        let path_str = install_path
+            .to_str()
+            .ok_or_else(|| anyhow!("install path is not valid UTF-8: {}", install_path.display()))?;
         let _ = std::process::Command::new("codesign")
-            .args([
-                "--force",
-                "--sign",
-                "-",
-                install_path.to_str().unwrap_or(""),
-            ])
+            .args(["--force", "--sign", "-", path_str])
             .output();
     }
 
@@ -148,10 +146,14 @@ pub(crate) fn install_tool(
 
 /// Default root directory for local source checkouts.
 fn default_monorepo_root() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("projects")
-        .join("basidiocarp")
+    let home = dirs::home_dir().unwrap_or_else(|| {
+        eprintln!(
+            "  {} Could not determine home directory; defaulting to current directory",
+            "!".yellow()
+        );
+        PathBuf::from(".")
+    });
+    home.join("projects").join("basidiocarp")
 }
 
 /// Resolve the cargo install path for a tool inside the monorepo.
