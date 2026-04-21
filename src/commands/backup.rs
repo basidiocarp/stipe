@@ -48,12 +48,3 @@ fn get_hyphae_version() -> Result<String> {
     Ok(version)
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_backup_hyphae_function_defined() {
-        // This test verifies the function signature and basic structure
-        // A full end-to-end test would require mocking or a real hyphae binary
-        assert!(true);
-    }
-}

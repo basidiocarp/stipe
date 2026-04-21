@@ -33,8 +33,18 @@ pub struct ConfigRecord {
 /// Returns the backup base directory.
 /// Uses STIPE_BACKUP_DIR env var, falling back to ~/.local/share/stipe/backups.
 pub fn backup_base_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("STIPE_BACKUP_DIR") {
-        return PathBuf::from(dir);
+    if let Ok(raw) = std::env::var("STIPE_BACKUP_DIR") {
+        // Expand tilde if present at the start of the path
+        let expanded = if let Some(rest) = raw.strip_prefix("~/") {
+            dirs::home_dir()
+                .map(|h| h.join(rest))
+                .unwrap_or_else(|| PathBuf::from(&raw))
+        } else if raw == "~" {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from(&raw))
+        } else {
+            PathBuf::from(&raw)
+        };
+        return expanded;
     }
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
@@ -64,7 +74,10 @@ pub fn create_backup(
         if !path.exists() {
             continue;
         }
-        let backup_path = bin_dir.join(path.file_name().unwrap_or_default());
+        let Some(fname) = path.file_name() else {
+            continue;
+        };
+        let backup_path = bin_dir.join(fname);
         fs::copy(path, &backup_path)
             .with_context(|| format!("backup binary {}", path.display()))?;
         binaries.push(BinaryRecord {
@@ -80,7 +93,9 @@ pub fn create_backup(
         if !path.exists() {
             continue;
         }
-        let file_name = path.file_name().unwrap_or_default();
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
         let backup_path = cfg_dir.join(file_name);
         let content = fs::read(path)
             .with_context(|| format!("read config {}", path.display()))?;
@@ -155,10 +170,10 @@ pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
     Ok(())
 }
 
-/// Simple FNV-inspired hash used for change detection in backup manifests.
+/// Non-standard hash used for change detection in backup manifests.
+/// Uses 64-bit FNV-1a constants folded into a u128 accumulator.
 /// Not cryptographic — for equality checking only.
 fn hash_checksum(data: &[u8]) -> u128 {
-    // Simple FNV-1a hash as checksum (avoids adding md5 dep)
     let mut hash: u128 = 0xcbf29ce484222325_u64 as u128;
     for &byte in data {
         hash ^= byte as u128;
