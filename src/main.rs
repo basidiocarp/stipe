@@ -99,6 +99,10 @@ enum Commands {
         /// Reapply shared ecosystem configuration and refresh the baseline
         #[arg(long, alias = "force", alias = "repair-hooks")]
         repair: bool,
+
+        /// Prompt for optional project context to seed into hyphae
+        #[arg(long, default_value_t = false)]
+        interactive: bool,
     },
 
     /// Inspect and configure supported hosts
@@ -210,7 +214,8 @@ fn main() -> Result<()> {
             dry_run,
             json,
             repair,
-        } => commands::init::run(client.as_deref(), scope, dry_run, json, repair),
+            interactive,
+        } => commands::init::run(client.as_deref(), scope, dry_run, json, repair, interactive),
         Commands::Host { command } => commands::host::run(command),
         Commands::Doctor {
             json,

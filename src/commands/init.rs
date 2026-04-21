@@ -8,11 +8,13 @@ pub(crate) mod baseline;
 mod model;
 mod plan;
 mod render;
+mod seed;
 mod snapshot;
 
 use baseline::record_current_baseline;
 use plan::build_plan;
 use render::{print_embedded_preview, print_preview};
+use seed::seed_first_run;
 use snapshot::build_snapshot;
 
 #[cfg(test)]
@@ -24,6 +26,7 @@ pub fn run(
     dry_run: bool,
     json: bool,
     repair: bool,
+    interactive: bool,
 ) -> Result<()> {
     let span_context = init_span_context(client);
     let _workflow_span = workflow_span("init", &span_context).entered();
@@ -50,7 +53,22 @@ pub fn run(
     }
 
     ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::new(0))?;
-    record_current_baseline(&snapshot, scope)
+    record_current_baseline(&snapshot, scope)?;
+
+    // Seed initial project context into hyphae if available
+    if let Some(project) = get_project_name() {
+        let result = if interactive {
+            seed::seed_first_run_interactive(&project, false)
+        } else {
+            seed_first_run(&project, false)
+        };
+
+        if let Err(e) = result {
+            tracing::warn!(error = %e, "first-run seeding failed (non-fatal)");
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn run_embedded_preview(client: Option<&str>, scope: HostConfigScope) -> Result<()> {
@@ -70,4 +88,13 @@ fn init_span_context(client: Option<&str>) -> SpanContext {
         Some(path) => context.with_workspace_root(path.display().to_string()),
         None => context,
     }
+}
+
+/// Extract the project name from the current working directory basename.
+fn get_project_name() -> Option<String> {
+    std::env::current_dir()
+        .ok()?
+        .file_name()?
+        .to_str()
+        .map(|s| s.to_string())
 }
