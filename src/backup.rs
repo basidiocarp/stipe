@@ -285,8 +285,10 @@ mod tests {
 
     #[test]
     fn list_backups_empty_when_no_dir() {
+        let _tmp = TempDir::new().unwrap();
+        let nonexistent_dir = _tmp.path().join("no-backups");
         unsafe {
-            std::env::set_var("STIPE_BACKUP_DIR", "/tmp/stipe-test-nonexistent-backup-dir-xyz");
+            std::env::set_var("STIPE_BACKUP_DIR", nonexistent_dir.to_str().unwrap());
         }
         let result = list_backups().unwrap();
         assert!(result.is_empty());
