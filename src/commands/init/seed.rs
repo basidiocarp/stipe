@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, IsTerminal};
 use std::path::Path;
 use std::process::Command;
 
@@ -59,6 +59,7 @@ fn has_existing_memories(project: &str, hyphae_cmd: &str) -> bool {
 fn store_memory(project: &str, topic: &str, importance: &str, content: &str, hyphae_cmd: &str) -> Result<()> {
     let status = Command::new(hyphae_cmd)
         .args(["store", "--topic", topic, "--importance", importance])
+        .arg("--")
         .arg(content)
         .arg("--project")
         .arg(project)
@@ -151,6 +152,11 @@ fn seed_first_run_interactive_internal(project: &str, dry_run: bool, hyphae_cmd:
 
     // Only continue with interactive prompts if seeding was not skipped
     if !hyphae_available(hyphae_cmd) {
+        return Ok(());
+    }
+
+    // Only prompt interactively if stdin is a TTY
+    if !std::io::stdin().is_terminal() {
         return Ok(());
     }
 
