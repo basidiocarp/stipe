@@ -187,16 +187,14 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Resul
     let backup_dir = base.join(&backup_dir_name);
 
     // Create the backup directory structure
-    fs::create_dir_all(&backup_dir)
-        .map_err(|e| {
-            warn!(
-                "Failed to create hyphae backup directory {}: {}",
-                backup_dir.display(),
-                e
-            );
+    if let Err(e) = fs::create_dir_all(&backup_dir) {
+        warn!(
+            "Failed to create hyphae backup directory {}: {}",
+            backup_dir.display(),
             e
-        })
-        .ok();
+        );
+        return Ok(None);
+    }
 
     // Find the hyphae binary
     let hyphae_binary = match which::which("hyphae") {
@@ -208,7 +206,13 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Resul
     };
 
     // Find the hyphae database (default path)
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => {
+            warn!("Could not determine home directory for hyphae database backup; skipping backup");
+            return Ok(None);
+        }
+    };
     let hyphae_db = home
         .join(".local")
         .join("share")

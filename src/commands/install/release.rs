@@ -8,6 +8,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tar::EntryType;
 
 use crate::commands::github::GitHubClient;
 use crate::commands::tool_registry;
@@ -166,12 +167,42 @@ pub(crate) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
         let mut entry = entry_result?;
         let path = entry.path()?.to_path_buf();
 
+        // Reject non-regular entries before unpacking to prevent path traversal
+        // via symlinks, hardlinks, or device files in a crafted archive.
+        let entry_type = entry.header().entry_type();
+        if !matches!(entry_type, EntryType::Regular | EntryType::Continuous) {
+            if !matches!(entry_type, EntryType::Directory) {
+                tracing::warn!(
+                    "skipping non-regular tar entry: {} ({:?})",
+                    path.display(),
+                    entry_type
+                );
+            }
+            continue;
+        }
+
         if let Some(file_name) = path.file_name()
             && let Some(name_str) = file_name.to_str()
             && tool_registry::release_archive_binaries().contains(&name_str)
         {
             entry.unpack_in(dest_dir)?;
-            binary_path = Some(dest_dir.join(file_name));
+
+            // Verify that the extracted path resolves within dest_dir to guard
+            // against any remaining traversal edge cases after unpack.
+            let extracted = dest_dir.join(file_name);
+            let canonical = fs::canonicalize(&extracted)
+                .with_context(|| format!("Failed to canonicalize extracted path: {}", extracted.display()))?;
+            let canonical_dest = fs::canonicalize(dest_dir)
+                .with_context(|| format!("Failed to canonicalize dest dir: {}", dest_dir.display()))?;
+            if !canonical.starts_with(&canonical_dest) {
+                return Err(anyhow!(
+                    "Extracted path {} escapes destination directory {}",
+                    canonical.display(),
+                    canonical_dest.display()
+                ));
+            }
+
+            binary_path = Some(extracted);
         }
     }
 
