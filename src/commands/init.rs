@@ -20,6 +20,7 @@ use snapshot::build_snapshot;
 #[cfg(test)]
 mod tests;
 
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn run(
     client: Option<&str>,
     scope: HostConfigScope,
@@ -68,6 +69,13 @@ pub fn run(
         }
     }
 
+    // Prompt for volva operating mode (non-fatal if unavailable or non-interactive)
+    if interactive {
+        if let Err(e) = prompt_and_write_volva_mode() {
+            tracing::warn!(error = %e, "volva mode configuration failed (non-fatal)");
+        }
+    }
+
     Ok(())
 }
 
@@ -96,5 +104,54 @@ fn get_project_name() -> Option<String> {
         .ok()?
         .file_name()?
         .to_str()
-        .map(|s| s.to_string())
+        .map(std::borrow::ToOwned::to_owned)
+}
+
+/// Prompt the user to choose a volva operating mode and write it to `~/.config/volva/config.toml`.
+/// Defaults to `baseline` if stdin is not a terminal or the user skips the prompt.
+fn prompt_and_write_volva_mode() -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+
+    if !std::io::stdin().is_terminal() {
+        return write_volva_mode_config("baseline");
+    }
+
+    println!();
+    println!("Which mode do you want for volva?");
+    println!("  [1] baseline      — hyphae, mycelium, rhizome (recommended default)");
+    println!("  [2] orchestration — full coordination with canopy and hymenium");
+    print!("Choose [1/2] (default: 1): ");
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().lock().read_line(&mut input)?;
+    let choice = input.trim();
+
+    let mode = match choice {
+        "2" | "orchestration" => "orchestration",
+        _ => "baseline",
+    };
+
+    write_volva_mode_config(mode)?;
+    println!("volva mode set to: {mode}");
+    Ok(())
+}
+
+/// Write `mode = "<mode>"` to `~/.config/volva/config.toml`, creating the directory if needed.
+fn write_volva_mode_config(mode: &str) -> Result<()> {
+    use std::io::Write;
+
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow::anyhow!("cannot determine config directory"))?
+        .join("volva");
+
+    std::fs::create_dir_all(&config_dir)?;
+
+    let config_path = config_dir.join("config.toml");
+    let mut file = std::fs::File::create(&config_path)?;
+    writeln!(file, "# Volva global configuration")?;
+    writeln!(file, "# Managed by stipe. Edit manually or re-run stipe init to change.")?;
+    writeln!(file, "mode = \"{mode}\"")?;
+
+    Ok(())
 }
