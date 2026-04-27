@@ -29,16 +29,16 @@ use super::model::{PluginInventory, PluginInventoryItem, PluginPathStatus, Versi
 fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
     pins.insert("mycelium", "0.8.18");
-    pins.insert("hyphae", "0.10.17");
+    pins.insert("hyphae", "0.11.0");
     pins.insert("rhizome", "0.7.14");
-    pins.insert("canopy", "0.5.21");
+    pins.insert("canopy", "0.5.23");
     pins.insert("cortina", "0.2.22");
-    pins.insert("stipe", "0.5.22");
+    pins.insert("stipe", "0.5.24");
     pins.insert("volva", "0.2.4");
     pins.insert("hymenium", "0.5.0");
-    pins.insert("annulus", "0.5.3");
-    pins.insert("cap", "0.11.8");
-    pins.insert("spore", "0.4.10");
+    pins.insert("annulus", "0.5.5");
+    pins.insert("cap", "0.11.9");
+    pins.insert("spore", "0.4.11");
     pins
 }
 
@@ -421,10 +421,8 @@ mod tests {
     #[test]
     fn discover_lamella_skills_deduplicates_by_name() {
         use std::fs;
-        let dir = std::env::temp_dir().join(format!(
-            "stipe-plugin-inv-dedup-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("stipe-plugin-inv-dedup-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
 
         // Two plugins each containing the same skill name.
