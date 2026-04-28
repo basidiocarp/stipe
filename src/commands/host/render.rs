@@ -143,7 +143,15 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
         return init::run_embedded_preview(Some(mode.client_flag()), scope);
     }
 
-    install::run(false, Some(mode.install_profile()), false, false, None, false, &[])?;
+    install::run(
+        false,
+        Some(mode.install_profile()),
+        false,
+        false,
+        None,
+        false,
+        &[],
+    )?;
     init::run(Some(mode.client_flag()), scope, false, false, false, false)
 }
 

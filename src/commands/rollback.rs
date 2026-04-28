@@ -1,6 +1,6 @@
 use crate::backup;
 use anyhow::{Context, Result};
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Args)]
@@ -33,7 +33,7 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
         let found = backups.iter().find(|(name, _)| name == ts);
         match found {
             Some((_, dir)) => dir.clone(),
-            None => anyhow::bail!("No backup found with timestamp: {}", ts),
+            None => anyhow::bail!("No backup found with timestamp: {ts}"),
         }
     } else {
         backups[0].1.clone() // most recent
@@ -58,12 +58,12 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
             manifest.config_files.len()
         );
         eprint!("Type 'y' or 'yes' to confirm, anything else to abort: ");
-        use std::io::Write;
         let _ = io::stderr().flush();
 
         let stdin = io::stdin();
         let mut line = String::new();
-        stdin.read_line(&mut line)
+        stdin
+            .read_line(&mut line)
             .context("Failed to read confirmation from stdin")?;
 
         let response = line.trim().to_lowercase();
@@ -80,9 +80,7 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
 
     // Run doctor after restore and propagate failure so the operator knows if the
     // restored state is unhealthy.
-    let status = std::process::Command::new("stipe")
-        .arg("doctor")
-        .status();
+    let status = std::process::Command::new("stipe").arg("doctor").status();
 
     match status {
         Ok(s) if s.success() => {
@@ -109,13 +107,12 @@ fn list_backups() -> Result<()> {
     for (ts, dir) in &backups {
         match backup::load_manifest(dir) {
             Ok(manifest) => println!(
-                "  {} — stipe v{}, {} binaries, {} config files",
-                ts,
+                "  {ts} — stipe v{}, {} binaries, {} config files",
                 manifest.stipe_version,
                 manifest.binaries.len(),
                 manifest.config_files.len()
             ),
-            Err(_) => println!("  {} — (manifest unreadable)", ts),
+            Err(_) => println!("  {ts} — (manifest unreadable)"),
         }
     }
     Ok(())

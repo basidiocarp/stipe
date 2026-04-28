@@ -8,7 +8,8 @@
 //! `not set`; format problems are flagged without revealing the value.
 
 use std::io::{self, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::os::unix::fs::PermissionsExt;
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
@@ -65,7 +66,10 @@ struct ProviderRow {
 fn print_provider_list() {
     let rows = build_provider_rows();
 
-    println!("{:<20} {:<20} {:<12} CONNECTION", "PROVIDER", "STATUS", "API KEY");
+    println!(
+        "{:<20} {:<20} {:<12} CONNECTION",
+        "PROVIDER", "STATUS", "API KEY"
+    );
     println!("{}", "─".repeat(72));
 
     for row in &rows {
@@ -106,7 +110,11 @@ fn build_provider_rows() -> Vec<ProviderRow> {
                 name: format!("mcp:{server}"),
                 status: "configured",
                 api_key: "not checked",
-                connection: if mcp.healthy { "registered" } else { "not checked" },
+                connection: if mcp.healthy {
+                    "registered"
+                } else {
+                    "not checked"
+                },
             });
         }
         for server in &mcp.missing_servers {
@@ -130,9 +138,7 @@ fn run_setup(provider: &str, yes: bool) -> Result<()> {
     match provider {
         "anthropic" => setup_anthropic(yes),
         "volva" => setup_volva(yes),
-        other => bail!(
-            "unknown provider `{other}`; supported providers: anthropic, volva"
-        ),
+        other => bail!("unknown provider `{other}`; supported providers: anthropic, volva"),
     }
 }
 
@@ -146,7 +152,9 @@ fn setup_anthropic(yes: bool) -> Result<()> {
     if yes {
         if existing.is_empty() {
             // Non-interactive mode requires a key already present in the environment.
-            bail!("Cannot set up Anthropic non-interactively without an existing ANTHROPIC_API_KEY in the environment");
+            bail!(
+                "Cannot set up Anthropic non-interactively without an existing ANTHROPIC_API_KEY in the environment"
+            );
         }
         // Key is already set — persist it to the default destination and report success.
         println!("ANTHROPIC_API_KEY is already set (value masked as ***).");
@@ -192,7 +200,9 @@ fn validate_anthropic_key(key: &str) -> Result<()> {
         bail!("API key cannot be empty");
     }
     if !key.starts_with("sk-ant-") {
-        bail!("API key does not match expected format (must start with `sk-ant-`); value not shown");
+        bail!(
+            "API key does not match expected format (must start with `sk-ant-`); value not shown"
+        );
     }
     Ok(())
 }
@@ -234,12 +244,41 @@ fn prompt_env_destination() -> Result<EnvDestination> {
     }
 }
 
+/// Check if .env is in .gitignore to prevent accidental secret commits.
+fn is_dotenv_gitignored(dotenv_path: &Path) -> bool {
+    let gitignore = dotenv_path.parent().map(|p| p.join(".gitignore"));
+    if let Some(gitignore_path) = gitignore {
+        if let Ok(content) = std::fs::read_to_string(&gitignore_path) {
+            return content.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed == ".env" || trimmed == "*.env" || trimmed == ".env*"
+            });
+        }
+    }
+    false
+}
+
+/// Validate API key for shell profile export.
+/// Reject values containing shell metacharacters that would execute when sourced.
+fn validate_key_for_shell_export(key: &str) -> Result<()> {
+    // Reject values with characters that could execute when shell profile is sourced
+    let dangerous: &[char] = &['`', '$', '!', ';', '&', '|', '<', '>', '\n', '\r', '(', ')', '"', '\\'];
+    if key.chars().any(|c| dangerous.contains(&c)) {
+        bail!(
+            "API key contains characters that are unsafe for shell profile export. \
+             Use the .env option instead, or set ANTHROPIC_API_KEY manually."
+        );
+    }
+    Ok(())
+}
+
 fn write_to_dotenv(key: &str) -> Result<()> {
     let path = std::env::current_dir()
         .context("determining current directory")?
         .join(".env");
 
-    let line = format!("ANTHROPIC_API_KEY={key}\n");
+    // Explicit opt-in to .env file persistence; caller explicitly chose .env over shell profile.
+    let line = format!("# Explicit opt-in API key: Stipe provider setup\nANTHROPIC_API_KEY={key}\n");
 
     if path.exists() {
         // Append rather than overwrite; avoid duplicating the variable.
@@ -261,16 +300,30 @@ fn write_to_dotenv(key: &str) -> Result<()> {
         file.write_all(line.as_bytes())
             .with_context(|| format!("writing to {}", path.display()))?;
     } else {
-        std::fs::write(&path, &line)
-            .with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(&path, &line).with_context(|| format!("writing {}", path.display()))?;
+    }
+
+    // Set .env permissions to 0600 (owner read/write only) to protect plaintext secrets.
+    let perms = std::fs::Permissions::from_mode(0o600);
+    let _ = std::fs::set_permissions(&path, perms); // Best-effort; non-fatal on failure.
+
+    // Warn if .env is not in .gitignore.
+    if !is_dotenv_gitignored(&path) {
+        eprintln!("Warning: .env is not in .gitignore. Add `.env` to .gitignore to avoid accidentally committing secrets.");
     }
 
     println!("Written to {} (value masked as ***)", path.display());
-    println!("Run `source {}` or restart your shell to apply.", path.display());
+    println!(
+        "Run `source {}` or restart your shell to apply.",
+        path.display()
+    );
     Ok(())
 }
 
 fn write_to_shell_profile(key: &str) -> Result<()> {
+    // Validate API key for safe shell export; reject metacharacters.
+    validate_key_for_shell_export(key)?;
+
     let profile = detect_shell_profile().context("detecting shell profile path")?;
 
     let existing = std::fs::read_to_string(&profile)
@@ -284,7 +337,7 @@ fn write_to_shell_profile(key: &str) -> Result<()> {
         return Ok(());
     }
 
-    let line = format!("\nexport ANTHROPIC_API_KEY={key}\n");
+    let line = format!("\nexport ANTHROPIC_API_KEY=\"{key}\"\n");
 
     let mut file = std::fs::OpenOptions::new()
         .append(true)
@@ -358,10 +411,7 @@ fn setup_volva(yes: bool) -> Result<()> {
     std::fs::write(&config_path, default_config)
         .with_context(|| format!("writing volva config to {}", config_path.display()))?;
 
-    println!(
-        "Default volva config written to {}",
-        config_path.display()
-    );
+    println!("Default volva config written to {}", config_path.display());
     println!("\nNext steps:");
     println!(
         "  1. Edit {} and add your Anthropic API key under the `auth` section.",
@@ -470,10 +520,7 @@ mod tests {
         let rows = build_provider_rows();
         for row in &rows {
             assert!(
-                matches!(
-                    row.status,
-                    "configured" | "missing" | "unexpected-format"
-                ),
+                matches!(row.status, "configured" | "missing" | "unexpected-format"),
                 "unexpected status: {}",
                 row.status
             );

@@ -199,7 +199,15 @@ fn main() -> Result<()> {
             source_dir,
             force,
             tools,
-        } => commands::install::run(all, profile, dry_run, from_source, source_dir, force, &tools),
+        } => commands::install::run(
+            all,
+            profile,
+            dry_run,
+            from_source,
+            source_dir,
+            force,
+            &tools,
+        ),
         Commands::Update {
             profile,
             all,

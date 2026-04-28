@@ -59,9 +59,8 @@ pub fn check_completeness(tool_name: &str, install_dir: &Path) -> CompletenessRe
 
     // BinaryPresent: binary exists at the install location or on PATH.
     let binary_passed = binary_path.exists()
-        || tool_registry::find(tool_name).is_some_and(|spec| {
-            tool_registry::resolve_binary_path(spec).is_some()
-        });
+        || tool_registry::find(tool_name)
+            .is_some_and(|spec| tool_registry::resolve_binary_path(spec).is_some());
 
     // HookRegistered: any hook settings path contains cortina hooks.
     let hook_passed = claude_hooks::claude_hooks_configured();
@@ -95,7 +94,10 @@ pub fn check_completeness(tool_name: &str, install_dir: &Path) -> CompletenessRe
                 detail: if hook_passed {
                     Some("hook registration detected".to_string())
                 } else {
-                    Some("no hook registration found — run `stipe init` to register hooks".to_string())
+                    Some(
+                        "no hook registration found — run `stipe init` to register hooks"
+                            .to_string(),
+                    )
                 },
             },
             PointResult {
@@ -104,7 +106,10 @@ pub fn check_completeness(tool_name: &str, install_dir: &Path) -> CompletenessRe
                 detail: if statusline_passed {
                     Some("statusline configured".to_string())
                 } else {
-                    Some("statusline not configured — run `stipe init` to set up statusline".to_string())
+                    Some(
+                        "statusline not configured — run `stipe init` to set up statusline"
+                            .to_string(),
+                    )
                 },
             },
             PointResult {
@@ -215,12 +220,15 @@ pub fn write_ownership_state(tool_name: &str, report: &CompletenessReport) -> Re
 
     let installed_at = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or_else(|_| "unknown".to_string(), |d| {
-            // Format as a simple ISO-8601-like timestamp without external deps.
-            let secs = d.as_secs();
-            let (y, mo, d2, h, m, s) = epoch_to_ymd_hms(secs);
-            format!("{y:04}-{mo:02}-{d2:02}T{h:02}:{m:02}:{s:02}Z")
-        });
+        .map_or_else(
+            |_| "unknown".to_string(),
+            |d| {
+                // Format as a simple ISO-8601-like timestamp without external deps.
+                let secs = d.as_secs();
+                let (y, mo, d2, h, m, s) = epoch_to_ymd_hms(secs);
+                format!("{y:04}-{mo:02}-{d2:02}T{h:02}:{m:02}:{s:02}Z")
+            },
+        );
 
     let passed_points: Vec<IntegrationPoint> = report
         .results
@@ -235,8 +243,7 @@ pub fn write_ownership_state(tool_name: &str, report: &CompletenessReport) -> Re
         integration_points: passed_points,
     };
 
-    let content = serde_json::to_string_pretty(&state)
-        .context("serializing ownership state")?;
+    let content = serde_json::to_string_pretty(&state).context("serializing ownership state")?;
 
     std::fs::write(&path, content)
         .with_context(|| format!("writing ownership state to {}", path.display()))?;
@@ -307,7 +314,20 @@ fn epoch_to_ymd_hms(mut secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     }
 
     let leap = is_leap(year);
-    let month_days: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let month_days: [u64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month: u64 = 1;
     for &md in &month_days {
         if days < md {
@@ -332,8 +352,16 @@ mod tests {
     fn completeness_report_all_passed_when_all_true() {
         let report = CompletenessReport {
             results: vec![
-                PointResult { point: IntegrationPoint::BinaryPresent, passed: true, detail: None },
-                PointResult { point: IntegrationPoint::HookRegistered, passed: true, detail: None },
+                PointResult {
+                    point: IntegrationPoint::BinaryPresent,
+                    passed: true,
+                    detail: None,
+                },
+                PointResult {
+                    point: IntegrationPoint::HookRegistered,
+                    passed: true,
+                    detail: None,
+                },
             ],
         };
         assert!(report.all_passed());
@@ -343,8 +371,16 @@ mod tests {
     fn completeness_report_not_all_passed_when_one_fails() {
         let report = CompletenessReport {
             results: vec![
-                PointResult { point: IntegrationPoint::BinaryPresent, passed: true, detail: None },
-                PointResult { point: IntegrationPoint::HookRegistered, passed: false, detail: None },
+                PointResult {
+                    point: IntegrationPoint::BinaryPresent,
+                    passed: true,
+                    detail: None,
+                },
+                PointResult {
+                    point: IntegrationPoint::HookRegistered,
+                    passed: false,
+                    detail: None,
+                },
             ],
         };
         assert!(!report.all_passed());
@@ -359,10 +395,15 @@ mod tests {
         std::fs::write(&binary, "").unwrap();
 
         let report = check_completeness("my-test-tool", &tmp);
-        let binary_result = report.results.iter()
+        let binary_result = report
+            .results
+            .iter()
             .find(|r| r.point == IntegrationPoint::BinaryPresent)
             .expect("BinaryPresent should always be checked");
-        assert!(binary_result.passed, "binary in install_dir should be detected as present");
+        assert!(
+            binary_result.passed,
+            "binary in install_dir should be detected as present"
+        );
 
         let _ = std::fs::remove_file(binary);
     }
@@ -373,7 +414,9 @@ mod tests {
         let _ = std::fs::create_dir_all(&tmp);
 
         let report = check_completeness("__nonexistent_tool__", &tmp);
-        let binary_result = report.results.iter()
+        let binary_result = report
+            .results
+            .iter()
             .find(|r| r.point == IntegrationPoint::BinaryPresent)
             .expect("BinaryPresent should always be checked");
         assert!(!binary_result.passed);
@@ -384,7 +427,10 @@ mod tests {
         // Unix epoch = 1970-01-01T00:00:00Z
         #[allow(clippy::many_single_char_names)]
         let (year, month, day, hour, minute, second) = epoch_to_ymd_hms(0);
-        assert_eq!((year, month, day, hour, minute, second), (1970, 1, 1, 0, 0, 0));
+        assert_eq!(
+            (year, month, day, hour, minute, second),
+            (1970, 1, 1, 0, 0, 0)
+        );
     }
 
     #[test]

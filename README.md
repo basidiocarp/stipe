@@ -90,7 +90,7 @@ run doctor       ─►    host-aware checks       ─►    repair guidance
 | `claude-code` | `mycelium`, `hyphae`, `rhizome`, `cortina` |
 | `codex` | `mycelium`, `hyphae`, `rhizome` |
 | `cursor` | `mycelium`, `hyphae`, `rhizome` |
-| `full` | `mycelium`, `hyphae`, `rhizome`, `cortina`, `lamella`, `cap`, `canopy`, `volva` |
+| `full-stack` | `mycelium`, `hyphae`, `rhizome`, `cortina`, `lamella`, `cap`, `canopy`, `annulus`, `hymenium`, `volva` |
 | `developer-tools` | advisory third-party tooling hints only |
 
 ---

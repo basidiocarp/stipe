@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -73,8 +73,7 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
         if let Ok(record) = serde_json::from_str::<LockRecord>(&content) {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+                .map_or(0, |d| d.as_secs());
             let age = now.saturating_sub(record.timestamp_secs);
 
             if age < STALE_THRESHOLD_SECS && !force {
@@ -93,8 +92,7 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
         pid: std::process::id(),
         timestamp_secs: SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+            .map_or(0, |d| d.as_secs()),
     };
     let json = serde_json::to_string(&record).context("serialize lock record")?;
     fs::write(&path, json).with_context(|| format!("write lock file: {}", path.display()))?;

@@ -31,16 +31,14 @@ pub struct ConfigRecord {
 }
 
 /// Returns the backup base directory.
-/// Uses STIPE_BACKUP_DIR env var, falling back to ~/.local/share/stipe/backups.
+/// Uses `STIPE_BACKUP_DIR` env var, falling back to `~/.local/share/stipe/backups`.
 pub fn backup_base_dir() -> PathBuf {
     if let Ok(raw) = std::env::var("STIPE_BACKUP_DIR") {
         // Expand tilde if present at the start of the path
         let expanded = if let Some(rest) = raw.strip_prefix("~/") {
-            dirs::home_dir()
-                .map(|h| h.join(rest))
-                .unwrap_or_else(|| PathBuf::from(&raw))
+            dirs::home_dir().map_or_else(|| PathBuf::from(raw.clone()), |h| h.join(rest))
         } else if raw == "~" {
-            dirs::home_dir().unwrap_or_else(|| PathBuf::from(&raw))
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw.clone()))
         } else {
             PathBuf::from(&raw)
         };
@@ -97,8 +95,7 @@ pub fn create_backup(
             continue;
         };
         let backup_path = cfg_dir.join(file_name);
-        let content = fs::read(path)
-            .with_context(|| format!("read config {}", path.display()))?;
+        let content = fs::read(path).with_context(|| format!("read config {}", path.display()))?;
         let checksum = format!("{:x}", hash_checksum(&content));
         fs::write(&backup_path, &content)
             .with_context(|| format!("backup config {}", path.display()))?;
@@ -117,15 +114,14 @@ pub fn create_backup(
     };
 
     let manifest_path = backup_dir.join("manifest.json");
-    let json = serde_json::to_string_pretty(&manifest)
-        .context("serialize backup manifest")?;
+    let json = serde_json::to_string_pretty(&manifest).context("serialize backup manifest")?;
     fs::write(&manifest_path, json)
         .with_context(|| format!("write manifest: {}", manifest_path.display()))?;
 
     Ok(backup_dir)
 }
 
-/// Lists available backups, returning (timestamp, backup_dir) sorted newest first.
+/// Lists available backups, returning `(timestamp, backup_dir)` sorted newest first.
 pub fn list_backups() -> Result<Vec<(String, PathBuf)>> {
     let base = backup_base_dir();
     if !base.exists() {
@@ -133,7 +129,7 @@ pub fn list_backups() -> Result<Vec<(String, PathBuf)>> {
     }
     let mut entries: Vec<(String, PathBuf)> = fs::read_dir(&base)
         .with_context(|| format!("read backup dir: {}", base.display()))?
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .filter(|e| e.path().is_dir())
         .map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
@@ -174,10 +170,10 @@ pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
 /// Uses 64-bit FNV-1a constants folded into a u128 accumulator.
 /// Not cryptographic — for equality checking only.
 fn hash_checksum(data: &[u8]) -> u128 {
-    let mut hash: u128 = 0xcbf29ce484222325_u64 as u128;
+    let mut hash = u128::from(0xcbf2_9ce4_8422_2325_u64);
     for &byte in data {
-        hash ^= byte as u128;
-        hash = hash.wrapping_mul(0x100000001b3_u128);
+        hash ^= u128::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3_u128);
     }
     hash
 }
@@ -186,19 +182,18 @@ fn hash_checksum(data: &[u8]) -> u128 {
 pub fn backup_timestamp() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     // Format: epoch seconds
-    format!("{}", secs)
+    secs.to_string()
 }
 
 /// Creates a pre-upgrade backup of the Hyphae database and binary.
 /// The backup path includes the hyphae version and timestamp.
-/// Returns the backup path on success; logs a warning and returns Ok(None) on any failure,
+/// Returns the backup path on success; logs a warning and returns `Ok(None)` on any failure,
 /// allowing the upgrade to proceed without blocking.
-pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Result<Option<PathBuf>> {
+pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Option<PathBuf> {
     let base = backup_base_dir();
-    let backup_dir_name = format!("hyphae-{}-{}", hyphae_version, timestamp);
+    let backup_dir_name = format!("hyphae-{hyphae_version}-{timestamp}");
     let backup_dir = base.join(&backup_dir_name);
 
     // Create the backup directory structure
@@ -208,25 +203,19 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Resul
             backup_dir.display(),
             e
         );
-        return Ok(None);
+        return None;
     }
 
     // Find the hyphae binary
-    let hyphae_binary = match which::which("hyphae") {
-        Ok(path) => path,
-        Err(_) => {
-            warn!("Could not locate hyphae binary for pre-upgrade backup");
-            return Ok(None);
-        }
+    let Ok(hyphae_binary) = which::which("hyphae") else {
+        warn!("Could not locate hyphae binary for pre-upgrade backup");
+        return None;
     };
 
     // Find the hyphae database (default path)
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => {
-            warn!("Could not determine home directory for hyphae database backup; skipping backup");
-            return Ok(None);
-        }
+    let Some(home) = dirs::home_dir() else {
+        warn!("Could not determine home directory for hyphae database backup; skipping backup");
+        return None;
     };
     let hyphae_db = home
         .join(".local")
@@ -258,10 +247,11 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Resul
         }
     }
 
-    Ok(Some(backup_dir))
+    Some(backup_dir)
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
@@ -275,28 +265,32 @@ mod tests {
         fs::write(&cfg_path, b"{\"key\": \"value\"}").unwrap();
 
         let old_dir = std::env::var("STIPE_BACKUP_DIR").ok();
+        // SAFETY: This is a test. We're setting the environment variable only for this test.
         unsafe {
-            std::env::set_var("STIPE_BACKUP_DIR", tmp.path().join("backups").to_str().unwrap());
+            std::env::set_var(
+                "STIPE_BACKUP_DIR",
+                tmp.path().join("backups").to_str().unwrap(),
+            );
         }
 
         let backup_dir = create_backup(
             "20260416-120000",
             "0.5.18",
-            &[("mycelium".to_string(), bin_path.clone())],
-            &[cfg_path.clone()],
-        ).unwrap();
+            &[("mycelium".to_string(), bin_path)],
+            std::slice::from_ref(&cfg_path),
+        )
+        .unwrap();
 
         let manifest = load_manifest(&backup_dir).unwrap();
         assert_eq!(manifest.stipe_version, "0.5.18");
         assert_eq!(manifest.binaries.len(), 1);
         assert_eq!(manifest.config_files.len(), 1);
 
-        if let Some(dir) = old_dir {
-            unsafe {
+        // SAFETY: This is a test. We're restoring or removing the environment variable.
+        unsafe {
+            if let Some(dir) = old_dir {
                 std::env::set_var("STIPE_BACKUP_DIR", dir);
-            }
-        } else {
-            unsafe {
+            } else {
                 std::env::remove_var("STIPE_BACKUP_DIR");
             }
         }
@@ -304,13 +298,15 @@ mod tests {
 
     #[test]
     fn list_backups_empty_when_no_dir() {
-        let _tmp = TempDir::new().unwrap();
-        let nonexistent_dir = _tmp.path().join("no-backups");
+        let tmp = TempDir::new().unwrap();
+        let nonexistent_dir = tmp.path().join("no-backups");
+        // SAFETY: This is a test. We're setting the environment variable only for this test.
         unsafe {
             std::env::set_var("STIPE_BACKUP_DIR", nonexistent_dir.to_str().unwrap());
         }
         let result = list_backups().unwrap();
         assert!(result.is_empty());
+        // SAFETY: This is a test. We're removing the environment variable.
         unsafe {
             std::env::remove_var("STIPE_BACKUP_DIR");
         }
@@ -320,16 +316,14 @@ mod tests {
     fn test_backup_hyphae_path_includes_version_and_timestamp() {
         let tmp = TempDir::new().unwrap();
         let backup_dir_path = tmp.path().join("backups");
+        // SAFETY: This is a test. We're setting the environment variable only for this test.
         unsafe {
-            std::env::set_var(
-                "STIPE_BACKUP_DIR",
-                backup_dir_path.to_str().unwrap(),
-            );
+            std::env::set_var("STIPE_BACKUP_DIR", backup_dir_path.to_str().unwrap());
         }
 
         let version = "0.5.0";
         let timestamp = "1681234567";
-        let result = pre_upgrade_backup_hyphae(version, timestamp).unwrap();
+        let result = pre_upgrade_backup_hyphae(version, timestamp);
 
         if let Some(path) = result {
             let dir_name = path.file_name().unwrap().to_string_lossy();
@@ -338,6 +332,7 @@ mod tests {
             assert!(dir_name.contains(timestamp));
         }
 
+        // SAFETY: This is a test. We're removing the environment variable.
         unsafe {
             std::env::remove_var("STIPE_BACKUP_DIR");
         }
@@ -346,24 +341,16 @@ mod tests {
     #[test]
     fn test_backup_hyphae_warns_on_failure() {
         // Set backup dir to a non-writable location to trigger a warning
+        // SAFETY: This is a test. We're setting the environment variable only for this test.
         unsafe {
             std::env::set_var("STIPE_BACKUP_DIR", "/dev/null/invalid/path");
         }
 
         let version = "0.5.0";
         let timestamp = "1681234567";
-        let result = pre_upgrade_backup_hyphae(version, timestamp);
+        let _ = pre_upgrade_backup_hyphae(version, timestamp);
 
-        // Should not error, but return Ok(None) when backup fails
-        match result {
-            Ok(_) => {
-                // Expected behavior: warning logged, returns Ok(_)
-            }
-            Err(_) => {
-                // Also acceptable if a hard error is returned
-            }
-        }
-
+        // SAFETY: This is a test. We're removing the environment variable.
         unsafe {
             std::env::remove_var("STIPE_BACKUP_DIR");
         }

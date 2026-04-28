@@ -221,8 +221,8 @@ fn auth_detail_for_paths(paths: &[PathBuf], freshness: AuthFreshness) -> Option<
     let newest_path = paths
         .iter()
         .filter(|path| path.exists())
-        .max_by_key(|path| {
-            match fs::metadata(path).and_then(|metadata| metadata.modified()) {
+        .max_by_key(
+            |path| match fs::metadata(path).and_then(|metadata| metadata.modified()) {
                 Ok(time) => Some(time),
                 Err(err) => {
                     eprintln!(
@@ -232,8 +232,8 @@ fn auth_detail_for_paths(paths: &[PathBuf], freshness: AuthFreshness) -> Option<
                     );
                     None
                 }
-            }
-        })?;
+            },
+        )?;
 
     let detail = match freshness {
         AuthFreshness::Fresh => "auth config appears fresh",

@@ -4,33 +4,26 @@ use super::model::HealthCheck;
 
 /// List of active subprojects that should have CLAUDE.md files at L2.
 const ACTIVE_SUBPROJECTS: &[&str] = &[
-    "canopy",
-    "cap",
-    "cortina",
-    "annulus",
-    "hyphae",
-    "stipe",
-    "mycelium",
-    "lamella",
-    "spore",
-    "volva",
-    "hymenium",
-    "rhizome",
+    "canopy", "cap", "cortina", "annulus", "hyphae", "stipe", "mycelium", "lamella", "spore",
+    "volva", "hymenium", "rhizome",
 ];
 
 /// Find the workspace root (basidiocarp directory).
 ///
 /// Tries the current directory and its parents first, then falls back to
-/// ~/.projects/basidiocarp, and finally returns None if not found.
+/// `~/.projects/basidiocarp`, and finally returns `None` if not found.
 fn find_workspace_root() -> Option<PathBuf> {
     // Try current directory and parents
     if let Ok(cwd) = std::env::current_dir() {
-        let project_root = spore::paths::find_project_root(&cwd).unwrap_or(cwd.clone());
-        if project_root.file_name().map_or(false, |name| name == "basidiocarp") {
+        let project_root = spore::paths::find_project_root(&cwd).unwrap_or(cwd);
+        if project_root
+            .file_name()
+            .is_some_and(|name| name == "basidiocarp")
+        {
             return Some(project_root);
         }
         if let Some(parent) = project_root.parent() {
-            if parent.file_name().map_or(false, |name| name == "basidiocarp") {
+            if parent.file_name().is_some_and(|name| name == "basidiocarp") {
                 return Some(parent.to_path_buf());
             }
         }
@@ -42,25 +35,23 @@ fn find_workspace_root() -> Option<PathBuf> {
 
 /// Check that instruction files exist at expected ecosystem locations.
 ///
-/// Returns a Vec of HealthCheck items (all warnings, not errors) that verify:
-/// - L0: ~/.claude/rules/ directory exists
-/// - L1: workspace root CLAUDE.md and AGENTS.md exist
-/// - L2: project CLAUDE.md files exist for active subprojects
+/// Returns a `Vec` of `HealthCheck` items (all warnings, not errors) that verify:
+/// - L0: `~/.claude/rules/` directory exists
+/// - L1: workspace root `CLAUDE.md` and `AGENTS.md` exist
+/// - L2: project `CLAUDE.md` files exist for active subprojects
 ///
 /// All findings are warnings since missing layers degrade guidance but do not break operation.
 pub(super) fn check_instruction_files() -> Vec<HealthCheck> {
-    let workspace_root = match find_workspace_root() {
-        Some(root) => root,
-        None => {
-            // If we can't find the workspace root, return a warning check
-            return vec![HealthCheck {
-                name: "instruction file checks".to_string(),
-                passed: false,
-                message: "Could not find workspace root (basidiocarp); skipping instruction file checks"
+    let Some(workspace_root) = find_workspace_root() else {
+        // If we can't find the workspace root, return a warning check
+        return vec![HealthCheck {
+            name: "instruction file checks".to_string(),
+            passed: false,
+            message:
+                "Could not find workspace root (basidiocarp); skipping instruction file checks"
                     .to_string(),
-                repair_actions: Vec::new(),
-            }];
-        }
+            repair_actions: Vec::new(),
+        }];
     };
 
     check_instruction_files_at_path(&workspace_root)
@@ -68,10 +59,10 @@ pub(super) fn check_instruction_files() -> Vec<HealthCheck> {
 
 /// Check that instruction files exist at expected ecosystem locations (internal, with path provided).
 ///
-/// Returns a Vec of HealthCheck items (all warnings, not errors) that verify:
-/// - L0: ~/.claude/rules/ directory exists
-/// - L1: workspace root CLAUDE.md and AGENTS.md exist
-/// - L2: project CLAUDE.md files exist for active subprojects
+/// Returns a `Vec` of `HealthCheck` items (all warnings, not errors) that verify:
+/// - L0: `~/.claude/rules/` directory exists
+/// - L1: workspace root `CLAUDE.md` and `AGENTS.md` exist
+/// - L2: project `CLAUDE.md` files exist for active subprojects
 ///
 /// All findings are warnings since missing layers degrade guidance but do not break operation.
 fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
@@ -124,12 +115,12 @@ fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
         if project_path.exists() && project_path.is_dir() {
             let l2_path = project_path.join("CLAUDE.md");
             checks.push(HealthCheck {
-                name: format!("L2: {}/CLAUDE.md", project),
+                name: format!("L2: {project}/CLAUDE.md"),
                 passed: l2_path.exists(),
                 message: if l2_path.exists() {
-                    format!("{}/CLAUDE.md found", project)
+                    format!("{project}/CLAUDE.md found")
                 } else {
-                    format!("{}/CLAUDE.md not found", project)
+                    format!("{project}/CLAUDE.md not found")
                 },
                 repair_actions: Vec::new(),
             });

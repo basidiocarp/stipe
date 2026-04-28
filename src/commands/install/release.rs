@@ -191,10 +191,15 @@ pub(crate) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
             // Verify that the extracted path resolves within dest_dir to guard
             // against any remaining traversal edge cases after unpack.
             let extracted = dest_dir.join(file_name);
-            let canonical = fs::canonicalize(&extracted)
-                .with_context(|| format!("Failed to canonicalize extracted path: {}", extracted.display()))?;
-            let canonical_dest = fs::canonicalize(dest_dir)
-                .with_context(|| format!("Failed to canonicalize dest dir: {}", dest_dir.display()))?;
+            let canonical = fs::canonicalize(&extracted).with_context(|| {
+                format!(
+                    "Failed to canonicalize extracted path: {}",
+                    extracted.display()
+                )
+            })?;
+            let canonical_dest = fs::canonicalize(dest_dir).with_context(|| {
+                format!("Failed to canonicalize dest dir: {}", dest_dir.display())
+            })?;
             if !canonical.starts_with(&canonical_dest) {
                 return Err(anyhow!(
                     "Extracted path {} escapes destination directory {}",

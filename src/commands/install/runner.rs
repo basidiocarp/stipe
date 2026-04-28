@@ -89,9 +89,12 @@ pub(crate) fn install_tool(
     // with SIGKILL (exit 137) on execution.
     #[cfg(target_os = "macos")]
     {
-        let path_str = install_path
-            .to_str()
-            .ok_or_else(|| anyhow!("install path is not valid UTF-8: {}", install_path.display()))?;
+        let path_str = install_path.to_str().ok_or_else(|| {
+            anyhow!(
+                "install path is not valid UTF-8: {}",
+                install_path.display()
+            )
+        })?;
         let _ = std::process::Command::new("codesign")
             .args(["--force", "--sign", "-", path_str])
             .output();
@@ -138,7 +141,10 @@ pub(crate) fn install_tool(
 
     // Record stipe ownership so doctor can distinguish managed vs user-added tools.
     if let Err(error) = verify::write_ownership_state(tool, &report) {
-        eprintln!("  {} Could not write ownership state: {error}", "!".yellow());
+        eprintln!(
+            "  {} Could not write ownership state: {error}",
+            "!".yellow()
+        );
     }
 
     Ok(())
@@ -226,9 +232,10 @@ pub(crate) fn install_from_source(
     );
 
     // Best-effort completeness check and ownership record for source installs.
-    let source_install_dir = binary
-        .parent()
-        .map_or_else(|| std::path::PathBuf::from("."), std::path::Path::to_path_buf);
+    let source_install_dir = binary.parent().map_or_else(
+        || std::path::PathBuf::from("."),
+        std::path::Path::to_path_buf,
+    );
     let report = verify::check_completeness(tool_name, &source_install_dir);
     if !report.all_passed() {
         let failing: Vec<String> = report
@@ -244,7 +251,10 @@ pub(crate) fn install_from_source(
     }
 
     if let Err(error) = verify::write_ownership_state(tool_name, &report) {
-        eprintln!("  {} Could not write ownership state: {error}", "!".yellow());
+        eprintln!(
+            "  {} Could not write ownership state: {error}",
+            "!".yellow()
+        );
     }
 
     Ok(version)
@@ -259,7 +269,7 @@ pub(crate) fn install_bin_dir() -> Result<PathBuf> {
     bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::fn_params_excessive_bools)]
 pub(crate) fn run(
     all: bool,
     profile: Option<InstallProfile>,
@@ -269,8 +279,7 @@ pub(crate) fn run(
     force: bool,
     tools: &[String],
 ) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(force)
-        .context("could not acquire install lock")?;
+    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;

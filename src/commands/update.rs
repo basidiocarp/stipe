@@ -302,8 +302,7 @@ pub fn run(
     force: bool,
     tools: &[String],
 ) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(force)
-        .context("could not acquire install lock")?;
+    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
     let span_context = update_span_context();
     let _workflow_span = workflow_span("update", &span_context).entered();
     if profile == Some(InstallProfile::DeveloperTools) {
@@ -357,11 +356,10 @@ pub fn run(
                 }
             };
             let timestamp = crate::backup::backup_timestamp();
-            if let Err(e) = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp) {
+            if crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp).is_none() {
                 eprintln!(
-                    "  {} Warning: pre-upgrade backup of hyphae failed; continuing upgrade without backup: {}",
-                    "⚠".yellow(),
-                    e
+                    "  {} Warning: pre-upgrade backup of hyphae failed; continuing upgrade without backup",
+                    "⚠".yellow()
                 );
             }
         }

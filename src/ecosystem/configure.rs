@@ -131,8 +131,9 @@ pub(super) fn initialize_hyphae_db_if_needed(
         // and the shell session has not been refreshed.
         let hyphae_spec = tool_registry::find("hyphae")
             .ok_or_else(|| anyhow::anyhow!("hyphae is not listed in the tool registry"))?;
-        let hyphae_bin = tool_registry::resolve_binary_path(hyphae_spec)
-            .ok_or_else(|| anyhow::anyhow!("hyphae binary not found; ensure it is installed and accessible"))?;
+        let hyphae_bin = tool_registry::resolve_binary_path(hyphae_spec).ok_or_else(|| {
+            anyhow::anyhow!("hyphae binary not found; ensure it is installed and accessible")
+        })?;
         let _subprocess_span = subprocess_span("hyphae stats", &span_context).entered();
         match Command::new(&hyphae_bin).arg("stats").output() {
             Ok(output) if output.status.success() => {

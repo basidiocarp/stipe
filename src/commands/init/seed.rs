@@ -21,19 +21,17 @@ fn hyphae_available(hyphae_cmd: &str) -> bool {
     Command::new(hyphae_cmd)
         .arg("--version")
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+        .is_ok_and(|output| output.status.success())
 }
 
 /// Check if hyphae already has memories for this project.
 /// If the command fails or JSON cannot be parsed, we assume it's safe to proceed with seeding.
 fn has_existing_memories(project: &str, hyphae_cmd: &str) -> bool {
-    let output = match Command::new(hyphae_cmd)
+    let Ok(output) = Command::new(hyphae_cmd)
         .args(["memory", "stats", "--json", "--project", project])
         .output()
-    {
-        Ok(o) => o,
-        Err(_) => return false, // hyphae unavailable or command failed; assume no memories
+    else {
+        return false; // hyphae unavailable or command failed; assume no memories
     };
 
     if !output.status.success() {
@@ -44,19 +42,20 @@ fn has_existing_memories(project: &str, hyphae_cmd: &str) -> bool {
 
     // Parse JSON looking for "total_memories" field.
     // If we can't parse, assume no memories to be safe.
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
-        json
-            .get("total_memories")
-            .and_then(|v| v.as_u64())
-            .map(|n| n > 0)
-            .unwrap_or(false)
-    } else {
-        false
-    }
+    serde_json::from_str::<serde_json::Value>(&stdout)
+        .ok()
+        .and_then(|json| json.get("total_memories")?.as_u64())
+        .is_some_and(|n| n > 0)
 }
 
 /// Store a memory in hyphae using the CLI.
-fn store_memory(project: &str, topic: &str, importance: &str, content: &str, hyphae_cmd: &str) -> Result<()> {
+fn store_memory(
+    project: &str,
+    topic: &str,
+    importance: &str,
+    content: &str,
+    hyphae_cmd: &str,
+) -> Result<()> {
     let status = Command::new(hyphae_cmd)
         .args(["store", "--topic", topic, "--importance", importance])
         .arg("--")
@@ -110,29 +109,25 @@ fn seed_first_run_internal(project: &str, dry_run: bool, hyphae_cmd: &str) -> Re
 
     // Build the initial context message
     let initial_context = format!(
-        "Project: {}. Primary language: {}. First run seeded by stipe init.",
-        project, language
+        "Project: {project}. Primary language: {language}. First run seeded by stipe init."
     );
 
     if dry_run {
-        println!("(dry-run) Would seed for project: {}", project);
-        println!("  - Initial context: {}", initial_context);
+        println!("(dry-run) Would seed for project: {project}");
+        println!("  - Initial context: {initial_context}");
         return Ok(());
     }
 
     // Store the initial context
     store_memory(
         project,
-        &format!("context/{}", project),
+        &format!("context/{project}"),
         "high",
         &initial_context,
         hyphae_cmd,
     )?;
 
-    println!(
-        "Seeded initial project context for {}. Hyphae will learn more as you work.",
-        project
-    );
+    println!("Seeded initial project context for {project}. Hyphae will learn more as you work.");
 
     Ok(())
 }
@@ -142,7 +137,11 @@ pub fn seed_first_run_interactive(project: &str, dry_run: bool) -> Result<()> {
     seed_first_run_interactive_internal(project, dry_run, "hyphae")
 }
 
-fn seed_first_run_interactive_internal(project: &str, dry_run: bool, hyphae_cmd: &str) -> Result<()> {
+fn seed_first_run_interactive_internal(
+    project: &str,
+    dry_run: bool,
+    hyphae_cmd: &str,
+) -> Result<()> {
     // First, run the automatic seed
     seed_first_run_internal(project, dry_run, hyphae_cmd)?;
 
@@ -167,9 +166,9 @@ fn seed_first_run_interactive_internal(project: &str, dry_run: bool, hyphae_cmd:
     if !purpose.is_empty() {
         store_memory(
             project,
-            &format!("context/{}", project),
+            &format!("context/{project}"),
             "high",
-            &format!("Purpose: {}", purpose),
+            &format!("Purpose: {purpose}"),
             hyphae_cmd,
         )?;
     }
@@ -180,7 +179,7 @@ fn seed_first_run_interactive_internal(project: &str, dry_run: bool, hyphae_cmd:
     if !decisions.is_empty() {
         store_memory(
             project,
-            &format!("decisions/{}", project),
+            &format!("decisions/{project}"),
             "high",
             &decisions,
             hyphae_cmd,
