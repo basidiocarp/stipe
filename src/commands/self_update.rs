@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 
 use super::github;
 use super::install::release::{
-    download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
-    verify_binary,
+    download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
+    find_checksum_asset, find_matching_asset, normalize_version, platform_key,
+    verify_asset_checksum, verify_binary,
 };
 
 #[derive(Debug, Clone, Copy, Subcommand)]
@@ -19,10 +20,6 @@ pub enum SelfCommand {
         #[arg(long)]
         check: bool,
     },
-}
-
-fn normalize_version(version: &str) -> &str {
-    version.trim_start_matches('v')
 }
 
 fn replacement_path(current_exe: &Path) -> Result<PathBuf> {
@@ -115,20 +112,41 @@ fn run_update(check: bool) -> Result<()> {
     );
     let data = download_binary(asset, &progress, &client)?;
 
-    println!("  {} Extracting...", "⏳".yellow());
-    let temp_dir = std::env::temp_dir().join(format!("stipe-self-update-{}", std::process::id()));
-    if temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    // Verify SHA-256 before extraction.
+    let sha256sums = find_checksum_asset(&release)
+        .map(|cs_asset| download_sha256sums(cs_asset, &client))
+        .transpose()?;
+    if let Some(ref sums) = sha256sums {
+        verify_asset_checksum(&data, &asset.name, sums)
+            .with_context(|| format!("Checksum verification failed for {}", asset.name))?;
+    } else {
+        // TODO: upgrade to a hard failure once all releases publish SHA256SUMS.
+        tracing::warn!(
+            "no SHA256SUMS asset found for stipe {}; skipping checksum verification",
+            release.version
+        );
     }
-    let extracted_path = extract_tarball(&data, &temp_dir)?;
+
+    println!("  {} Extracting...", "⏳".yellow());
+    let temp_guard = tempfile::TempDir::new()
+        .context("Failed to create temporary directory for extraction")?;
+    let extracted_path = extract_tarball(&data, temp_guard.path())?;
 
     println!("  {} Verifying...", "⏳".yellow());
     let verified_version = verify_binary(&extracted_path)?;
 
+    // Require the extracted binary version to match the expected release tag.
+    let expected_normalized = normalize_version(&release.version);
+    if normalize_version(&verified_version) != expected_normalized {
+        return Err(anyhow!(
+            "Version mismatch after extraction: expected {}, binary reports {}",
+            release.version,
+            verified_version
+        ));
+    }
+
     println!("  {} Replacing {}...", "⏳".yellow(), current_exe.display());
     install_replacement(&current_exe, &extracted_path)?;
-
-    let _ = fs::remove_dir_all(&temp_dir);
 
     println!(
         "  {} stipe updated: {} → {}",

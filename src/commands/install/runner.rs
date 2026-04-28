@@ -11,7 +11,8 @@ use crate::commands::developer_tools;
 use crate::commands::github;
 use crate::commands::github::GitHubClient;
 use crate::commands::install::release::{
-    download_binary, extract_tarball, fetch_latest_release, find_matching_asset, platform_key,
+    download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
+    find_checksum_asset, find_matching_asset, normalize_version, platform_key, verify_asset_checksum,
     verify_binary, verify_functional,
 };
 use crate::commands::install::save_selected_profile;
@@ -24,6 +25,7 @@ use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 use crate::verify;
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn install_tool(
     tool: &str,
     prefix: &Path,
@@ -62,12 +64,38 @@ pub(crate) fn install_tool(
     );
     let data = download_binary(asset, &progress, client)?;
 
+    // Verify SHA-256 before extraction when a checksum asset is available.
+    let sha256sums = find_checksum_asset(&release)
+        .map(|cs_asset| download_sha256sums(cs_asset, client))
+        .transpose()?;
+    if let Some(ref sums) = sha256sums {
+        verify_asset_checksum(&data, &asset.name, sums)
+            .with_context(|| format!("Checksum verification failed for {}", asset.name))?;
+    } else {
+        // TODO: upgrade to a hard failure once all releases publish SHA256SUMS.
+        tracing::warn!(
+            "no SHA256SUMS asset found for {} {}; skipping checksum verification",
+            tool,
+            release.version
+        );
+    }
+
     println!("  {} Extracting...", "⏳".yellow());
-    let temp_dir = std::env::temp_dir().join(format!("stipe-{tool}"));
-    let extracted_path = extract_tarball(&data, &temp_dir)?;
+    let temp_guard = tempfile::TempDir::new()
+        .context("Failed to create temporary directory for extraction")?;
+    let extracted_path = extract_tarball(&data, temp_guard.path())?;
 
     println!("  {} Verifying...", "⏳".yellow());
     let version = verify_binary(&extracted_path)?;
+
+    // Require the extracted binary version to match the expected release tag.
+    if normalize_version(&version) != normalize_version(&release.version) {
+        return Err(anyhow!(
+            "Version mismatch after extraction: expected {}, binary reports {}",
+            release.version,
+            version
+        ));
+    }
 
     fs::copy(&extracted_path, &install_path).with_context(|| {
         format!(

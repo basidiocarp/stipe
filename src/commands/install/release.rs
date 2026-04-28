@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
+use sha2::{Digest, Sha256};
 use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -32,6 +33,14 @@ const VERSION_VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 const FUNCTIONAL_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const MCP_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const MCP_INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"stipe-verify","version":"0.1"}}}"#;
+
+/// Maximum bytes to download for a release archive. Rejects oversized or malformed responses.
+pub(crate) const MAX_RELEASE_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024; // 100 MB
+
+/// Strip a leading `v` from a version string for comparison (e.g. `"v0.5.1"` → `"0.5.1"`).
+pub(crate) fn normalize_version(version: &str) -> &str {
+    version.trim_start_matches('v')
+}
 
 pub(crate) fn platform_key() -> &'static str {
     if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
@@ -109,6 +118,93 @@ pub(crate) fn find_matching_asset<'a>(
         })
 }
 
+/// Find the SHA256SUMS asset in a release, if present.
+pub(crate) fn find_checksum_asset(release: &GitHubRelease) -> Option<&ReleaseAsset> {
+    release.assets.iter().find(|a| a.name == "SHA256SUMS")
+}
+
+/// Download the SHA256SUMS text file for a release.
+pub(crate) fn download_sha256sums(asset: &ReleaseAsset, client: &GitHubClient) -> Result<String> {
+    let mut response = client
+        .get(&asset.download_url)
+        .with_context(|| format!("Failed to download {}", asset.name))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "Failed to download SHA256SUMS: {}",
+            response.status()
+        ));
+    }
+
+    let mut text = String::new();
+    response
+        .body_mut()
+        .with_config()
+        .limit(1024 * 1024) // 1 MB is more than enough for a checksum file
+        .reader()
+        .read_to_string(&mut text)
+        .context("Failed to read SHA256SUMS body")?;
+
+    Ok(text)
+}
+
+/// Find the expected SHA-256 hex digest for `filename` inside a `SHA256SUMS` file.
+///
+/// The standard format produced by `sha256sum` is:
+/// `<hex>  <filename>` (two spaces) or `<hex> <filename>` (one space).
+/// Lines without whitespace (e.g. comments or blank lines) are skipped.
+///
+/// This project's release workflow generates `SHA256SUMS` using `sha256sum`.
+/// Only the exact filename `"SHA256SUMS"` is expected as the checksum asset name.
+pub(crate) fn parse_expected_digest(sha256sums: &str, filename: &str) -> Option<String> {
+    for line in sha256sums.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // Use `else { continue }` rather than `?` so that malformed or comment
+        // lines do not abort the search for a subsequent valid entry.
+        let Some((digest, rest)) = line.split_once(|c: char| c.is_whitespace()) else {
+            continue;
+        };
+        let name = rest.trim_start_matches(|c: char| c.is_whitespace());
+        if name == filename {
+            return Some(digest.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+/// Compute the SHA-256 digest of `data` as a lowercase hex string.
+pub(crate) fn compute_sha256(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut s, b| {
+            use std::fmt::Write as _;
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+}
+
+/// Verify that the SHA-256 of `data` matches the entry for `asset_name` in `sha256sums`.
+///
+/// Returns an error if no entry is found or if the digest does not match.
+pub(crate) fn verify_asset_checksum(data: &[u8], asset_name: &str, sha256sums: &str) -> Result<()> {
+    let expected = parse_expected_digest(sha256sums, asset_name).ok_or_else(|| {
+        anyhow!("No SHA-256 entry found for {asset_name} in SHA256SUMS")
+    })?;
+    let actual = compute_sha256(data);
+    if actual != expected {
+        return Err(anyhow!(
+            "SHA-256 mismatch for {asset_name}: expected {expected}, got {actual}"
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn download_binary(
     asset: &ReleaseAsset,
     progress: &ProgressBar,
@@ -145,7 +241,7 @@ pub(crate) fn download_binary(
     response
         .body_mut()
         .with_config()
-        .limit(u64::MAX)
+        .limit(MAX_RELEASE_DOWNLOAD_BYTES)
         .reader()
         .read_to_end(&mut bytes)
         .context("Failed to read response body")?;
@@ -543,6 +639,76 @@ mod tests {
         assert!(verify_functional(&script, spec).is_ok());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compute_sha256_produces_known_digest() {
+        // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+        let digest = compute_sha256(b"abc");
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn parse_expected_digest_finds_two_space_entry() {
+        let sums = "abc123  mycelium-aarch64-apple-darwin.tar.gz\ndef456  other.tar.gz\n";
+        assert_eq!(
+            parse_expected_digest(sums, "mycelium-aarch64-apple-darwin.tar.gz"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_expected_digest_finds_one_space_entry() {
+        let sums = "abc123 mycelium-aarch64-apple-darwin.tar.gz\n";
+        assert_eq!(
+            parse_expected_digest(sums, "mycelium-aarch64-apple-darwin.tar.gz"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_expected_digest_returns_none_for_missing_entry() {
+        let sums = "abc123  other.tar.gz\n";
+        assert!(parse_expected_digest(sums, "mycelium-aarch64-apple-darwin.tar.gz").is_none());
+    }
+
+    #[test]
+    fn parse_expected_digest_skips_lines_without_whitespace() {
+        // A non-whitespace line (e.g. a comment or header) before the target entry
+        // must not abort the search; the function must continue scanning.
+        let sums = "#comment\nabc123  target.tar.gz\n";
+        assert_eq!(
+            parse_expected_digest(sums, "target.tar.gz"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn verify_asset_checksum_accepts_correct_digest() {
+        let data = b"hello world";
+        let digest = compute_sha256(data);
+        let sums = format!("{digest}  myasset.tar.gz\n");
+        assert!(verify_asset_checksum(data, "myasset.tar.gz", &sums).is_ok());
+    }
+
+    #[test]
+    fn verify_asset_checksum_rejects_wrong_digest() {
+        let data = b"hello world";
+        // 64-char lowercase hex string (not the real digest of "hello world")
+        let sums = "deadbeef00000000000000000000000000000000000000000000000000000000  myasset.tar.gz\n";
+        let err = verify_asset_checksum(data, "myasset.tar.gz", sums).unwrap_err();
+        assert!(err.to_string().contains("SHA-256 mismatch"));
+    }
+
+    #[test]
+    fn verify_asset_checksum_rejects_missing_entry() {
+        let data = b"hello world";
+        let sums = "abc123  other.tar.gz\n";
+        let err = verify_asset_checksum(data, "myasset.tar.gz", sums).unwrap_err();
+        assert!(err.to_string().contains("No SHA-256 entry"));
     }
 
     #[cfg(unix)]
