@@ -8,8 +8,8 @@
 //! `not set`; format problems are flagged without revealing the value.
 
 use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
@@ -262,7 +262,9 @@ fn is_dotenv_gitignored(dotenv_path: &Path) -> bool {
 /// Reject values containing shell metacharacters that would execute when sourced.
 fn validate_key_for_shell_export(key: &str) -> Result<()> {
     // Reject values with characters that could execute when shell profile is sourced
-    let dangerous: &[char] = &['`', '$', '!', ';', '&', '|', '<', '>', '\n', '\r', '(', ')', '"', '\\'];
+    let dangerous: &[char] = &[
+        '`', '$', '!', ';', '&', '|', '<', '>', '\n', '\r', '(', ')', '"', '\\',
+    ];
     if key.chars().any(|c| dangerous.contains(&c)) {
         bail!(
             "API key contains characters that are unsafe for shell profile export. \
@@ -278,7 +280,8 @@ fn write_to_dotenv(key: &str) -> Result<()> {
         .join(".env");
 
     // Explicit opt-in to .env file persistence; caller explicitly chose .env over shell profile.
-    let line = format!("# Explicit opt-in API key: Stipe provider setup\nANTHROPIC_API_KEY={key}\n");
+    let line =
+        format!("# Explicit opt-in API key: Stipe provider setup\nANTHROPIC_API_KEY={key}\n");
 
     if path.exists() {
         // Append rather than overwrite; avoid duplicating the variable.
@@ -309,7 +312,9 @@ fn write_to_dotenv(key: &str) -> Result<()> {
 
     // Warn if .env is not in .gitignore.
     if !is_dotenv_gitignored(&path) {
-        eprintln!("Warning: .env is not in .gitignore. Add `.env` to .gitignore to avoid accidentally committing secrets.");
+        eprintln!(
+            "Warning: .env is not in .gitignore. Add `.env` to .gitignore to avoid accidentally committing secrets."
+        );
     }
 
     println!("Written to {} (value masked as ***)", path.display());

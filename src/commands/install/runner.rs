@@ -12,8 +12,8 @@ use crate::commands::github;
 use crate::commands::github::GitHubClient;
 use crate::commands::install::release::{
     download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
-    find_checksum_asset, find_matching_asset, normalize_version, platform_key, verify_asset_checksum,
-    verify_binary, verify_functional,
+    find_checksum_asset, find_matching_asset, normalize_version, platform_key,
+    verify_asset_checksum, verify_binary, verify_functional,
 };
 use crate::commands::install::save_selected_profile;
 use crate::commands::install::selection::{
@@ -81,8 +81,8 @@ pub(crate) fn install_tool(
     }
 
     println!("  {} Extracting...", "⏳".yellow());
-    let temp_guard = tempfile::TempDir::new()
-        .context("Failed to create temporary directory for extraction")?;
+    let temp_guard =
+        tempfile::TempDir::new().context("Failed to create temporary directory for extraction")?;
     let extracted_path = extract_tarball(&data, temp_guard.path())?;
 
     println!("  {} Verifying...", "⏳".yellow());

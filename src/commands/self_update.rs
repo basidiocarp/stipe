@@ -128,8 +128,8 @@ fn run_update(check: bool) -> Result<()> {
     }
 
     println!("  {} Extracting...", "⏳".yellow());
-    let temp_guard = tempfile::TempDir::new()
-        .context("Failed to create temporary directory for extraction")?;
+    let temp_guard =
+        tempfile::TempDir::new().context("Failed to create temporary directory for extraction")?;
     let extracted_path = extract_tarball(&data, temp_guard.path())?;
 
     println!("  {} Verifying...", "⏳".yellow());

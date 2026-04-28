@@ -193,9 +193,8 @@ pub(crate) fn compute_sha256(data: &[u8]) -> String {
 ///
 /// Returns an error if no entry is found or if the digest does not match.
 pub(crate) fn verify_asset_checksum(data: &[u8], asset_name: &str, sha256sums: &str) -> Result<()> {
-    let expected = parse_expected_digest(sha256sums, asset_name).ok_or_else(|| {
-        anyhow!("No SHA-256 entry found for {asset_name} in SHA256SUMS")
-    })?;
+    let expected = parse_expected_digest(sha256sums, asset_name)
+        .ok_or_else(|| anyhow!("No SHA-256 entry found for {asset_name} in SHA256SUMS"))?;
     let actual = compute_sha256(data);
     if actual != expected {
         return Err(anyhow!(
@@ -698,7 +697,8 @@ mod tests {
     fn verify_asset_checksum_rejects_wrong_digest() {
         let data = b"hello world";
         // 64-char lowercase hex string (not the real digest of "hello world")
-        let sums = "deadbeef00000000000000000000000000000000000000000000000000000000  myasset.tar.gz\n";
+        let sums =
+            "deadbeef00000000000000000000000000000000000000000000000000000000  myasset.tar.gz\n";
         let err = verify_asset_checksum(data, "myasset.tar.gz", sums).unwrap_err();
         assert!(err.to_string().contains("SHA-256 mismatch"));
     }
