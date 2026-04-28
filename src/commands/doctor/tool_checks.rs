@@ -408,6 +408,57 @@ pub(super) fn check_mcp_startups() -> Vec<HealthCheck> {
         .collect()
 }
 
+/// Check whether the capability registry file exists and is current.
+///
+/// Returns a failing check if the registry is absent or stale (older than 30
+/// days), prompting the operator to run `stipe init` to refresh it.
+pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCheck {
+    if !registry_path.exists() {
+        return HealthCheck {
+            name: "capability registry".to_string(),
+            passed: false,
+            message: "Capability registry not found; run `stipe init` to generate it".to_string(),
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Initialize the ecosystem",
+                "Generate the capability registry and wire the local ecosystem together.",
+                &["init"],
+                RepairTier::Primary,
+            )],
+        };
+    }
+
+    let stale = std::fs::metadata(registry_path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|modified| {
+            modified
+                .elapsed()
+                .is_ok_and(|age| age > std::time::Duration::from_secs(30 * 24 * 60 * 60))
+        });
+
+    if stale {
+        HealthCheck {
+            name: "capability registry".to_string(),
+            passed: false,
+            message: "Capability registry is stale; run `stipe init` to refresh it".to_string(),
+            repair_actions: vec![RepairAction::stipe(
+                "init",
+                "Refresh ecosystem state",
+                "Regenerate the stale capability registry with the current tool set.",
+                &["init"],
+                RepairTier::Primary,
+            )],
+        }
+    } else {
+        HealthCheck {
+            name: "capability registry".to_string(),
+            passed: true,
+            message: "Capability registry present and current".to_string(),
+            repair_actions: Vec::new(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub(super) fn installed_mcp_servers() -> Vec<&'static str> {
     tool_registry::doctor_specs()

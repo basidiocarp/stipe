@@ -40,7 +40,10 @@ use package_checks::{
 use plugin_inventory_checks::collect_plugin_inventory;
 use provider_checks::{collect_api_key_health, collect_mcp_health, collect_provider_health};
 use server_checks::collect_mcp_server_health;
-use tool_checks::{check_hyphae_db, check_mcp_startups, check_profile_tools, check_tool};
+use tool_checks::{
+    check_capability_registry_health, check_hyphae_db, check_mcp_startups, check_profile_tools,
+    check_tool,
+};
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
 
@@ -1315,6 +1318,7 @@ fn build_report_with_saved_profile(
     ));
     checks.extend([
         check_hyphae_db(),
+        check_capability_registry_health(&tool_registry::default_registry_path()),
         drift_state.check.clone(),
         package_drift_check,
     ]);

@@ -111,4 +111,9 @@ pub struct ToolSpec {
     pub smoke_test_args: Option<&'static [&'static str]>,
     pub smoke_test_expect: Option<&'static str>,
     pub mcp_serve_args: Option<&'static [&'static str]>,
+    /// Stable capability ids this tool satisfies, e.g. `["memory.store.v1"]`.
+    /// Populated in the `capability-registry-v1` contract written by Stipe.
+    pub capability_ids: &'static [&'static str],
+    /// Related Septa contract ids produced or consumed by this tool.
+    pub contract_ids: &'static [&'static str],
 }

@@ -19,6 +19,8 @@ fn spec(name: &'static str, profiles: &'static [InstallProfile]) -> ToolSpec {
         smoke_test_args: None,
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &[],
+        contract_ids: &[],
     }
 }
 

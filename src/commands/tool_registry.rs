@@ -1,9 +1,11 @@
+pub mod capability_registry;
 mod model;
 mod probe;
 mod specs;
 #[cfg(test)]
 mod tests;
 
+pub use capability_registry::{default_registry_path, write_capability_registry};
 pub use model::{DoctorCoverage, InstallProfile, ToolProbe, ToolSpec};
 pub use probe::{VerifyLevel, probe, probe_with_level, resolve_binary_path};
 pub use specs::{

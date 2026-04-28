@@ -3,6 +3,7 @@ use anyhow::Result;
 use spore::logging::{SpanContext, workflow_span};
 
 use super::host_policy::HostConfigScope;
+use super::tool_registry;
 
 pub(crate) mod baseline;
 mod model;
@@ -55,6 +56,13 @@ pub fn run(
 
     ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::new(0))?;
     record_current_baseline(&snapshot, scope)?;
+
+    // Write capability registry snapshot (non-fatal)
+    if let Err(e) =
+        tool_registry::write_capability_registry(&tool_registry::default_registry_path())
+    {
+        tracing::warn!(error = %e, "capability registry write failed (non-fatal)");
+    }
 
     // Seed initial project context into hyphae if available
     if let Some(project) = get_project_name() {
@@ -150,7 +158,10 @@ fn write_volva_mode_config(mode: &str) -> Result<()> {
     let config_path = config_dir.join("config.toml");
     let mut file = std::fs::File::create(&config_path)?;
     writeln!(file, "# Volva global configuration")?;
-    writeln!(file, "# Managed by stipe. Edit manually or re-run stipe init to change.")?;
+    writeln!(
+        file,
+        "# Managed by stipe. Edit manually or re-run stipe init to change."
+    )?;
     writeln!(file, "mode = \"{mode}\"")?;
 
     Ok(())

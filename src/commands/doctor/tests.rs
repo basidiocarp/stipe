@@ -838,3 +838,67 @@ fn test_build_report_can_include_developer_tools() {
             .any(|check| check.tier == DeveloperToolTier::Tier1)
     );
 }
+
+#[test]
+fn test_check_capability_registry_health_missing() {
+    use super::tool_checks::check_capability_registry_health;
+
+    let temp_dir = unique_test_dir("capability-registry-missing");
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let registry_path = temp_dir.join("capability-registry.json");
+
+    let check = check_capability_registry_health(&registry_path);
+    assert!(
+        !check.passed,
+        "capability registry check should fail when registry is missing"
+    );
+    assert_eq!(check.name, "capability registry");
+    assert!(check.message.contains("not found"));
+    assert!(
+        check
+            .repair_actions
+            .iter()
+            .any(|a| a.command == "stipe init"),
+        "missing capability registry should suggest stipe init"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_check_capability_registry_health_present() {
+    use super::tool_checks::check_capability_registry_health;
+
+    let temp_dir = unique_test_dir("capability-registry-present");
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let registry_path = temp_dir.join("capability-registry.json");
+    fs::write(
+        &registry_path,
+        r#"{"schema_version":"capability-registry-v1","entries":[]}"#,
+    )
+    .unwrap();
+
+    let check = check_capability_registry_health(&registry_path);
+    assert!(
+        check.passed,
+        "capability registry check should pass when registry exists and is current"
+    );
+    assert_eq!(check.name, "capability registry");
+    assert!(check.message.contains("present"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_build_report_includes_capability_registry_check() {
+    let report = build_report_with_saved_profile(None, false, false);
+    let names: Vec<&str> = report.checks.iter().map(|c| c.name.as_str()).collect();
+    assert!(
+        names.contains(&"capability registry"),
+        "doctor report should include a capability registry health check"
+    );
+}

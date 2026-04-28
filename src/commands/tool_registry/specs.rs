@@ -25,6 +25,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["proxy", "echo", "stipe-verify"]),
         smoke_test_expect: Some("stipe-verify"),
         mcp_serve_args: None,
+        capability_ids: &["command.filter.v1"],
+        contract_ids: &["command-output-v1", "mycelium-gain-v1"],
     },
     ToolSpec {
         name: "hyphae",
@@ -52,6 +54,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["doctor"]),
         smoke_test_expect: None,
         mcp_serve_args: Some(&["serve"]),
+        capability_ids: &["memory.store.v1", "memory.recall.v1", "memoir.import.v1"],
+        contract_ids: &["command-output-v1", "code-graph-v1"],
     },
     ToolSpec {
         name: "rhizome",
@@ -78,6 +82,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: None,
         smoke_test_expect: None,
         mcp_serve_args: Some(&["serve", "--expanded"]),
+        capability_ids: &["code.graph.v1", "code.symbols.v1"],
+        contract_ids: &["code-graph-v1"],
     },
     ToolSpec {
         name: "canopy",
@@ -96,6 +102,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["task", "list"]),
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &["coordination.task.v1"],
+        contract_ids: &["canopy-task-detail-v1", "dispatch-request-v1"],
     },
     ToolSpec {
         name: "cortina",
@@ -118,6 +126,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: None,
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &["lifecycle.capture.v1"],
+        contract_ids: &["cortina-lifecycle-event-v1"],
     },
     ToolSpec {
         name: "volva",
@@ -136,6 +146,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["backend", "status"]),
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &["hook.execution.v1"],
+        contract_ids: &["volva-hook-event-v1"],
     },
     ToolSpec {
         name: "annulus",
@@ -154,6 +166,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["--version"]),
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &["statusline.render.v1"],
+        contract_ids: &["annulus-statusline-v1"],
     },
     ToolSpec {
         name: "hymenium",
@@ -172,6 +186,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: Some(&["status"]),
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &["workflow.dispatch.v1"],
+        contract_ids: &["dispatch-request-v1", "workflow-outcome-v1"],
     },
     ToolSpec {
         name: "cap",
@@ -192,6 +208,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: None,
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &[],
+        contract_ids: &["canopy-snapshot-v1", "stipe-doctor-v1"],
     },
     ToolSpec {
         name: "stipe",
@@ -210,6 +228,8 @@ const TOOL_SPECS: &[ToolSpec] = &[
         smoke_test_args: None,
         smoke_test_expect: None,
         mcp_serve_args: None,
+        capability_ids: &[],
+        contract_ids: &["stipe-doctor-v1", "stipe-init-plan-v1"],
     },
 ];
 
