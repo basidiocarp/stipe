@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::model::HealthCheck;
@@ -9,6 +10,38 @@ use crate::commands::install::{
 };
 use crate::commands::repair::{RepairAction, RepairTier, cargo_install_action};
 use crate::ecosystem::clients::{self, McpClient};
+
+// ---------------------------------------------------------------------------
+// Version drift detection
+// ---------------------------------------------------------------------------
+
+/// Pinned tool versions from ecosystem-versions.toml. Must be kept in sync.
+fn pinned_ecosystem_versions() -> HashMap<&'static str, &'static str> {
+    let mut pins = HashMap::new();
+    pins.insert("mycelium", "0.9.0");
+    pins.insert("hyphae", "0.12.0");
+    pins.insert("rhizome", "0.8.0");
+    pins.insert("canopy", "0.6.0");
+    pins.insert("cortina", "0.3.0");
+    pins.insert("stipe", "0.6.0");
+    pins.insert("volva", "0.2.4");
+    pins.insert("hymenium", "0.6.0");
+    pins.insert("annulus", "0.5.5");
+    pins.insert("cap", "0.11.9");
+    pins.insert("lamella", "0.5.15");
+    pins.insert("spore", "0.4.11");
+    pins
+}
+
+/// Check if an installed version is behind the pinned version.
+/// Returns (`is_behind`, `pinned_version`) or (false, None) if tool not in pins.
+fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String>) {
+    let pins = pinned_ecosystem_versions();
+    match pins.get(tool_name) {
+        Some(&pinned) => (installed != pinned, Some(pinned.to_string())),
+        None => (false, None),
+    }
+}
 
 fn codex_cli_installed() -> bool {
     std::process::Command::new("codex")
@@ -189,11 +222,36 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
                 };
             }
 
+            // Check for version drift.
+            let (is_behind, pinned) = check_version_drift(spec.name, &version);
+            let (message, repair_actions) = if is_behind {
+                let pinned_str = pinned.as_deref().unwrap_or("unknown");
+                let update_action = RepairAction::manual(
+                    format!("Update {}", spec.name),
+                    format!(
+                        "Replace the installed {} with the pinned version {}.",
+                        spec.name, pinned_str
+                    ),
+                    format!("stipe update {}", spec.name),
+                    vec!["update".to_string(), spec.name.to_string()],
+                    RepairTier::Primary,
+                );
+                (
+                    format!(
+                        "v{version} installed (pinned: v{pinned_str} — run 'stipe update {name}' to update)",
+                        name = spec.name
+                    ),
+                    vec![update_action],
+                )
+            } else {
+                (format!("v{version} installed and working"), Vec::new())
+            };
+
             HealthCheck {
                 name: spec.name.to_string(),
                 passed: true,
-                message: format!("v{version} installed and working"),
-                repair_actions: Vec::new(),
+                message,
+                repair_actions,
             }
         }
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
@@ -244,14 +302,42 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
                 };
             }
 
+            // Check for version drift.
+            let (is_behind, pinned) = check_version_drift(spec.name, &version);
+            let (message, repair_actions) = if is_behind {
+                let pinned_str = pinned.as_deref().unwrap_or("unknown");
+                let update_action = RepairAction::manual(
+                    format!("Update {}", spec.name),
+                    format!(
+                        "Replace the installed {} with the pinned version {}.",
+                        spec.name, pinned_str
+                    ),
+                    format!("stipe update {}", spec.name),
+                    vec!["update".to_string(), spec.name.to_string()],
+                    RepairTier::Primary,
+                );
+                (
+                    format!(
+                        "v{version} installed (pinned: v{pinned_str} — expected by {})",
+                        profile.mode_label()
+                    ),
+                    vec![update_action],
+                )
+            } else {
+                (
+                    format!(
+                        "v{version} installed (expected by {})",
+                        profile.mode_label()
+                    ),
+                    Vec::new(),
+                )
+            };
+
             HealthCheck {
                 name: spec.name.to_string(),
                 passed: true,
-                message: format!(
-                    "v{version} installed (expected by {})",
-                    profile.mode_label()
-                ),
-                repair_actions: Vec::new(),
+                message,
+                repair_actions,
             }
         }
         ToolProbe::Broken => HealthCheck {
@@ -617,5 +703,37 @@ mod tests {
         ));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    // -- version drift detection ------------------------------------------------
+
+    #[test]
+    fn check_version_drift_detects_stale_binary() {
+        let (is_behind, pinned) = check_version_drift("hyphae", "0.11.0");
+        assert!(is_behind, "older version should be reported as behind the pin");
+        assert_eq!(pinned.as_deref(), Some("0.12.0"), "pinned version should be returned");
+    }
+
+    #[test]
+    fn check_version_drift_accepts_current_binary() {
+        let (is_behind, pinned) = check_version_drift("hyphae", "0.12.0");
+        assert!(!is_behind, "matching version should not be reported as behind");
+        assert_eq!(pinned.as_deref(), Some("0.12.0"));
+    }
+
+    #[test]
+    fn check_version_drift_unknown_tool_never_reports_behind() {
+        let (is_behind, pinned) = check_version_drift("not-a-real-tool", "9.9.9");
+        assert!(!is_behind, "unknown tool should never be reported as behind");
+        assert!(pinned.is_none(), "unknown tool should return no pinned version");
+    }
+
+    #[test]
+    fn check_version_drift_covers_hymenium_and_canopy() {
+        // Verify the two tools most relevant to dogfood freshness are in the pin table.
+        let (_, hymenium_pin) = check_version_drift("hymenium", "0.0.0");
+        let (_, canopy_pin) = check_version_drift("canopy", "0.0.0");
+        assert!(hymenium_pin.is_some(), "hymenium must have a version pin");
+        assert!(canopy_pin.is_some(), "canopy must have a version pin");
     }
 }
