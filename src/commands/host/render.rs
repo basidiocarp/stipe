@@ -140,19 +140,35 @@ pub fn run_setup(mode: HostMode, scope: HostConfigScope, dry_run: bool) -> Resul
         }
         println!();
         install::run_embedded_preview(mode.install_profile())?;
-        return init::run_embedded_preview(Some(mode.client_flag()), scope);
+        let init_opts = init::InitOptions {
+            client: Some(mode.client_flag().to_string()),
+            scope,
+            dry_run: false,
+            json: false,
+            repair: false,
+            interactive: false,
+        };
+        return init::run_embedded_preview(&init_opts);
     }
 
-    install::run(
-        false,
-        Some(mode.install_profile()),
-        false,
-        false,
-        None,
-        false,
-        &[],
-    )?;
-    init::run(Some(mode.client_flag()), scope, false, false, false, false)
+    let install_opts = install::InstallOptions {
+        all: false,
+        profile: Some(mode.install_profile()),
+        dry_run: false,
+        from_source: false,
+        source_dir: None,
+        force: false,
+    };
+    install::run(&install_opts, &[])?;
+    let init_opts = init::InitOptions {
+        client: Some(mode.client_flag().to_string()),
+        scope,
+        dry_run: false,
+        json: false,
+        repair: false,
+        interactive: false,
+    };
+    init::run(&init_opts)
 }
 
 pub fn run_doctor(mode: Option<HostMode>, json: bool) -> Result<()> {

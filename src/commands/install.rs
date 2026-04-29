@@ -10,7 +10,7 @@ mod tests;
 
 pub(crate) use profile_config::{SavedInstallProfile, load_saved_profile, save_selected_profile};
 pub(crate) use profile_surface::{ManualProfileMember, expected_profile_tools, manual_member};
-pub(crate) use runner::{install_bin_dir, install_tool, run, run_embedded_preview};
+pub(crate) use runner::{install_bin_dir, install_tool, run, run_embedded_preview, InstallOptions};
 
 #[cfg(test)]
 use profile_config::{load_profile_from_path, save_profile_to_path};

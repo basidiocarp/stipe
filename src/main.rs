@@ -199,15 +199,17 @@ fn main() -> Result<()> {
             source_dir,
             force,
             tools,
-        } => commands::install::run(
-            all,
-            profile,
-            dry_run,
-            from_source,
-            source_dir,
-            force,
-            &tools,
-        ),
+        } => {
+            let opts = commands::install::InstallOptions {
+                all,
+                profile,
+                dry_run,
+                from_source,
+                source_dir,
+                force,
+            };
+            commands::install::run(&opts, &tools)
+        },
         Commands::Update {
             profile,
             all,
@@ -223,7 +225,17 @@ fn main() -> Result<()> {
             json,
             repair,
             interactive,
-        } => commands::init::run(client.as_deref(), scope, dry_run, json, repair, interactive),
+        } => {
+            let opts = commands::init::InitOptions {
+                client: client.clone(),
+                scope,
+                dry_run,
+                json,
+                repair,
+                interactive,
+            };
+            commands::init::run(&opts)
+        },
         Commands::Host { command } => commands::host::run(command),
         Commands::Doctor {
             json,

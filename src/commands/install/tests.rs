@@ -2,7 +2,7 @@ use super::profile_config;
 use super::*;
 use crate::commands::host_policy;
 use crate::commands::install::runner::{
-    render_install_success_summary, selected_profile_for_persistence,
+    render_install_success_summary, selected_profile_for_persistence, InstallOptions,
 };
 use crate::commands::runtime_policy;
 use crate::commands::tool_registry;
@@ -345,16 +345,16 @@ updated_at_unix = 42
 "#,
         );
 
-        let error = run(
-            false,
-            Some(InstallProfile::Codex),
-            true,
-            false,
-            None,
-            false,
-            &Vec::new(),
-        )
-        .expect_err("project-scoped deny should block install");
+        let opts = InstallOptions {
+            all: false,
+            profile: Some(InstallProfile::Codex),
+            dry_run: true,
+            from_source: false,
+            source_dir: None,
+            force: false,
+        };
+        let error = run(&opts, &Vec::new())
+            .expect_err("project-scoped deny should block install");
 
         let message = error.to_string();
         assert!(message.contains("runtime policy denies install profile codex"));
@@ -377,16 +377,16 @@ updated_at_unix = "not-an-integer"
 "#,
         );
 
-        let error = run(
-            false,
-            Some(InstallProfile::Codex),
-            true,
-            false,
-            None,
-            false,
-            &Vec::new(),
-        )
-        .expect_err("policy load failures should block install");
+        let opts = InstallOptions {
+            all: false,
+            profile: Some(InstallProfile::Codex),
+            dry_run: true,
+            from_source: false,
+            source_dir: None,
+            force: false,
+        };
+        let error = run(&opts, &Vec::new())
+            .expect_err("policy load failures should block install");
 
         let message = error.to_string();
         assert!(message.contains("runtime policy for install profile codex could not be loaded"));
@@ -409,16 +409,16 @@ updated_at_unix = 84
 "#,
         );
 
-        let error = run(
-            false,
-            Some(InstallProfile::Codex),
-            true,
-            false,
-            None,
-            false,
-            &Vec::new(),
-        )
-        .expect_err("user-scoped deny should block install when no project override exists");
+        let opts = InstallOptions {
+            all: false,
+            profile: Some(InstallProfile::Codex),
+            dry_run: true,
+            from_source: false,
+            source_dir: None,
+            force: false,
+        };
+        let error = run(&opts, &Vec::new())
+            .expect_err("user-scoped deny should block install when no project override exists");
 
         let message = error.to_string();
         assert!(message.contains("runtime policy denies install profile codex"));
@@ -467,15 +467,15 @@ updated_at_unix = 240
                 install_bin_dir,
                 Ok(()),
                 || {
-                    run(
-                        false,
-                        Some(InstallProfile::Codex),
-                        true,
-                        false,
-                        None,
-                        false,
-                        &Vec::new(),
-                    )
+                    let opts = InstallOptions {
+                        all: false,
+                        profile: Some(InstallProfile::Codex),
+                        dry_run: true,
+                        from_source: false,
+                        source_dir: None,
+                        force: false,
+                    };
+                    run(&opts, &Vec::new())
                 },
             );
 
@@ -495,15 +495,15 @@ fn test_install_run_persists_profile_and_approval_memory_on_success() {
                 install_bin_dir.clone(),
                 Ok(()),
                 || {
-                    run(
-                        false,
-                        Some(InstallProfile::Codex),
-                        false,
-                        false,
-                        None,
-                        false,
-                        &Vec::new(),
-                    )
+                    let opts = InstallOptions {
+                        all: false,
+                        profile: Some(InstallProfile::Codex),
+                        dry_run: false,
+                        from_source: false,
+                        source_dir: None,
+                        force: false,
+                    };
+                    run(&opts, &Vec::new())
                 },
             )
         });

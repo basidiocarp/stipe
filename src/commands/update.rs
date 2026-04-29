@@ -356,10 +356,17 @@ pub fn run(
                 }
             };
             let timestamp = crate::backup::backup_timestamp();
-            if crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp).is_none() {
+            let outcome = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp);
+            if outcome.backup_dir.is_none() {
                 eprintln!(
                     "  {} Warning: pre-upgrade backup of hyphae failed; continuing upgrade without backup",
                     "⚠".yellow()
+                );
+            } else if !outcome.is_complete() {
+                eprintln!(
+                    "  {} Warning: pre-upgrade backup of hyphae partially failed; {} file(s) missing or failed",
+                    "⚠".yellow(),
+                    outcome.missing.len() + outcome.failed.len()
                 );
             }
         }

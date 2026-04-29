@@ -187,35 +187,92 @@ pub fn backup_timestamp() -> String {
     secs.to_string()
 }
 
+/// Outcome of a pre-upgrade backup attempt.
+#[derive(Debug, Clone)]
+pub struct BackupOutcome {
+    /// Backup directory path if successfully created.
+    pub backup_dir: Option<PathBuf>,
+    /// Binaries that were successfully copied.
+    pub binaries_copied: Vec<PathBuf>,
+    /// Database files that were successfully copied.
+    pub databases_copied: Vec<PathBuf>,
+    /// Missing files (not found at expected location).
+    pub missing: Vec<String>,
+    /// Files that failed to copy.
+    pub failed: Vec<String>,
+}
+
+impl BackupOutcome {
+    /// Returns true if the backup was completely successful.
+    pub fn is_complete(&self) -> bool {
+        self.failed.is_empty() && self.missing.is_empty()
+    }
+
+    /// Returns true if at least some critical files were backed up.
+    pub fn has_partial_success(&self) -> bool {
+        !self.binaries_copied.is_empty() || !self.databases_copied.is_empty()
+    }
+}
+
 /// Creates a pre-upgrade backup of the Hyphae database and binary.
 /// The backup path includes the hyphae version and timestamp.
-/// Returns the backup path on success; logs a warning and returns `Ok(None)` on any failure,
-/// allowing the upgrade to proceed without blocking.
-pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Option<PathBuf> {
+/// Returns a `BackupOutcome` describing what was successfully backed up,
+/// what failed, and what was missing. Does not fail the upgrade even
+/// if backup is incomplete.
+pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> BackupOutcome {
     let base = backup_base_dir();
     let backup_dir_name = format!("hyphae-{hyphae_version}-{timestamp}");
     let backup_dir = base.join(&backup_dir_name);
 
+    let mut binaries_copied = Vec::new();
+    let mut databases_copied = Vec::new();
+    let mut missing = Vec::new();
+    let mut failed = Vec::new();
+
     // Create the backup directory structure
-    if let Err(e) = fs::create_dir_all(&backup_dir) {
+    let backup_dir_created = if let Err(e) = fs::create_dir_all(&backup_dir) {
         warn!(
             "Failed to create hyphae backup directory {}: {}",
             backup_dir.display(),
             e
         );
-        return None;
+        failed.push(format!("backup directory: {}", e));
+        false
+    } else {
+        true
+    };
+
+    if !backup_dir_created {
+        return BackupOutcome {
+            backup_dir: None,
+            binaries_copied,
+            databases_copied,
+            missing,
+            failed,
+        };
     }
 
     // Find the hyphae binary
-    let Ok(hyphae_binary) = which::which("hyphae") else {
-        warn!("Could not locate hyphae binary for pre-upgrade backup");
-        return None;
+    let hyphae_binary = match which::which("hyphae") {
+        Ok(path) => Some(path),
+        Err(_) => {
+            warn!("Could not locate hyphae binary for pre-upgrade backup");
+            missing.push("hyphae binary".to_string());
+            None
+        }
     };
 
     // Find the hyphae database (default path)
     let Some(home) = dirs::home_dir() else {
-        warn!("Could not determine home directory for hyphae database backup; skipping backup");
-        return None;
+        warn!("Could not determine home directory for hyphae database backup");
+        missing.push("hyphae database: home directory not found".to_string());
+        return BackupOutcome {
+            backup_dir: Some(backup_dir),
+            binaries_copied,
+            databases_copied,
+            missing,
+            failed,
+        };
     };
     let hyphae_db = home
         .join(".local")
@@ -224,30 +281,54 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Optio
         .join("hyphae.db");
 
     // Backup the hyphae binary if it exists
-    if hyphae_binary.exists() {
-        let backup_bin = backup_dir.join("hyphae");
-        if let Err(e) = fs::copy(&hyphae_binary, &backup_bin) {
-            warn!(
-                "Failed to backup hyphae binary from {}: {}",
-                hyphae_binary.display(),
-                e
-            );
+    if let Some(bin_path) = hyphae_binary {
+        if bin_path.exists() {
+            let backup_bin = backup_dir.join("hyphae");
+            match fs::copy(&bin_path, &backup_bin) {
+                Ok(_) => {
+                    binaries_copied.push(backup_bin);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to backup hyphae binary from {}: {}",
+                        bin_path.display(),
+                        e
+                    );
+                    failed.push(format!("hyphae binary: {}", e));
+                }
+            }
+        } else {
+            missing.push("hyphae binary (not found at expected path)".to_string());
         }
     }
 
     // Backup the hyphae database if it exists
     if hyphae_db.exists() {
         let backup_db = backup_dir.join("hyphae.db");
-        if let Err(e) = fs::copy(&hyphae_db, &backup_db) {
-            warn!(
-                "Failed to backup hyphae database from {}: {}",
-                hyphae_db.display(),
-                e
-            );
+        match fs::copy(&hyphae_db, &backup_db) {
+            Ok(_) => {
+                databases_copied.push(backup_db);
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to backup hyphae database from {}: {}",
+                    hyphae_db.display(),
+                    e
+                );
+                failed.push(format!("hyphae database: {}", e));
+            }
         }
+    } else {
+        missing.push("hyphae database (not found at expected path)".to_string());
     }
 
-    Some(backup_dir)
+    BackupOutcome {
+        backup_dir: Some(backup_dir),
+        binaries_copied,
+        databases_copied,
+        missing,
+        failed,
+    }
 }
 
 #[cfg(test)]
@@ -325,7 +406,7 @@ mod tests {
         let timestamp = "1681234567";
         let result = pre_upgrade_backup_hyphae(version, timestamp);
 
-        if let Some(path) = result {
+        if let Some(path) = result.backup_dir {
             let dir_name = path.file_name().unwrap().to_string_lossy();
             assert!(dir_name.contains("hyphae"));
             assert!(dir_name.contains(version));

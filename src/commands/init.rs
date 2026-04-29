@@ -21,41 +21,52 @@ use snapshot::build_snapshot;
 #[cfg(test)]
 mod tests;
 
-#[allow(clippy::fn_params_excessive_bools)]
-pub fn run(
-    client: Option<&str>,
-    scope: HostConfigScope,
-    dry_run: bool,
-    json: bool,
-    repair: bool,
-    interactive: bool,
-) -> Result<()> {
-    let span_context = init_span_context(client);
-    let _workflow_span = workflow_span("init", &span_context).entered();
-    let snapshot = build_snapshot(client, scope)?;
-    let plan = build_plan(&snapshot, dry_run);
+/// Configuration options for the init flow.
+/// These bools represent distinct, related configuration options that are only meaningful together.
+#[allow(clippy::struct_excessive_bools)]
+pub struct InitOptions {
+    /// Client name if specified.
+    pub client: Option<String>,
+    /// Scope for host configuration.
+    pub scope: HostConfigScope,
+    /// Print preview and exit without applying changes.
+    pub dry_run: bool,
+    /// Output plan as JSON instead of applying changes.
+    pub json: bool,
+    /// Reapply configuration in repair mode.
+    pub repair: bool,
+    /// Prompt for user input interactively.
+    pub interactive: bool,
+}
 
-    if json {
-        if !dry_run {
-            ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::quiet(0))?;
-            record_current_baseline(&snapshot, scope)?;
+pub fn run(opts: &InitOptions) -> Result<()> {
+    let client_ref = opts.client.as_deref();
+    let span_context = init_span_context(client_ref);
+    let _workflow_span = workflow_span("init", &span_context).entered();
+    let snapshot = build_snapshot(client_ref, opts.scope)?;
+    let plan = build_plan(&snapshot, opts.dry_run);
+
+    if opts.json {
+        if !opts.dry_run {
+            ecosystem::run_ecosystem(client_ref, opts.scope, ecosystem::EcosystemOptions::quiet(0))?;
+            record_current_baseline(&snapshot, opts.scope)?;
         }
         println!("{}", serde_json::to_string_pretty(&plan)?);
         return Ok(());
     }
 
-    if dry_run {
+    if opts.dry_run {
         print_preview(&snapshot);
         return Ok(());
     }
 
-    if repair {
+    if opts.repair {
         println!("Repair mode: reapplying shared ecosystem configuration.");
         println!();
     }
 
-    ecosystem::run_ecosystem(client, scope, ecosystem::EcosystemOptions::new(0))?;
-    record_current_baseline(&snapshot, scope)?;
+    ecosystem::run_ecosystem(client_ref, opts.scope, ecosystem::EcosystemOptions::new(0))?;
+    record_current_baseline(&snapshot, opts.scope)?;
 
     // Write capability registry snapshot (non-fatal)
     if let Err(e) =
@@ -66,7 +77,7 @@ pub fn run(
 
     // Seed initial project context into hyphae if available
     if let Some(project) = get_project_name() {
-        let result = if interactive {
+        let result = if opts.interactive {
             seed::seed_first_run_interactive(&project, false)
         } else {
             seed_first_run(&project, false)
@@ -78,7 +89,7 @@ pub fn run(
     }
 
     // Prompt for volva operating mode (non-fatal if unavailable or non-interactive)
-    if interactive {
+    if opts.interactive {
         if let Err(e) = prompt_and_write_volva_mode() {
             tracing::warn!(error = %e, "volva mode configuration failed (non-fatal)");
         }
@@ -87,8 +98,9 @@ pub fn run(
     Ok(())
 }
 
-pub(crate) fn run_embedded_preview(client: Option<&str>, scope: HostConfigScope) -> Result<()> {
-    let snapshot = build_snapshot(client, scope)?;
+pub(crate) fn run_embedded_preview(opts: &InitOptions) -> Result<()> {
+    let client_ref = opts.client.as_deref();
+    let snapshot = build_snapshot(client_ref, opts.scope)?;
     print_embedded_preview(&snapshot);
     Ok(())
 }

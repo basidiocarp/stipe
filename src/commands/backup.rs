@@ -2,7 +2,6 @@ use anyhow::{Context, Result, anyhow};
 use std::process::Command;
 
 /// Creates a manual backup of the Hyphae database and binary.
-#[allow(clippy::unnecessary_wraps)]
 pub fn backup_hyphae() -> Result<()> {
     // Get the current hyphae version
     let hyphae_version = get_hyphae_version().unwrap_or_else(|_| "unknown".to_string());
@@ -11,14 +10,53 @@ pub fn backup_hyphae() -> Result<()> {
     let timestamp = crate::backup::backup_timestamp();
 
     // Create the hyphae-specific pre-upgrade backup
-    if let Some(backup_path) = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp)
-    {
+    let outcome = crate::backup::pre_upgrade_backup_hyphae(&hyphae_version, &timestamp);
+
+    if let Some(backup_path) = &outcome.backup_dir {
         println!("✓ Hyphae backup created at: {}", backup_path.display());
     } else {
-        // Backup creation returned None, which means it encountered issues
-        // but didn't want to hard-error
-        println!("⚠ Hyphae backup could not be fully created. Check logs for details.");
+        println!("✗ Hyphae backup directory could not be created.");
+        for err in &outcome.failed {
+            println!("  Failed: {}", err);
+        }
+        return Err(anyhow!("Hyphae backup failed: directory creation unsuccessful"));
     }
+
+    // Report what was backed up
+    if !outcome.binaries_copied.is_empty() {
+        println!("  ✓ Binary backup successful");
+    } else if outcome.failed.iter().any(|e| e.contains("binary")) {
+        println!("  ✗ Binary backup failed");
+        for err in outcome.failed.iter().filter(|e| e.contains("binary")) {
+            println!("    {}", err);
+        }
+    }
+
+    if !outcome.databases_copied.is_empty() {
+        println!("  ✓ Database backup successful");
+    } else if outcome.failed.iter().any(|e| e.contains("database")) {
+        println!("  ✗ Database backup failed");
+        for err in outcome.failed.iter().filter(|e| e.contains("database")) {
+            println!("    {}", err);
+        }
+    }
+
+    // Report what was missing
+    if !outcome.missing.is_empty() {
+        println!("  ⚠ Missing files:");
+        for miss in &outcome.missing {
+            println!("    {}", miss);
+        }
+    }
+
+    // Fail if critical components failed to backup
+    if !outcome.failed.is_empty() {
+        return Err(anyhow!(
+            "Hyphae backup incomplete: {} file(s) failed to copy",
+            outcome.failed.len()
+        ));
+    }
+
     Ok(())
 }
 

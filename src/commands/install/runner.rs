@@ -25,6 +25,24 @@ use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 use crate::verify;
 
+/// Configuration options for the install flow.
+/// These bools represent distinct, related configuration options that are only meaningful together.
+#[allow(clippy::struct_excessive_bools)]
+pub struct InstallOptions {
+    /// Install all tools from the active profile.
+    pub all: bool,
+    /// Profile to use for installation (None means interactive selection).
+    pub profile: Option<InstallProfile>,
+    /// Print preview and exit without installing.
+    pub dry_run: bool,
+    /// Build tools from local source instead of downloading releases.
+    pub from_source: bool,
+    /// Local source directory (used when `from_source` is true).
+    pub source_dir: Option<PathBuf>,
+    /// Force installation even if tool already exists.
+    pub force: bool,
+}
+
 #[allow(clippy::too_many_lines)]
 pub(crate) fn install_tool(
     tool: &str,
@@ -297,17 +315,9 @@ pub(crate) fn install_bin_dir() -> Result<PathBuf> {
     bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
 }
 
-#[allow(clippy::too_many_lines, clippy::fn_params_excessive_bools)]
-pub(crate) fn run(
-    all: bool,
-    profile: Option<InstallProfile>,
-    dry_run: bool,
-    from_source: bool,
-    source_dir: Option<PathBuf>,
-    force: bool,
-    tools: &[String],
-) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
+#[allow(clippy::too_many_lines)]
+pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
+    let _lock = crate::lockfile::acquire_lock(opts.force).context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;
@@ -322,7 +332,7 @@ pub(crate) fn run(
     );
     println!();
 
-    if let Some(profile) = profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
+    if let Some(profile) = opts.profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
         let runtime_policy = runtime_policy::collect_runtime_policy(Some(profile));
         for line in runtime_policy::render_install_policy_lines(profile, &runtime_policy) {
             println!("{line}");
@@ -331,7 +341,7 @@ pub(crate) fn run(
         println!();
     }
 
-    if profile == Some(InstallProfile::DeveloperTools) {
+    if opts.profile == Some(InstallProfile::DeveloperTools) {
         let unknown = developer_tools::unknown_requested_tools(tools);
         let report = developer_tools::install_report(tools);
 
@@ -350,15 +360,15 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    let tools_to_install = resolve_requested_tools(all, profile, tools);
+    let tools_to_install = resolve_requested_tools(opts.all, opts.profile, tools);
 
-    if dry_run {
+    if opts.dry_run {
         match tools_to_install {
             Some(ref requested) => {
-                if let Some(profile) = profile {
+                if let Some(profile) = opts.profile {
                     print_profile_install_preview(&prefix, profile, requested);
                 } else {
-                    let label = if all {
+                    let label = if opts.all {
                         "all".to_string()
                     } else {
                         "explicit tools".to_string()
@@ -425,8 +435,8 @@ pub(crate) fn run(
     crate::backup::create_backup(&timestamp, stipe_version, &installed_binary_paths, &[])
         .context("could not create pre-install backup")?;
 
-    if from_source {
-        let monorepo_root = source_dir.unwrap_or_else(default_monorepo_root);
+    if opts.from_source {
+        let monorepo_root = opts.source_dir.clone().unwrap_or_else(default_monorepo_root);
 
         for tool in &tools_to_install {
             let tool_source = monorepo_root.join(tool);
@@ -475,7 +485,7 @@ pub(crate) fn run(
     println!();
 
     if failures.is_empty() {
-        let persisted_profile = selected_profile_for_persistence(&failures, profile);
+        let persisted_profile = selected_profile_for_persistence(&failures, opts.profile);
 
         if let Some(profile) = persisted_profile {
             persist_install_profile_state(profile)?;
