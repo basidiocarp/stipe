@@ -1435,6 +1435,14 @@ fn build_report(include_developer_tools: bool, deep: bool) -> DoctorReport {
     build_report_with_saved_profile(install::load_saved_profile(), include_developer_tools, deep)
 }
 
+/// Returns `true` if the current ecosystem state passes all doctor checks.
+///
+/// Used by other commands (e.g. rollback) that need to verify system health
+/// after performing an operation, without relying on the subprocess exit code.
+pub fn check_health() -> bool {
+    build_report(false, false).healthy
+}
+
 pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
     let report = build_report(developer, deep);
 

@@ -78,23 +78,19 @@ pub fn run(args: &RollbackArgs) -> Result<()> {
     println!("Restore complete.");
     println!("Running stipe doctor to verify restored state...");
 
-    // Run doctor after restore and propagate failure so the operator knows if the
-    // restored state is unhealthy.
-    let status = std::process::Command::new("stipe").arg("doctor").status();
+    // Run doctor to print the full report, then separately check health so we
+    // can propagate failure without relying on doctor::run's exit behavior.
+    crate::commands::doctor::run(false, false, false)?;
 
-    match status {
-        Ok(s) if s.success() => {
-            println!("Doctor: all checks passed.");
-            Ok(())
-        }
-        Ok(s) => Err(anyhow::anyhow!(
-            "Rollback complete but 'stipe doctor' reported issues (exit {s}). \
+    if !crate::commands::doctor::check_health() {
+        return Err(anyhow::anyhow!(
+            "Rollback complete but 'stipe doctor' reported issues. \
              Run 'stipe doctor' for details."
-        )),
-        Err(e) => Err(anyhow::anyhow!(
-            "Rollback complete but could not run 'stipe doctor': {e}"
-        )),
+        ));
     }
+
+    println!("Doctor: all checks passed.");
+    Ok(())
 }
 
 fn list_backups() -> Result<()> {
