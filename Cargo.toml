@@ -26,7 +26,7 @@ sha2 = "0.10"
 ureq = "3"
 spore = { git = "https://github.com/basidiocarp/spore", rev = "0bc2e878010e75e30e26fa517d747e97d59628b0" }
 tar = "0.4"
-toml = "1.1"
+toml = "1"
 tempfile = "3"
 wait-timeout = "0.2"
 which = "7"
