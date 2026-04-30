@@ -332,13 +332,36 @@ fn prepare_backups_with_timestamp(
     targets: &[PathBuf],
     timestamp: u64,
 ) -> std::result::Result<Vec<PackageBackup>, BackupPreparationFailure> {
+    prepare_backups_under_root(targets, timestamp, &backup_root())
+}
+
+#[allow(clippy::result_large_err)]
+fn prepare_backups_under_root(
+    targets: &[PathBuf],
+    timestamp: u64,
+    root: &Path,
+) -> std::result::Result<Vec<PackageBackup>, BackupPreparationFailure> {
     let mut backups = Vec::new();
     for (index, target) in targets.iter().enumerate() {
         if !target.exists() {
             continue;
         }
 
-        let backup = sibling_backup_path(target, timestamp, index);
+        let backup = backup_path_under(root, target, timestamp, index);
+        if let Some(parent) = backup.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                let error = anyhow!(error).context(format!(
+                    "failed to create backup directory {}",
+                    host_policy::format_user_path(parent)
+                ));
+                let rollback = rollback_backups(&backups);
+                return Err(BackupPreparationFailure {
+                    error,
+                    backups,
+                    rollback,
+                });
+            }
+        }
         if let Err(error) = fs::rename(target, &backup) {
             let error = anyhow!(error).context(format!(
                 "failed to back up {} to {}",
@@ -361,13 +384,70 @@ fn prepare_backups_with_timestamp(
     Ok(backups)
 }
 
-fn sibling_backup_path(path: &Path, timestamp: u64, index: usize) -> PathBuf {
-    let suffix = format!(".stipe-backup-{timestamp}-{index}");
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("state");
-    path.with_file_name(format!("{file_name}{suffix}"))
+/// Returns the backup root directory for `package_repair` backups.
+/// Reads `STIPE_BACKUP_DIR` (matching the convention in `stipe::backup`), falling
+/// back to `~/.local/share/stipe/backups`.
+fn backup_root() -> PathBuf {
+    backup_root_from(std::env::var("STIPE_BACKUP_DIR").ok().as_deref())
+}
+
+/// Pure decision function for the backup root, taking the env override as a
+/// parameter so tests can call it without mutating process-global state.
+fn backup_root_from(env_override: Option<&str>) -> PathBuf {
+    if let Some(override_path) = env_override {
+        return PathBuf::from(override_path);
+    }
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("stipe")
+        .join("backups")
+}
+
+/// Converts a path to a flattened name suitable for storage in the backup root.
+/// E.g. `/Users/me/.claude/rules` → `Users-me-.claude-rules`.
+/// Strips `..` segments so a flattened name cannot escape the backup root via
+/// `Path::join`. Callers should also avoid passing untrusted paths here, but
+/// this guard means even a `..` slip can't construct an escaping destination.
+fn flatten_path_for_storage(path: &Path) -> String {
+    use std::path::Component;
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(s) => {
+                let segment: String = s
+                    .to_string_lossy()
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() || c == '.' { c } else { '_' })
+                    .collect();
+                if !segment.is_empty() && segment != "." {
+                    parts.push(segment);
+                }
+            }
+            // RootDir, Prefix (Windows), and CurDir are skipped — only the
+            // path-internal segments matter for the flattened name.
+            // ParentDir (`..`) is dropped: never preserved in the backup name,
+            // so a malformed input cannot escape the bucket via Path::join.
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        // Fallback for empty/edge-case paths.
+        "state".to_string()
+    } else {
+        parts.join("-")
+    }
+}
+
+/// Pure path computation taking an explicit root, so tests can call it with a
+/// temp directory without mutating process-global state.
+fn backup_path_under(root: &Path, path: &Path, timestamp: u64, index: usize) -> PathBuf {
+    // Index is included in the bucket name to guarantee uniqueness within a
+    // single prepare_backups_with_timestamp call: even if two targets flatten
+    // to the same name (e.g. via different special-character mappings), they
+    // land in different buckets and cannot overwrite each other.
+    let bucket = format!("{timestamp}-{index}-pre-package-repair");
+    let flattened = flatten_path_for_storage(path);
+    root.join(&bucket).join(&flattened)
 }
 
 fn rollback_backups(backups: &[PackageBackup]) -> RollbackSummary {
@@ -732,13 +812,47 @@ mod tests {
     }
 
     #[test]
-    fn test_sibling_backup_path_includes_timestamp_suffix() {
+    fn test_flatten_path_for_storage_converts_slashes_and_special_chars() {
+        let path = PathBuf::from("/Users/me/.claude/rules");
+        let flattened = flatten_path_for_storage(&path);
+        assert_eq!(flattened, "Users-me-.claude-rules");
+
+        let path2 = PathBuf::from("/home/user/.config@v2/file");
+        let flattened2 = flatten_path_for_storage(&path2);
+        assert_eq!(flattened2, "home-user-.config_v2-file");
+
+        // Dots are preserved
+        let path3 = PathBuf::from("/Users/test.user/.config");
+        let flattened3 = flatten_path_for_storage(&path3);
+        assert_eq!(flattened3, "Users-test.user-.config");
+    }
+
+    #[test]
+    fn test_backup_path_under_places_backup_under_explicit_root() {
+        // Use explicit root rather than backup_path_in_root() / backup_root() so this
+        // test doesn't race with sibling tests that set STIPE_BACKUP_DIR.
+        let root = PathBuf::from("/var/lib/stipe-test/backups");
         let path = PathBuf::from("/tmp/example");
-        let backup = sibling_backup_path(&path, 1234, 2);
+        let backup = backup_path_under(&root, &path, 1234, 2);
         assert!(
-            backup.ends_with("example.stipe-backup-1234-2"),
-            "unexpected backup path: {}",
+            backup.starts_with(&root),
+            "backup path should be under the explicit root: {}",
             backup.display()
+        );
+        assert!(
+            backup.to_string_lossy().contains("1234-2-pre-package-repair"),
+            "backup path should include timestamp+index bucket: {}",
+            backup.display()
+        );
+        assert!(
+            backup.to_string_lossy().contains("tmp-example"),
+            "backup path should include flattened original: {}",
+            backup.display()
+        );
+        // Confirm it's NOT a sibling of /tmp/example
+        assert!(
+            !backup.parent().is_some_and(|p| p == Path::new("/tmp")),
+            "backup should not be a sibling of the original target"
         );
     }
 
@@ -793,33 +907,153 @@ mod tests {
     }
 
     #[test]
+    fn test_prepare_backups_creates_backups_under_backup_root_not_sibling_of_original() {
+        let base = temp_test_dir("backup-root-not-sibling");
+        let backup_root_dir = temp_test_dir("backup-root-custom");
+        fs::create_dir_all(&base).expect("create test dir");
+        fs::create_dir_all(&backup_root_dir).expect("create backup root dir");
+
+        let target = base.join("rules");
+        fs::create_dir_all(&target).expect("create target");
+        fs::write(target.join("file.txt"), "content").expect("write test file");
+
+        // Use the explicit-root API so we don't have to mutate process-global env state.
+        let backups = prepare_backups_under_root(&[target.clone()], 12345, &backup_root_dir)
+            .expect("backup should succeed");
+
+        assert_eq!(backups.len(), 1);
+        assert_eq!(backups[0].original, target);
+
+        // Original should now be gone (moved to backup)
+        assert!(!target.exists());
+
+        // Backup should exist under the backup root, not as a sibling
+        let backup_path = &backups[0].backup;
+        assert!(backup_path.exists());
+        assert!(
+            backup_path.starts_with(&backup_root_dir),
+            "backup {} should be under backup root {}",
+            backup_path.display(),
+            backup_root_dir.display()
+        );
+        assert!(
+            backup_path.to_string_lossy().contains("12345-0-pre-package-repair"),
+            "backup path should include timestamp + index bucket: {}",
+            backup_path.display()
+        );
+
+        // Confirm no *.stipe-backup-* siblings in the original parent dir
+        if let Ok(entries) = fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                assert!(
+                    !name_str.contains(".stipe-backup-"),
+                    "found unexpected sibling backup: {}",
+                    name_str
+                );
+            }
+        }
+
+        let _ = fs::remove_dir_all(base);
+        let _ = fs::remove_dir_all(backup_root_dir);
+    }
+
+    #[test]
+    fn test_prepare_backups_index_separates_targets_with_colliding_flattened_names() {
+        // Two targets that flatten to the same name (after special-character normalization)
+        // must still produce distinct backup paths via the per-index bucket.
+        let base = temp_test_dir("backup-index-collision");
+        let backup_root_dir = temp_test_dir("backup-root-collision");
+        fs::create_dir_all(&base).expect("create test dir");
+        fs::create_dir_all(&backup_root_dir).expect("create backup root dir");
+
+        // Names that flatten identically: "rules!" and "rules?" both → "rules_"
+        let first = base.join("rules!");
+        let second = base.join("rules?");
+        fs::create_dir_all(&first).expect("create first");
+        fs::create_dir_all(&second).expect("create second");
+        fs::write(first.join("a"), "a").expect("write a");
+        fs::write(second.join("b"), "b").expect("write b");
+
+        let backups = prepare_backups_under_root(&[first.clone(), second.clone()], 999, &backup_root_dir)
+            .expect("backup should succeed for both");
+
+        assert_eq!(backups.len(), 2);
+        assert_ne!(backups[0].backup, backups[1].backup, "colliding flattened names must land in distinct buckets via index");
+        assert!(backups[0].backup.exists());
+        assert!(backups[1].backup.exists());
+        // Both files preserved under their respective backups
+        assert!(backups[0].backup.join("a").exists() || backups[0].backup.join("b").exists());
+        assert!(backups[1].backup.join("a").exists() || backups[1].backup.join("b").exists());
+
+        let _ = fs::remove_dir_all(base);
+        let _ = fs::remove_dir_all(backup_root_dir);
+    }
+
+    #[test]
+    fn test_flatten_path_strips_parent_dir_segments() {
+        use std::path::PathBuf;
+        // ../etc/passwd must NOT round-trip via Path::join into something that escapes the bucket.
+        let result = flatten_path_for_storage(&PathBuf::from("../etc/passwd"));
+        assert!(!result.contains(".."), "flattened name must not contain '..': got {result}");
+        // The result should still be deterministic and non-empty.
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_backup_root_from_uses_override_when_provided() {
+        let pb = backup_root_from(Some("/tmp/my-backup-root"));
+        assert_eq!(pb, std::path::PathBuf::from("/tmp/my-backup-root"));
+    }
+
+    #[test]
+    fn test_backup_root_from_falls_back_when_override_absent() {
+        let pb = backup_root_from(None);
+        // Default ends with "stipe/backups" regardless of platform.
+        let s = pb.to_string_lossy();
+        assert!(s.ends_with("stipe/backups") || s.ends_with("stipe\\backups"), "got {s}");
+    }
+
+    #[test]
     fn test_prepare_backups_roll_back_partial_state_when_later_backup_fails() {
         let base = temp_test_dir("backup-rollback-on-failure");
+        let backup_root_dir = temp_test_dir("backup-root-custom");
         fs::create_dir_all(&base).expect("create test dir");
+        fs::create_dir_all(&backup_root_dir).expect("create backup root dir");
 
         let first = base.join("first");
         let second = base.join("second");
         fs::create_dir_all(&first).expect("create first target");
         fs::create_dir_all(&second).expect("create second target");
 
-        let first_backup = sibling_backup_path(&first, 42, 0);
-        let second_backup = sibling_backup_path(&second, 42, 1);
+        // Seed the second backup location to cause a conflict (dir-where-file-expected).
+        let second_backup = backup_path_under(&backup_root_dir, &second, 42, 1);
+        if let Some(parent) = second_backup.parent() {
+            fs::create_dir_all(parent).expect("create second backup parent");
+        }
         fs::write(&second_backup, "occupied").expect("seed conflicting backup path");
 
-        let err = prepare_backups_with_timestamp(&[first.clone(), second.clone()], 42)
+        let err = prepare_backups_under_root(&[first.clone(), second.clone()], 42, &backup_root_dir)
             .expect_err("backup preparation should fail on conflicting destination");
 
         assert_eq!(err.backups.len(), 1);
         assert_eq!(err.backups[0].original, first);
-        assert_eq!(err.backups[0].backup, first_backup);
+        // First backup should have been moved to backup root (under custom dir), not sibling
+        assert!(
+            err.backups[0].backup.starts_with(&backup_root_dir),
+            "backup should be under custom root: {}",
+            err.backups[0].backup.display()
+        );
         assert!(err.rollback.restored.contains(&first));
         assert!(err.rollback.failures.is_empty());
+        // Original should be restored
         assert!(first.exists());
-        assert!(!first_backup.exists());
+        // Second should still exist (was never backed up due to conflict)
         assert!(second.exists());
-        assert!(second_backup.exists());
 
         let _ = fs::remove_dir_all(base);
+        let _ = fs::remove_dir_all(backup_root_dir);
     }
 
     #[test]
