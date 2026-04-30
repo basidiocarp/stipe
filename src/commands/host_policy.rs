@@ -272,7 +272,10 @@ pub fn format_config_path_list(paths: &[PathBuf]) -> String {
 }
 
 pub fn host_setup_repair_action(mode: HostMode) -> RepairAction {
+    // mode.client_flag() returns kebab-case (e.g. "claude-code"); action_keys are snake_case.
+    let action_key = format!("host_setup_{}", mode.client_flag().replace('-', "_"));
     RepairAction::manual(
+        action_key,
         format!("Set up {}", mode.label()),
         format!(
             "Install the matching profile and initialize {} with its expected host adapters.",
@@ -356,6 +359,7 @@ pub fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
             RepairTier::Primary,
         ),
         InstallProfile::DeveloperTools => RepairAction::manual(
+            "install_developer_tools".to_string(),
             "Review developer tool recommendations".to_string(),
             "Inspect the advisory developer tool profile and install missing tools with your package manager."
                 .to_string(),
@@ -365,7 +369,7 @@ pub fn install_profile_repair_action(profile: InstallProfile) -> RepairAction {
                 "--profile".to_string(),
                 "developer-tools".to_string(),
             ],
-            RepairTier::Manual,
+            RepairTier::Secondary,
         ),
     }
 }

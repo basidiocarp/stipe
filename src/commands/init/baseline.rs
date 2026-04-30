@@ -504,7 +504,9 @@ fn config_file_repair_action() -> RepairAction {
 }
 
 fn install_tool_repair_action(tool: &str) -> RepairAction {
+    let action_key = format!("install_{}", tool.to_lowercase().replace('-', "_"));
     RepairAction::manual(
+        action_key,
         format!("Install {}", title_case(tool)),
         format!("Install {tool} through the managed stipe release path."),
         format!("stipe install {tool}"),

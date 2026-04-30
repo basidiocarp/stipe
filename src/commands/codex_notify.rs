@@ -140,6 +140,7 @@ pub fn codex_notify_detail(_configured: bool) -> String {
 
 pub fn codex_notify_repair_action() -> RepairAction {
     RepairAction::manual(
+        "codex_notify_adapter_setup".to_string(),
         "Configure the Codex notify adapter".to_string(),
         format!(
             "Write notify = [\"hyphae\", \"codex-notify\"] to one of {} and complete Codex host mode.",

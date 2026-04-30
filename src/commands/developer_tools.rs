@@ -384,7 +384,9 @@ fn check_tool(spec: &DeveloperToolSpec) -> DeveloperToolCheck {
     let repair_actions = install_hint
         .as_ref()
         .map(|hint| {
+            let action_key = format!("install_dev_tool_{}", spec.name.to_lowercase().replace('-', "_"));
             vec![RepairAction::manual(
+                action_key,
                 format!("Install {}", spec.name),
                 format!("Install {} with your preferred package manager.", spec.name),
                 hint.clone(),

@@ -250,7 +250,7 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
             "Install Hyphae",
             "Install Hyphae through the managed stipe release path.",
             &["install", "hyphae"],
-            RepairTier::Manual,
+            RepairTier::Primary,
         ));
     }
 
@@ -260,7 +260,7 @@ fn build_repair_actions(snapshot: &InitSnapshot) -> Vec<RepairAction> {
             "Install Rhizome",
             "Install Rhizome through the managed stipe release path.",
             &["install", "rhizome"],
-            RepairTier::Manual,
+            RepairTier::Primary,
         ));
     }
 

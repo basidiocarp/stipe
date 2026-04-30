@@ -227,6 +227,7 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
             let (message, repair_actions) = if is_behind {
                 let pinned_str = pinned.as_deref().unwrap_or("unknown");
                 let update_action = RepairAction::manual(
+                    format!("update_{}", spec.name),
                     format!("Update {}", spec.name),
                     format!(
                         "Replace the installed {} with the pinned version {}.",
@@ -307,6 +308,7 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
             let (message, repair_actions) = if is_behind {
                 let pinned_str = pinned.as_deref().unwrap_or("unknown");
                 let update_action = RepairAction::manual(
+                    format!("update_{}", spec.name),
                     format!("Update {}", spec.name),
                     format!(
                         "Replace the installed {} with the pinned version {}.",
@@ -404,7 +406,9 @@ fn manual_tool_installed(member: ManualProfileMember) -> bool {
 }
 
 fn manual_tool_action(member: ManualProfileMember) -> RepairAction {
+    let action_key = format!("install_manual_{}", member.name.to_lowercase().replace('-', "_"));
     RepairAction::manual(
+        action_key,
         format!("Install {}", member.name),
         format!("Install {} for the selected profile.", member.name),
         member.install_hint.to_string(),
