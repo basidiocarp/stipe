@@ -98,6 +98,13 @@ pub fn run(opts: &InitOptions) -> Result<()> {
     Ok(())
 }
 
+/// Returns the init plan as a JSON string (dry-run, no mutations) for the socket endpoint.
+pub fn plan_json_string(client: Option<&str>) -> Result<String> {
+    let snapshot = build_snapshot(client, super::host_policy::HostConfigScope::User)?;
+    let plan = build_plan(&snapshot, true);
+    Ok(serde_json::to_string_pretty(&plan)?)
+}
+
 pub(crate) fn run_embedded_preview(opts: &InitOptions) -> Result<()> {
     let client_ref = opts.client.as_deref();
     let snapshot = build_snapshot(client_ref, opts.scope)?;

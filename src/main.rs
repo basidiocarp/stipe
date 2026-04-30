@@ -8,6 +8,7 @@ mod banner;
 mod commands;
 mod ecosystem;
 mod lockfile;
+mod socket_server;
 pub(crate) mod verify;
 
 #[derive(Parser)]
@@ -171,6 +172,10 @@ enum Commands {
         #[command(subcommand)]
         command: BackupCommand,
     },
+
+    /// Start local unix-socket service endpoint (for cap and other local clients)
+    #[command(hide = true)]
+    ServeSocket,
 }
 
 #[derive(Debug, Subcommand)]
@@ -254,6 +259,7 @@ fn main() -> Result<()> {
         Commands::Backup { command } => match command {
             BackupCommand::Hyphae => commands::backup::backup_hyphae(),
         },
+        Commands::ServeSocket => socket_server::run_socket_server(),
     }
 }
 
@@ -279,6 +285,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Status => "status",
         Commands::Rollback { .. } => "rollback",
         Commands::Backup { .. } => "backup",
+        Commands::ServeSocket => "serve_socket",
     }
 }
 
