@@ -878,7 +878,7 @@ fn test_check_capability_registry_health_present() {
     let registry_path = temp_dir.join("capability-registry.json");
     fs::write(
         &registry_path,
-        r#"{"schema_version":"capability-registry-v1","entries":[]}"#,
+        r#"{"schema_version":"1.0","entries":[]}"#,
     )
     .unwrap();
 

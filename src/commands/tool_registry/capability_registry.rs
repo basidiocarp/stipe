@@ -7,6 +7,9 @@ use super::model::ToolProbe;
 use super::probe::{VerifyLevel, probe_with_level, resolve_binary_path};
 use super::specs::installable_specs;
 
+/// Schema version for capability-registry-v1. Must match septa/capability-registry-v1.schema.json.
+const CAPABILITY_REGISTRY_SCHEMA_VERSION: &str = "1.0";
+
 /// Write a `capability-registry-v1` snapshot to `path`.
 ///
 /// Iterates all installable tool specs, probes each for its installed version,
@@ -61,7 +64,7 @@ pub fn write_capability_registry(path: &Path) -> Result<()> {
         .collect();
 
     let registry = json!({
-        "schema_version": "capability-registry-v1",
+        "schema_version": CAPABILITY_REGISTRY_SCHEMA_VERSION,
         "written_at_unix": now,
         "entries": entries,
     });
@@ -85,4 +88,33 @@ pub fn default_registry_path() -> std::path::PathBuf {
         .unwrap_or_else(std::env::temp_dir)
         .join("basidiocarp")
         .join("capability-registry.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_version_is_correct() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+
+        let registry = json!({
+            "schema_version": CAPABILITY_REGISTRY_SCHEMA_VERSION,
+            "written_at_unix": now,
+            "entries": [],
+        });
+
+        let json_str = serde_json::to_string(&registry).expect("valid json");
+        assert!(
+            json_str.contains("\"schema_version\":\"1.0\""),
+            "schema_version must be \"1.0\", found: {}",
+            json_str
+        );
+        assert_eq!(
+            CAPABILITY_REGISTRY_SCHEMA_VERSION, "1.0",
+            "CAPABILITY_REGISTRY_SCHEMA_VERSION constant must be '1.0'"
+        );
+    }
 }
