@@ -3,8 +3,30 @@ use crate::commands::codex_notify;
 use crate::commands::host_policy;
 use crate::commands::host_policy::HostMode;
 use crate::ecosystem::clients::{self, McpClient};
+use std::process::Command;
 
 use super::model::HostInventoryEntry;
+
+/// Check if Cursor host-mode checks should be enabled.
+/// Returns true if either:
+/// - `STIPE_CURSOR_HOST` env var is set to `1` or `true` (case-insensitive), OR
+/// - Cursor binary is on PATH (probed via `cursor --version`)
+fn cursor_host_enabled() -> bool {
+    cursor_host_enabled_with(std::env::var("STIPE_CURSOR_HOST").ok(), || {
+        Command::new("cursor").arg("--version").output().is_ok_and(|o| o.status.success())
+    })
+}
+
+/// Pure decision function for cursor host gating, taking the env value and
+/// a binary-detection probe as parameters so it can be tested deterministically.
+pub(super) fn cursor_host_enabled_with(env_value: Option<String>, has_cursor_binary: impl FnOnce() -> bool) -> bool {
+    if let Some(value) = env_value {
+        if value.eq_ignore_ascii_case("1") || value.eq_ignore_ascii_case("true") {
+            return true;
+        }
+    }
+    has_cursor_binary()
+}
 
 pub fn build_inventory() -> Vec<HostInventoryEntry> {
     let detected_clients = clients::detect_clients();
@@ -12,6 +34,13 @@ pub fn build_inventory() -> Vec<HostInventoryEntry> {
     host_policy::supported_host_modes()
         .iter()
         .copied()
+        .filter(|mode| {
+            // Gate Cursor host checks: only include if enabled
+            if *mode == HostMode::Cursor && !cursor_host_enabled() {
+                return false;
+            }
+            true
+        })
         .map(|mode| inventory_entry(mode, &detected_clients))
         .collect()
 }

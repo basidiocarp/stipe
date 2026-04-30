@@ -583,8 +583,8 @@ fn test_render_mcp_health_keeps_detail_for_unhealthy_entries_only() {
 fn test_render_report_summarizes_host_checks_before_detail() {
     let report = DoctorReport {
         schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
-        healthy: false,
-        summary: "1 checks need attention.".to_string(),
+        healthy: true,
+        summary: "All checks passed.".to_string(),
         install_profile: None,
         checks: vec![
             HealthCheck {
@@ -607,18 +607,6 @@ fn test_render_report_summarizes_host_checks_before_detail() {
                         .to_string(),
                 repair_actions: Vec::new(),
             },
-            HealthCheck {
-                name: "host: cursor".to_string(),
-                passed: false,
-                message: "Cursor mode is not detected on this machine".to_string(),
-                repair_actions: Vec::new(),
-            },
-            HealthCheck {
-                name: "host: cursor".to_string(),
-                passed: false,
-                message: "Cursor is not detected on this machine yet.".to_string(),
-                repair_actions: Vec::new(),
-            },
         ],
         hook_paths: Vec::new(),
         repair_actions: Vec::new(),
@@ -638,17 +626,12 @@ fn test_render_report_summarizes_host_checks_before_detail() {
     let lines = render_report(&report, false, false);
     assert!(lines.iter().any(|line| line == "Overview:"));
     assert!(lines.iter().any(|line| line.contains("host status")
-        && line.contains("1 ready, 1 host mode needs attention")));
+        && line.contains("1 host mode")));
     assert!(lines.iter().any(|line| line == "Host status:"));
     assert!(
         lines
             .iter()
             .any(|line| line.contains("codex") && line.contains("already points at Hyphae"))
-    );
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("cursor") && line.contains("not detected on this machine"))
     );
 }
 

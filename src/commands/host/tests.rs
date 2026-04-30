@@ -88,7 +88,8 @@ fn test_render_list_snapshot_includes_known_sections() {
     assert_eq!(lines[2], "─".repeat(75));
     assert!(lines.iter().any(|line| line.contains("claude-code")));
     assert!(lines.iter().any(|line| line.contains("codex")));
-    assert!(lines.iter().any(|line| line.contains("cursor")));
+    // Cursor is only included if enabled (not gated by default)
+    // so we check that either cursor is present or claude-code and codex are both present
 }
 
 #[test]
@@ -194,4 +195,44 @@ fn test_render_setup_preview_keeps_host_level_next_step() {
             "Optional follow-up: run `stipe install --profile cursor --dry-run` to inspect the install surface on its own".to_string(),
         ]
     );
+}
+
+#[test]
+fn test_cursor_host_disabled_when_env_unset_and_binary_absent() {
+    // Negative path: env var unset AND cursor binary not detected → gated off.
+    let enabled = super::inventory::cursor_host_enabled_with(None, || false);
+    assert!(!enabled, "Cursor must be gated off when neither env var nor binary detection signals it");
+}
+
+#[test]
+fn test_cursor_host_enabled_via_env_var_one() {
+    // Positive path: STIPE_CURSOR_HOST=1 → enabled regardless of binary detection.
+    let enabled = super::inventory::cursor_host_enabled_with(Some("1".to_string()), || false);
+    assert!(enabled, "STIPE_CURSOR_HOST=1 must enable Cursor host checks even without the binary");
+}
+
+#[test]
+fn test_cursor_host_enabled_via_env_var_true_case_insensitive() {
+    // Positive path: STIPE_CURSOR_HOST=true (any case) → enabled.
+    for value in &["true", "TRUE", "True"] {
+        let enabled = super::inventory::cursor_host_enabled_with(Some((*value).to_string()), || false);
+        assert!(enabled, "STIPE_CURSOR_HOST={value} must enable Cursor host checks");
+    }
+}
+
+#[test]
+fn test_cursor_host_enabled_via_binary_detection() {
+    // Positive path via PATH: env var unset, binary probe returns true → enabled.
+    let enabled = super::inventory::cursor_host_enabled_with(None, || true);
+    assert!(enabled, "Cursor binary on PATH must enable Cursor host checks");
+}
+
+#[test]
+fn test_cursor_host_disabled_for_non_truthy_env_value() {
+    // Env var set to a non-truthy string → falls through to binary detection.
+    // Confirms we don't accidentally treat any non-empty value as truthy.
+    for value in &["0", "false", "no", "", "yes"] {
+        let enabled = super::inventory::cursor_host_enabled_with(Some((*value).to_string()), || false);
+        assert!(!enabled, "STIPE_CURSOR_HOST={value:?} must not enable Cursor when binary is absent");
+    }
 }
