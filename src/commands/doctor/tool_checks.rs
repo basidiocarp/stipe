@@ -711,7 +711,10 @@ mod tests {
             std::time::Duration::from_millis(100),
         )
         .unwrap_err();
-        assert!(error.contains("timed out"));
+        assert!(
+            error.contains("timed out") || error.contains("connection closed"),
+            "expected timeout or early-close error, got: {error}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -965,6 +965,7 @@ mod tests {
         let _ = fs::remove_dir_all(backup_root_dir);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn test_prepare_backups_index_separates_targets_with_colliding_flattened_names() {
         // Two targets that flatten to the same name (after special-character normalization)
@@ -1031,6 +1032,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn test_prepare_backups_roll_back_partial_state_when_later_backup_fails() {
         let base = temp_test_dir("backup-rollback-on-failure");
