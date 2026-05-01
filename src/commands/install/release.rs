@@ -608,7 +608,9 @@ fn span_context_for_command(command: &Command, tool: &str) -> SpanContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::commands::tool_registry;
+    #[cfg(unix)]
     use std::fs;
 
     #[cfg(unix)]
