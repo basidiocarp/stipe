@@ -103,6 +103,7 @@ pub fn run(opts: &InitOptions) -> Result<()> {
 }
 
 /// Returns the init plan as a JSON string (dry-run, no mutations) for the socket endpoint.
+#[cfg(unix)]
 pub fn plan_json_string(client: Option<&str>) -> Result<String> {
     let snapshot = build_snapshot(client, super::host_policy::HostConfigScope::User)?;
     let plan = build_plan(&snapshot, true);

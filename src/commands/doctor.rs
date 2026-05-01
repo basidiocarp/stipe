@@ -1464,6 +1464,7 @@ pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
 }
 
 /// Returns the doctor report as a JSON string without printing, for use by the socket endpoint.
+#[cfg(unix)]
 pub fn run_json_string(developer: bool, deep: bool) -> Result<String> {
     let report = build_report(developer, deep);
     Ok(serde_json::to_string_pretty(&report)?)
