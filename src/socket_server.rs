@@ -1,7 +1,7 @@
 //! Unix-socket endpoint for direct JSON-RPC 2.0 tool calls.
 //!
-//! Cap and other local clients use this endpoint to query stipe_doctor and
-//! stipe_init_plan data without spawning a subprocess. Bind path is
+//! Cap and other local clients use this endpoint to query `stipe_doctor` and
+//! `stipe_init_plan` data without spawning a subprocess. Bind path is
 //! `~/.local/share/basidiocarp/stipe/stipe.sock`. The endpoint descriptor at
 //! `~/.config/stipe/stipe.endpoint.json` lets clients discover the socket
 //! path via the `local-service-endpoint-v1` convention.
@@ -48,10 +48,12 @@ fn remove_stale_socket(socket_path: &Path) {
 // JSON-RPC helpers
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::needless_pass_by_value)]
 fn ok_response(id: Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn err_response(id: Value, code: i64, message: impl Into<String>) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -73,8 +75,8 @@ fn write_response(writer: &mut (impl Write + ?Sized), response: &Value) {
 // ---------------------------------------------------------------------------
 
 fn handle_doctor(params: &Value) -> Value {
-    let developer = params.get("developer").and_then(|v| v.as_bool()).unwrap_or(false);
-    let deep = params.get("deep").and_then(|v| v.as_bool()).unwrap_or(false);
+    let developer = params.get("developer").and_then(Value::as_bool).unwrap_or(false);
+    let deep = params.get("deep").and_then(Value::as_bool).unwrap_or(false);
 
     match crate::commands::doctor::run_json_string(developer, deep) {
         Ok(json_str) => serde_json::from_str(&json_str).unwrap_or_else(|_| json!({})),
