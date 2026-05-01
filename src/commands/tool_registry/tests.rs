@@ -160,7 +160,7 @@ fn test_optional_doctor_tools_have_install_hints() {
 #[test]
 fn test_smoke_test_specs_match_expected_tools() {
     let hyphae = find("hyphae").expect("hyphae spec");
-    assert_eq!(hyphae.smoke_test_args, Some(&["doctor"][..]));
+    assert_eq!(hyphae.smoke_test_args, Some(&["--version"][..]));
     assert_eq!(hyphae.smoke_test_expect, None);
 
     let mycelium = find("mycelium").expect("mycelium spec");

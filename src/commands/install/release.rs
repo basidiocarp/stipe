@@ -167,7 +167,9 @@ pub(crate) fn parse_expected_digest(sha256sums: &str, filename: &str) -> Option<
         let Some((digest, rest)) = line.split_once(|c: char| c.is_whitespace()) else {
             continue;
         };
-        let name = rest.trim_start_matches(|c: char| c.is_whitespace());
+        let name = rest
+            .trim_start_matches(|c: char| c.is_whitespace())
+            .trim_start_matches("./");
         if name == filename {
             return Some(digest.to_ascii_lowercase());
         }
@@ -674,6 +676,16 @@ mod tests {
     fn parse_expected_digest_returns_none_for_missing_entry() {
         let sums = "abc123  other.tar.gz\n";
         assert!(parse_expected_digest(sums, "mycelium-aarch64-apple-darwin.tar.gz").is_none());
+    }
+
+    #[test]
+    fn parse_expected_digest_strips_dot_slash_prefix() {
+        // sha256sum produces entries like `./filename` when run in-directory.
+        let sums = "abc123  ./mycelium-aarch64-apple-darwin.tar.gz\n";
+        assert_eq!(
+            parse_expected_digest(sums, "mycelium-aarch64-apple-darwin.tar.gz"),
+            Some("abc123".to_string())
+        );
     }
 
     #[test]

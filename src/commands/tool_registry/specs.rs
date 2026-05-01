@@ -51,7 +51,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         missing_hint: Some(
             "cargo install --git https://github.com/basidiocarp/hyphae hyphae-cli --no-default-features",
         ),
-        smoke_test_args: Some(&["doctor"]),
+        smoke_test_args: Some(&["--version"]),
         smoke_test_expect: None,
         mcp_serve_args: Some(&["serve"]),
         capability_ids: &["memory.store.v1", "memory.recall.v1", "memoir.import.v1"],
