@@ -8,6 +8,7 @@
 //! `not set`; format problems are flagged without revealing the value.
 
 use std::io::{self, Write as _};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -307,8 +308,11 @@ fn write_to_dotenv(key: &str) -> Result<()> {
     }
 
     // Set .env permissions to 0600 (owner read/write only) to protect plaintext secrets.
-    let perms = std::fs::Permissions::from_mode(0o600);
-    let _ = std::fs::set_permissions(&path, perms); // Best-effort; non-fatal on failure.
+    #[cfg(unix)]
+    {
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&path, perms); // Best-effort; non-fatal on failure.
+    }
 
     // Warn if .env is not in .gitignore.
     if !is_dotenv_gitignored(&path) {
