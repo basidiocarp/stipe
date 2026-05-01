@@ -8,6 +8,7 @@ mod banner;
 mod commands;
 mod ecosystem;
 mod lockfile;
+#[cfg(unix)]
 mod socket_server;
 pub(crate) mod verify;
 
@@ -174,6 +175,7 @@ enum Commands {
     },
 
     /// Start local unix-socket service endpoint (for cap and other local clients)
+    #[cfg(unix)]
     #[command(hide = true)]
     ServeSocket,
 }
@@ -259,6 +261,7 @@ fn main() -> Result<()> {
         Commands::Backup { command } => match command {
             BackupCommand::Hyphae => commands::backup::backup_hyphae(),
         },
+        #[cfg(unix)]
         Commands::ServeSocket => socket_server::run_socket_server(),
     }
 }
@@ -285,6 +288,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Status => "status",
         Commands::Rollback { .. } => "rollback",
         Commands::Backup { .. } => "backup",
+        #[cfg(unix)]
         Commands::ServeSocket => "serve_socket",
     }
 }
