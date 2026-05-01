@@ -922,8 +922,9 @@ mod tests {
         fs::write(target.join("file.txt"), "content").expect("write test file");
 
         // Use the explicit-root API so we don't have to mutate process-global env state.
-        let backups = prepare_backups_under_root(std::slice::from_ref(&target), 12345, &backup_root_dir)
-            .expect("backup should succeed");
+        let backups =
+            prepare_backups_under_root(std::slice::from_ref(&target), 12345, &backup_root_dir)
+                .expect("backup should succeed");
 
         assert_eq!(backups.len(), 1);
         assert_eq!(backups[0].original, target);
