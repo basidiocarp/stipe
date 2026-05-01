@@ -625,8 +625,11 @@ fn test_render_report_summarizes_host_checks_before_detail() {
 
     let lines = render_report(&report, false, false);
     assert!(lines.iter().any(|line| line == "Overview:"));
-    assert!(lines.iter().any(|line| line.contains("host status")
-        && line.contains("1 host mode")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("host status") && line.contains("1 host mode"))
+    );
     assert!(lines.iter().any(|line| line == "Host status:"));
     assert!(
         lines
@@ -859,11 +862,7 @@ fn test_check_capability_registry_health_present() {
     fs::create_dir_all(&temp_dir).unwrap();
 
     let registry_path = temp_dir.join("capability-registry.json");
-    fs::write(
-        &registry_path,
-        r#"{"schema_version":"1.0","entries":[]}"#,
-    )
-    .unwrap();
+    fs::write(&registry_path, r#"{"schema_version":"1.0","entries":[]}"#).unwrap();
 
     let check = check_capability_registry_health(&registry_path);
     assert!(

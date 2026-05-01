@@ -13,13 +13,19 @@ use super::model::HostInventoryEntry;
 /// - Cursor binary is on PATH (probed via `cursor --version`)
 fn cursor_host_enabled() -> bool {
     cursor_host_enabled_with(std::env::var("STIPE_CURSOR_HOST").ok(), || {
-        Command::new("cursor").arg("--version").output().is_ok_and(|o| o.status.success())
+        Command::new("cursor")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
     })
 }
 
 /// Pure decision function for cursor host gating, taking the env value and
 /// a binary-detection probe as parameters so it can be tested deterministically.
-pub(super) fn cursor_host_enabled_with(env_value: Option<String>, has_cursor_binary: impl FnOnce() -> bool) -> bool {
+pub(super) fn cursor_host_enabled_with(
+    env_value: Option<String>,
+    has_cursor_binary: impl FnOnce() -> bool,
+) -> bool {
     if let Some(value) = env_value {
         if value.eq_ignore_ascii_case("1") || value.eq_ignore_ascii_case("true") {
             return true;

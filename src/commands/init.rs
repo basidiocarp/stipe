@@ -48,7 +48,11 @@ pub fn run(opts: &InitOptions) -> Result<()> {
 
     if opts.json {
         if !opts.dry_run {
-            ecosystem::run_ecosystem(client_ref, opts.scope, ecosystem::EcosystemOptions::quiet(0))?;
+            ecosystem::run_ecosystem(
+                client_ref,
+                opts.scope,
+                ecosystem::EcosystemOptions::quiet(0),
+            )?;
             record_current_baseline(&snapshot, opts.scope)?;
         }
         println!("{}", serde_json::to_string_pretty(&plan)?);

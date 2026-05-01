@@ -75,7 +75,10 @@ fn write_response(writer: &mut (impl Write + ?Sized), response: &Value) {
 // ---------------------------------------------------------------------------
 
 fn handle_doctor(params: &Value) -> Value {
-    let developer = params.get("developer").and_then(Value::as_bool).unwrap_or(false);
+    let developer = params
+        .get("developer")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let deep = params.get("deep").and_then(Value::as_bool).unwrap_or(false);
 
     match crate::commands::doctor::run_json_string(developer, deep) {
@@ -85,7 +88,10 @@ fn handle_doctor(params: &Value) -> Value {
 }
 
 fn handle_init_plan(params: &Value) -> Value {
-    let client = params.get("client").and_then(|v| v.as_str()).map(str::to_owned);
+    let client = params
+        .get("client")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
 
     match crate::commands::init::plan_json_string(client.as_deref()) {
         Ok(json_str) => serde_json::from_str(&json_str).unwrap_or_else(|_| json!({})),
@@ -149,7 +155,10 @@ fn handle_connection(stream: std::os::unix::net::UnixStream) {
             "stipe_doctor" => {
                 let result = handle_doctor(&params);
                 if result.get("error").is_some() {
-                    let msg = result["error"].as_str().unwrap_or("doctor error").to_string();
+                    let msg = result["error"]
+                        .as_str()
+                        .unwrap_or("doctor error")
+                        .to_string();
                     err_response(id, -32000, msg)
                 } else {
                     ok_response(id, result)
@@ -158,7 +167,10 @@ fn handle_connection(stream: std::os::unix::net::UnixStream) {
             "stipe_init_plan" => {
                 let result = handle_init_plan(&params);
                 if result.get("error").is_some() {
-                    let msg = result["error"].as_str().unwrap_or("init plan error").to_string();
+                    let msg = result["error"]
+                        .as_str()
+                        .unwrap_or("init plan error")
+                        .to_string();
                     err_response(id, -32000, msg)
                 } else {
                     ok_response(id, result)
@@ -192,10 +204,7 @@ pub fn run_socket_server() -> Result<()> {
     remove_stale_socket(&socket_path);
 
     let listener = std::os::unix::net::UnixListener::bind(&socket_path).map_err(|e| {
-        anyhow::anyhow!(
-            "failed to bind stipe socket {}: {e}",
-            socket_path.display()
-        )
+        anyhow::anyhow!("failed to bind stipe socket {}: {e}", socket_path.display())
     })?;
 
     write_endpoint_descriptor(&socket_path)?;

@@ -406,7 +406,10 @@ fn manual_tool_installed(member: ManualProfileMember) -> bool {
 }
 
 fn manual_tool_action(member: ManualProfileMember) -> RepairAction {
-    let action_key = format!("install_manual_{}", member.name.to_lowercase().replace('-', "_"));
+    let action_key = format!(
+        "install_manual_{}",
+        member.name.to_lowercase().replace('-', "_")
+    );
     RepairAction::manual(
         action_key,
         format!("Install {}", member.name),
@@ -449,10 +452,8 @@ pub(super) fn check_profile_tools(profile: InstallProfile, deep: bool) -> Vec<He
 }
 
 pub(super) fn check_hyphae_db() -> HealthCheck {
-    if let Some(data_dir) = dirs::data_dir() {
-        check_hyphae_db_at_path(&data_dir.join("hyphae").join("hyphae.db"))
-    } else {
-        HealthCheck {
+    let Some(data_dir) = dirs::data_dir() else {
+        return HealthCheck {
             name: "hyphae database".to_string(),
             passed: false,
             message: "Cannot determine data directory".to_string(),
@@ -463,7 +464,82 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
                 &["init"],
                 RepairTier::Primary,
             )],
-        }
+        };
+    };
+
+    // New canonical path under the shared basidiocarp root.
+    let new_path = data_dir
+        .join("basidiocarp")
+        .join("hyphae")
+        .join("hyphae.db");
+    if new_path.exists() {
+        return check_hyphae_db_at_path(&new_path);
+    }
+
+    // Legacy path — present if hyphae hasn't launched since the path migration.
+    // The migration runs automatically on next hyphae startup.
+    let legacy_path = data_dir.join("hyphae").join("hyphae.db");
+    if legacy_path.exists() {
+        return HealthCheck {
+            name: "hyphae database".to_string(),
+            passed: true,
+            message: "Database at legacy path (will migrate on next hyphae launch)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    }
+
+    check_hyphae_db_at_path(&new_path)
+}
+
+/// Check the shared `~/.local/share/basidiocarp/` storage root and each tool subdirectory.
+pub(super) fn check_shared_storage_root() -> HealthCheck {
+    let Some(data_dir) = dirs::data_dir() else {
+        return HealthCheck {
+            name: "shared storage root".to_string(),
+            passed: false,
+            message: "Cannot determine data directory".to_string(),
+            repair_actions: Vec::new(),
+        };
+    };
+
+    let root = data_dir.join("basidiocarp");
+
+    // (subdirectory, db filename)
+    let tools: &[(&str, &str)] = &[
+        ("hyphae", "hyphae.db"),
+        ("canopy", "canopy.db"),
+        ("cortina", "cortina-sessions.db"),
+    ];
+
+    let parts: Vec<String> = tools
+        .iter()
+        .map(|(name, db_file)| {
+            let status = if root.join(name).join(db_file).exists() {
+                "✓"
+            } else {
+                "—"
+            };
+            format!("{name} {status}")
+        })
+        .collect();
+
+    let message = format!("~/.local/share/basidiocarp/  {}", parts.join("  "));
+
+    HealthCheck {
+        name: "shared storage root".to_string(),
+        passed: root.exists(),
+        message,
+        repair_actions: if root.exists() {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "init",
+                "Initialize the ecosystem",
+                "Create the shared basidiocarp storage root.",
+                &["init"],
+                RepairTier::Primary,
+            )]
+        },
     }
 }
 
@@ -714,22 +790,38 @@ mod tests {
     #[test]
     fn check_version_drift_detects_stale_binary() {
         let (is_behind, pinned) = check_version_drift("hyphae", "0.11.0");
-        assert!(is_behind, "older version should be reported as behind the pin");
-        assert_eq!(pinned.as_deref(), Some("0.12.0"), "pinned version should be returned");
+        assert!(
+            is_behind,
+            "older version should be reported as behind the pin"
+        );
+        assert_eq!(
+            pinned.as_deref(),
+            Some("0.12.0"),
+            "pinned version should be returned"
+        );
     }
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
         let (is_behind, pinned) = check_version_drift("hyphae", "0.12.0");
-        assert!(!is_behind, "matching version should not be reported as behind");
+        assert!(
+            !is_behind,
+            "matching version should not be reported as behind"
+        );
         assert_eq!(pinned.as_deref(), Some("0.12.0"));
     }
 
     #[test]
     fn check_version_drift_unknown_tool_never_reports_behind() {
         let (is_behind, pinned) = check_version_drift("not-a-real-tool", "9.9.9");
-        assert!(!is_behind, "unknown tool should never be reported as behind");
-        assert!(pinned.is_none(), "unknown tool should return no pinned version");
+        assert!(
+            !is_behind,
+            "unknown tool should never be reported as behind"
+        );
+        assert!(
+            pinned.is_none(),
+            "unknown tool should return no pinned version"
+        );
     }
 
     #[test]

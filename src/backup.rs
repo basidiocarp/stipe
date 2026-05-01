@@ -207,11 +207,6 @@ impl BackupOutcome {
     pub fn is_complete(&self) -> bool {
         self.failed.is_empty() && self.missing.is_empty()
     }
-
-    /// Returns true if at least some critical files were backed up.
-    pub fn has_partial_success(&self) -> bool {
-        !self.binaries_copied.is_empty() || !self.databases_copied.is_empty()
-    }
 }
 
 /// Creates a pre-upgrade backup of the Hyphae database and binary.
@@ -236,7 +231,7 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
             backup_dir.display(),
             e
         );
-        failed.push(format!("backup directory: {}", e));
+        failed.push(format!("backup directory: {e}"));
         false
     } else {
         true
@@ -253,13 +248,12 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
     }
 
     // Find the hyphae binary
-    let hyphae_binary = match which::which("hyphae") {
-        Ok(path) => Some(path),
-        Err(_) => {
-            warn!("Could not locate hyphae binary for pre-upgrade backup");
-            missing.push("hyphae binary".to_string());
-            None
-        }
+    let hyphae_binary = if let Ok(path) = which::which("hyphae") {
+        Some(path)
+    } else {
+        warn!("Could not locate hyphae binary for pre-upgrade backup");
+        missing.push("hyphae binary".to_string());
+        None
     };
 
     // Find the hyphae database (default path)
@@ -294,7 +288,7 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
                         bin_path.display(),
                         e
                     );
-                    failed.push(format!("hyphae binary: {}", e));
+                    failed.push(format!("hyphae binary: {e}"));
                 }
             }
         } else {
@@ -315,7 +309,7 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
                     hyphae_db.display(),
                     e
                 );
-                failed.push(format!("hyphae database: {}", e));
+                failed.push(format!("hyphae database: {e}"));
             }
         }
     } else {

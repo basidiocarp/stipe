@@ -17,9 +17,11 @@ pub fn backup_hyphae() -> Result<()> {
     } else {
         println!("✗ Hyphae backup directory could not be created.");
         for err in &outcome.failed {
-            println!("  Failed: {}", err);
+            println!("  Failed: {err}");
         }
-        return Err(anyhow!("Hyphae backup failed: directory creation unsuccessful"));
+        return Err(anyhow!(
+            "Hyphae backup failed: directory creation unsuccessful"
+        ));
     }
 
     // Report what was backed up
@@ -28,7 +30,7 @@ pub fn backup_hyphae() -> Result<()> {
     } else if outcome.failed.iter().any(|e| e.contains("binary")) {
         println!("  ✗ Binary backup failed");
         for err in outcome.failed.iter().filter(|e| e.contains("binary")) {
-            println!("    {}", err);
+            println!("    {err}");
         }
     }
 
@@ -37,7 +39,7 @@ pub fn backup_hyphae() -> Result<()> {
     } else if outcome.failed.iter().any(|e| e.contains("database")) {
         println!("  ✗ Database backup failed");
         for err in outcome.failed.iter().filter(|e| e.contains("database")) {
-            println!("    {}", err);
+            println!("    {err}");
         }
     }
 
@@ -45,7 +47,7 @@ pub fn backup_hyphae() -> Result<()> {
     if !outcome.missing.is_empty() {
         println!("  ⚠ Missing files:");
         for miss in &outcome.missing {
-            println!("    {}", miss);
+            println!("    {miss}");
         }
     }
 

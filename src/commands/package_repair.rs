@@ -412,22 +412,24 @@ fn flatten_path_for_storage(path: &Path) -> String {
     use std::path::Component;
     let mut parts: Vec<String> = Vec::new();
     for component in path.components() {
-        match component {
-            Component::Normal(s) => {
-                let segment: String = s
-                    .to_string_lossy()
-                    .chars()
-                    .map(|c| if c.is_alphanumeric() || c == '.' { c } else { '_' })
-                    .collect();
-                if !segment.is_empty() && segment != "." {
-                    parts.push(segment);
-                }
+        if let Component::Normal(s) = component {
+            let segment: String = s
+                .to_string_lossy()
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() || c == '.' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            if !segment.is_empty() && segment != "." {
+                parts.push(segment);
             }
-            // RootDir, Prefix (Windows), and CurDir are skipped — only the
-            // path-internal segments matter for the flattened name.
-            // ParentDir (`..`) is dropped: never preserved in the backup name,
-            // so a malformed input cannot escape the bucket via Path::join.
-            _ => {}
+            // RootDir, Prefix (Windows), CurDir, and ParentDir (`..`) are skipped —
+            // only Normal segments matter; `..` is never preserved so a malformed
+            // input cannot escape the bucket via Path::join.
         }
     }
     if parts.is_empty() {
@@ -840,7 +842,9 @@ mod tests {
             backup.display()
         );
         assert!(
-            backup.to_string_lossy().contains("1234-2-pre-package-repair"),
+            backup
+                .to_string_lossy()
+                .contains("1234-2-pre-package-repair"),
             "backup path should include timestamp+index bucket: {}",
             backup.display()
         );
@@ -937,7 +941,9 @@ mod tests {
             backup_root_dir.display()
         );
         assert!(
-            backup_path.to_string_lossy().contains("12345-0-pre-package-repair"),
+            backup_path
+                .to_string_lossy()
+                .contains("12345-0-pre-package-repair"),
             "backup path should include timestamp + index bucket: {}",
             backup_path.display()
         );
@@ -976,11 +982,15 @@ mod tests {
         fs::write(first.join("a"), "a").expect("write a");
         fs::write(second.join("b"), "b").expect("write b");
 
-        let backups = prepare_backups_under_root(&[first.clone(), second.clone()], 999, &backup_root_dir)
-            .expect("backup should succeed for both");
+        let backups =
+            prepare_backups_under_root(&[first.clone(), second.clone()], 999, &backup_root_dir)
+                .expect("backup should succeed for both");
 
         assert_eq!(backups.len(), 2);
-        assert_ne!(backups[0].backup, backups[1].backup, "colliding flattened names must land in distinct buckets via index");
+        assert_ne!(
+            backups[0].backup, backups[1].backup,
+            "colliding flattened names must land in distinct buckets via index"
+        );
         assert!(backups[0].backup.exists());
         assert!(backups[1].backup.exists());
         // Both files preserved under their respective backups
@@ -996,7 +1006,10 @@ mod tests {
         use std::path::PathBuf;
         // ../etc/passwd must NOT round-trip via Path::join into something that escapes the bucket.
         let result = flatten_path_for_storage(&PathBuf::from("../etc/passwd"));
-        assert!(!result.contains(".."), "flattened name must not contain '..': got {result}");
+        assert!(
+            !result.contains(".."),
+            "flattened name must not contain '..': got {result}"
+        );
         // The result should still be deterministic and non-empty.
         assert!(!result.is_empty());
     }
@@ -1012,7 +1025,10 @@ mod tests {
         let pb = backup_root_from(None);
         // Default ends with "stipe/backups" regardless of platform.
         let s = pb.to_string_lossy();
-        assert!(s.ends_with("stipe/backups") || s.ends_with("stipe\\backups"), "got {s}");
+        assert!(
+            s.ends_with("stipe/backups") || s.ends_with("stipe\\backups"),
+            "got {s}"
+        );
     }
 
     #[test]
@@ -1034,8 +1050,9 @@ mod tests {
         }
         fs::write(&second_backup, "occupied").expect("seed conflicting backup path");
 
-        let err = prepare_backups_under_root(&[first.clone(), second.clone()], 42, &backup_root_dir)
-            .expect_err("backup preparation should fail on conflicting destination");
+        let err =
+            prepare_backups_under_root(&[first.clone(), second.clone()], 42, &backup_root_dir)
+                .expect_err("backup preparation should fail on conflicting destination");
 
         assert_eq!(err.backups.len(), 1);
         assert_eq!(err.backups[0].original, first);

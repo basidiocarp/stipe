@@ -2,7 +2,7 @@ use super::profile_config;
 use super::*;
 use crate::commands::host_policy;
 use crate::commands::install::runner::{
-    render_install_success_summary, selected_profile_for_persistence, InstallOptions,
+    InstallOptions, render_install_success_summary, selected_profile_for_persistence,
 };
 use crate::commands::runtime_policy;
 use crate::commands::tool_registry;
@@ -353,8 +353,7 @@ updated_at_unix = 42
             source_dir: None,
             force: false,
         };
-        let error = run(&opts, &Vec::new())
-            .expect_err("project-scoped deny should block install");
+        let error = run(&opts, &Vec::new()).expect_err("project-scoped deny should block install");
 
         let message = error.to_string();
         assert!(message.contains("runtime policy denies install profile codex"));
@@ -385,8 +384,7 @@ updated_at_unix = "not-an-integer"
             source_dir: None,
             force: false,
         };
-        let error = run(&opts, &Vec::new())
-            .expect_err("policy load failures should block install");
+        let error = run(&opts, &Vec::new()).expect_err("policy load failures should block install");
 
         let message = error.to_string();
         assert!(message.contains("runtime policy for install profile codex could not be loaded"));

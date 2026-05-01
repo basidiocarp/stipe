@@ -62,7 +62,7 @@ impl RepairAction {
 
 pub fn cargo_install_action(tool: &'static str) -> RepairAction {
     let label = format!("Install {}", title_case(tool));
-    let action_key = format!("cargo_install_{}", tool);
+    let action_key = format!("cargo_install_{tool}");
     RepairAction::manual(
         action_key,
         label,
@@ -106,7 +106,11 @@ mod tests {
             "Set up Claude Code".to_string(),
             "Initialize Claude Code with MCP registration.".to_string(),
             "stipe host setup claude-code".to_string(),
-            vec!["host".to_string(), "setup".to_string(), "claude-code".to_string()],
+            vec![
+                "host".to_string(),
+                "setup".to_string(),
+                "claude-code".to_string(),
+            ],
             RepairTier::Primary,
         );
 

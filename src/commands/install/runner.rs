@@ -317,7 +317,8 @@ pub(crate) fn install_bin_dir() -> Result<PathBuf> {
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(opts.force).context("could not acquire install lock")?;
+    let _lock =
+        crate::lockfile::acquire_lock(opts.force).context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;
@@ -332,7 +333,10 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     );
     println!();
 
-    if let Some(profile) = opts.profile.filter(|profile| *profile != InstallProfile::DeveloperTools) {
+    if let Some(profile) = opts
+        .profile
+        .filter(|profile| *profile != InstallProfile::DeveloperTools)
+    {
         let runtime_policy = runtime_policy::collect_runtime_policy(Some(profile));
         for line in runtime_policy::render_install_policy_lines(profile, &runtime_policy) {
             println!("{line}");
@@ -436,7 +440,10 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
         .context("could not create pre-install backup")?;
 
     if opts.from_source {
-        let monorepo_root = opts.source_dir.clone().unwrap_or_else(default_monorepo_root);
+        let monorepo_root = opts
+            .source_dir
+            .clone()
+            .unwrap_or_else(default_monorepo_root);
 
         for tool in &tools_to_install {
             let tool_source = monorepo_root.join(tool);

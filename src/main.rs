@@ -216,7 +216,7 @@ fn main() -> Result<()> {
                 force,
             };
             commands::install::run(&opts, &tools)
-        },
+        }
         Commands::Update {
             profile,
             all,
@@ -242,7 +242,7 @@ fn main() -> Result<()> {
                 interactive,
             };
             commands::init::run(&opts)
-        },
+        }
         Commands::Host { command } => commands::host::run(command),
         Commands::Doctor {
             json,
