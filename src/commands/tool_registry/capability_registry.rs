@@ -109,8 +109,7 @@ mod tests {
         let json_str = serde_json::to_string(&registry).expect("valid json");
         assert!(
             json_str.contains("\"schema_version\":\"1.0\""),
-            "schema_version must be \"1.0\", found: {}",
-            json_str
+            "schema_version must be \"1.0\", found: {json_str}",
         );
         assert_eq!(
             CAPABILITY_REGISTRY_SCHEMA_VERSION, "1.0",

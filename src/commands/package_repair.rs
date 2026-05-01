@@ -855,7 +855,7 @@ mod tests {
         );
         // Confirm it's NOT a sibling of /tmp/example
         assert!(
-            !backup.parent().is_some_and(|p| p == Path::new("/tmp")),
+            backup.parent().is_none_or(|p| p != Path::new("/tmp")),
             "backup should not be a sibling of the original target"
         );
     }
@@ -922,7 +922,7 @@ mod tests {
         fs::write(target.join("file.txt"), "content").expect("write test file");
 
         // Use the explicit-root API so we don't have to mutate process-global env state.
-        let backups = prepare_backups_under_root(&[target.clone()], 12345, &backup_root_dir)
+        let backups = prepare_backups_under_root(std::slice::from_ref(&target), 12345, &backup_root_dir)
             .expect("backup should succeed");
 
         assert_eq!(backups.len(), 1);
@@ -955,8 +955,7 @@ mod tests {
                 let name_str = name.to_string_lossy();
                 assert!(
                     !name_str.contains(".stipe-backup-"),
-                    "found unexpected sibling backup: {}",
-                    name_str
+                    "found unexpected sibling backup: {name_str}",
                 );
             }
         }
