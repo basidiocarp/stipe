@@ -724,9 +724,7 @@ mod tests {
     fn test_extract_hook_path_resolves_claude_plugin_root() {
         // Lamella hooks use ${CLAUDE_PLUGIN_ROOT} which must be resolved to a concrete path.
         let plugin_root = lamella_plugin_root().expect("lamella_plugin_root returns Some");
-        let command = format!(
-            r#"node "${{CLAUDE_PLUGIN_ROOT}}/scripts/hooks/pre-tool.js""#
-        );
+        let command = format!(r#"node "${{CLAUDE_PLUGIN_ROOT}}/scripts/hooks/pre-tool.js""#);
         let resolved = extract_hook_path(&command);
         let expected = plugin_root.join("scripts/hooks/pre-tool.js");
         assert_eq!(resolved, Some(expected));

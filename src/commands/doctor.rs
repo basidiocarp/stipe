@@ -23,6 +23,7 @@ mod package_checks;
 mod plugin_inventory_checks;
 pub(crate) mod provider_checks;
 mod server_checks;
+mod skills_checks;
 mod tool_checks;
 
 use config_checks::check_mcp_config_drift;
@@ -40,6 +41,7 @@ use package_checks::{
 use plugin_inventory_checks::collect_plugin_inventory;
 use provider_checks::{collect_api_key_health, collect_mcp_health, collect_provider_health};
 use server_checks::collect_mcp_server_health;
+use skills_checks::check_skills;
 use tool_checks::{
     check_canopy_wal_mode, check_capability_registry_health, check_hyphae_db, check_mcp_startups,
     check_profile_tools, check_rhizome_compiled_env, check_shared_storage_root, check_tool,
@@ -1340,6 +1342,9 @@ fn build_report_with_saved_profile(
 
     // Check that instruction files (CLAUDE.md, AGENTS.md) exist at expected ecosystem locations.
     checks.extend(check_instruction_files());
+
+    // Check installed skills
+    checks.push(check_skills());
 
     let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
     if !hook_paths.is_empty() {

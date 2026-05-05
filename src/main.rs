@@ -51,6 +51,12 @@ enum Commands {
         tools: Vec<String>,
     },
 
+    /// Install a skill pack (directory or .tar.gz archive)
+    InstallSkills {
+        /// Path to skill pack directory or .tar.gz archive
+        pack_path: std::path::PathBuf,
+    },
+
     /// Update installed tools to latest versions
     Update {
         /// Update tools from a predefined profile
@@ -240,6 +246,7 @@ fn main() -> Result<()> {
             };
             commands::install::run(&opts, &tools)
         }
+        Commands::InstallSkills { pack_path } => commands::install::install_skills(&pack_path),
         Commands::Update {
             profile,
             all,
@@ -314,6 +321,7 @@ fn current_span_context() -> SpanContext {
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Install { .. } => "install",
+        Commands::InstallSkills { .. } => "install-skills",
         Commands::Update { .. } => "update",
         Commands::SelfCmd { .. } => "self",
         Commands::Init { .. } => "init",
@@ -337,7 +345,8 @@ mod tests {
 
     #[test]
     fn test_setup_parses_with_no_flags() {
-        let cli = Cli::try_parse_from(["stipe", "setup"]).expect("setup should parse with no flags");
+        let cli =
+            Cli::try_parse_from(["stipe", "setup"]).expect("setup should parse with no flags");
         assert!(matches!(cli.command, Commands::Setup { profile: None, .. }));
     }
 
