@@ -178,32 +178,69 @@ pub fn restore_skill_snapshot(snapshot: SkillSnapshot) -> Result<()> {
     Ok(())
 }
 
+/// Allowed target path prefixes for skill install (security boundary).
+const ALLOWED_TARGET_PREFIXES: &[&str] = &[
+    "~/.config/basidiocarp/",
+    "~/.config/claude/",
+    "~/.claude/",
+    "~/.local/share/basidiocarp/",
+];
+
+/// Validate and resolve a `source_path` against the pack root, rejecting traversal attempts.
+fn validated_source_path(pack_root: &Path, source_path: &str) -> Result<PathBuf> {
+    let joined = pack_root.join(source_path);
+    let canonical_root = pack_root
+        .canonicalize()
+        .with_context(|| format!("canonicalize pack root: {}", pack_root.display()))?;
+    let canonical_joined = joined
+        .canonicalize()
+        .with_context(|| format!("source file not found: {}", joined.display()))?;
+    if !canonical_joined.starts_with(&canonical_root) {
+        return Err(anyhow!(
+            "source_path '{source_path}' escapes the pack directory — rejected"
+        ));
+    }
+    Ok(canonical_joined)
+}
+
+/// Validate and expand a `target_path`, rejecting paths outside the allowed skill directories.
+fn validated_target_path(target_path: &str) -> Result<PathBuf> {
+    let allowed = ALLOWED_TARGET_PREFIXES
+        .iter()
+        .any(|prefix| target_path.starts_with(prefix));
+    if !allowed {
+        let allowed_list = ALLOWED_TARGET_PREFIXES.join(", ");
+        return Err(anyhow!(
+            "target_path '{target_path}' is outside allowed directories. Allowed prefixes: {allowed_list}"
+        ));
+    }
+    expand_home(target_path)
+}
+
 /// Install a skill pack from a directory or .tar.gz archive.
 pub fn install_skills(pack_path: &Path) -> Result<()> {
-    // Determine the pack root directory
-    let pack_root = if pack_path.to_string_lossy().ends_with(".tar.gz") {
+    // Keep _temp_dir alive for the full duration of this function.
+    // If pack_path is a .tar.gz, the extracted directory must not be cleaned up
+    // until we have finished reading from it.
+    let (_temp_dir, pack_root) = if pack_path.to_string_lossy().ends_with(".tar.gz") {
         let temp = extract_skill_pack_archive(pack_path)?;
-        // Keep temp_dir alive for the duration of this function
         let root = temp.path().to_path_buf();
-        std::mem::forget(temp); // Keep the temp dir from being deleted
-        root
+        (Some(temp), root)
     } else {
-        pack_path.to_path_buf()
+        (None, pack_path.to_path_buf())
     };
 
     // Load manifest
     let manifest = load_manifest(&pack_root)?;
 
-    // Validate all source files exist before installing
+    // Validate all source files exist before installing (also catches traversal early)
     for entry in &manifest.skills {
-        let source_path = pack_root.join(&entry.source_path);
-        if !source_path.exists() {
-            return Err(anyhow!(
-                "source file missing in pack: {} (entry: {})",
-                source_path.display(),
-                entry.name
-            ));
-        }
+        validated_source_path(&pack_root, &entry.source_path)?;
+    }
+
+    // Validate all target paths are within allowed directories
+    for entry in &manifest.skills {
+        validated_target_path(&entry.target_path)?;
     }
 
     // Create snapshot for rollback
@@ -211,8 +248,8 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
 
     // Install each skill
     for entry in &manifest.skills {
-        let source_path = pack_root.join(&entry.source_path);
-        let target_path = expand_home(&entry.target_path)?;
+        let source_path = validated_source_path(&pack_root, &entry.source_path)?;
+        let target_path = validated_target_path(&entry.target_path)?;
 
         // Create parent directories
         if let Some(parent) = target_path.parent() {
@@ -232,16 +269,24 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
     }
 
     // Verify all installed files
-    let mut verify_failures = Vec::new();
+    let mut verify_failures: Vec<(String, String)> = Vec::new();
     for entry in &manifest.skills {
         match verify_skill(entry) {
             Ok(SkillVerifyStatus::Ok) => {}
-            Ok(status) => {
-                verify_failures.push((entry.name.clone(), status));
+            Ok(SkillVerifyStatus::Missing) => {
+                verify_failures.push((entry.name.clone(), "file not found after copy".to_string()));
+            }
+            Ok(SkillVerifyStatus::ChecksumMismatch { actual }) => {
+                verify_failures.push((
+                    entry.name.clone(),
+                    format!(
+                        "checksum mismatch (expected {}, got {actual})",
+                        entry.sha256
+                    ),
+                ));
             }
             Err(e) => {
-                verify_failures.push((entry.name.clone(), SkillVerifyStatus::Missing));
-                eprintln!("Warning: verification error for {}: {}", entry.name, e);
+                verify_failures.push((entry.name.clone(), format!("verification error: {e}")));
             }
         }
     }
@@ -251,21 +296,8 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
         restore_skill_snapshot(snapshot)?;
         let mut error_lines =
             vec!["Skill verification failed after install; rolled back:".to_string()];
-        for (name, status) in verify_failures {
-            match status {
-                SkillVerifyStatus::Ok => {}
-                SkillVerifyStatus::Missing => {
-                    error_lines.push(format!("  {name}: file not found after copy"));
-                }
-                SkillVerifyStatus::ChecksumMismatch { actual } => {
-                    if let Some(entry) = manifest.skills.iter().find(|e| e.name == name) {
-                        error_lines.push(format!(
-                            "  {name}: checksum mismatch (expected {}, got {actual})",
-                            entry.sha256
-                        ));
-                    }
-                }
-            }
+        for (name, reason) in verify_failures {
+            error_lines.push(format!("  {name}: {reason}"));
         }
         return Err(anyhow!(error_lines.join("\n")));
     }

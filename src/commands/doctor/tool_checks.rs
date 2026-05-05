@@ -567,7 +567,7 @@ pub(super) fn check_hyphae_db_at_path(db_path: &Path) -> HealthCheck {
     }
 }
 
-/// Check that Canopy's SQLite database is running in WAL mode.
+/// Check that Canopy's `SQLite` database is running in WAL mode.
 ///
 /// Queries via the `sqlite3` CLI if available. Passes as advisory if sqlite3
 /// is not installed, since WAL mode is unconditionally set at Canopy startup.
