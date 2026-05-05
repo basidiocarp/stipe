@@ -14,7 +14,7 @@ This page is the Stipe-specific backlog. The workspace [ROADMAP.md](../docs/work
 
 ### Legacy burn-down
 
-Stipe should remove temporary CLI compatibility shims once the ecosystem docs and local automation have fully converged on `stipe init` and `stipe host setup`. This is how the installer surface stops carrying old names and half-retired paths indefinitely.
+As of 0.5.0, legacy CLI compatibility shims have been removed. Stipe now uses `stipe init` and `stipe host setup` consistently. This work is largely complete.
 
 ### Drift detection and repair
 
@@ -22,11 +22,11 @@ The next priority is better config drift detection and more direct repair flows.
 
 ### Safer operator flows
 
-Install, init, update, and uninstall all need stronger `--dry-run`, rollback, and safety behavior. Stipe is infrastructure, so the bar is not just convenience; it is recoverability.
+`--dry-run` is implemented for install, init, uninstall, and host setup. Next priority is rollback and recovery after partial installs to improve recoverability of infrastructure operations.
 
-### Bootstrap parity
+### Recoverability and machine migration
 
-Windows, macOS, and Linux still need equally clear top-level bootstrap paths. The goal is one mental model for setup, even if the implementation details vary by platform.
+`stipe setup` sequences install + init in one step for new machine bootstrap, and `install.sh` provides the POSIX curl bootstrap entry point. Bootstrap parity across platforms is largely complete. Remaining work is expanding recoverability and supporting clean machine migration workflows.
 
 ## Later
 

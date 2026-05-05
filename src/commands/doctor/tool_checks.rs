@@ -635,6 +635,45 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
     }
 }
 
+pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
+    // Check if rhizome is available
+    let rhizome_available = std::process::Command::new("rhizome")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    if !rhizome_available {
+        return HealthCheck {
+            name: "rhizome compiled environment".to_string(),
+            passed: true,
+            message: "Rhizome not installed (skipped)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    }
+
+    // Check if a compiled-env memoir exists in hyphae
+    let artifact_exists = std::process::Command::new("hyphae")
+        .args(["memoir", "show", "--name", "compiled-env:*"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+
+    if artifact_exists {
+        HealthCheck {
+            name: "rhizome compiled environment".to_string(),
+            passed: true,
+            message: "Compiled environment artifact exists in Hyphae".to_string(),
+            repair_actions: Vec::new(),
+        }
+    } else {
+        HealthCheck {
+            name: "rhizome compiled environment".to_string(),
+            passed: true,
+            message: "No compiled environment artifact; run 'rhizome compile-env' to generate one (optional)".to_string(),
+            repair_actions: Vec::new(),
+        }
+    }
+}
+
 pub(super) fn check_mcp_startups() -> Vec<HealthCheck> {
     tool_registry::doctor_specs()
         .into_iter()

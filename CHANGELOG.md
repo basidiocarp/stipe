@@ -4,6 +4,17 @@ All notable changes to Stipe are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`stipe setup` command**: bootstraps a new machine in a single step by sequencing
+  `stipe install --profile <P>` and `stipe init --scope user`. Accepts `--profile`,
+  `--client`, `--dry-run`, and `--interactive`. Prints next-step guidance pointing
+  at `stipe init --scope project` for per-project overlay.
+- **`install.sh`**: POSIX shell bootstrap script for getting stipe onto a fresh machine
+  via `curl -fsSL https://raw.githubusercontent.com/basidiocarp/stipe/main/install.sh | sh`.
+  Detects platform, verifies SHA256 checksum, installs to `~/.local/bin`, clears the
+  macOS Gatekeeper quarantine attribute, and prints a PATH hint when needed.
+
 ## [0.5.14] - 2026-04-14
 
 ### Added

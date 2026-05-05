@@ -47,18 +47,35 @@ doctor flows that check whether all of that still works.
 
 ## Quick Start
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh
-stipe doctor
-stipe update --all
-```
+Install stipe on a new machine:
 
 ```bash
-stipe install --all
+curl -fsSL https://raw.githubusercontent.com/basidiocarp/stipe/main/install.sh | sh
+```
+
+Bootstrap the full ecosystem in one step:
+
+```bash
+stipe setup                        # install standard profile + wire user-scope host adapters
+stipe setup --profile claude-code  # target a specific host profile
+stipe setup --dry-run              # preview without making changes
+```
+
+Or run the phases individually:
+
+```bash
+stipe install --profile standard
 stipe init
 stipe host list
 stipe host setup codex
 stipe host doctor codex
+```
+
+For ongoing maintenance:
+
+```bash
+stipe doctor
+stipe update --all
 ```
 
 ---
@@ -179,14 +196,16 @@ stipe/
 ```
 
 ```text
+stipe setup [--profile <name>] [--client <CLIENT>] [--dry-run] [--interactive]
 stipe install [--all] [--profile <name>] [tools...]
 stipe host list
 stipe host setup <host>
 stipe host doctor [host]
-stipe init [--client <CLIENT>] [--repair]
-stipe doctor
+stipe init [--client <CLIENT>] [--scope user|project|local] [--repair]
+stipe doctor [--deep] [--developer]
 stipe update [--all] [--profile <PROFILE>] [tools...]
 stipe rollback [--list] [--to <TIMESTAMP>]
+stipe self update
 ```
 
 ---

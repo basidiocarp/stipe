@@ -159,6 +159,29 @@ enum Commands {
         command: commands::provider::ProviderCommand,
     },
 
+    /// Bootstrap a new machine with tools and global host configuration
+    ///
+    /// Installs tools for the given profile and wires up user-scoped host adapters
+    /// in a single step. Equivalent to `stipe install --profile <P>` followed by
+    /// `stipe init --scope user`.
+    Setup {
+        /// Install profile (default: standard)
+        #[arg(long, value_enum)]
+        profile: Option<commands::install::InstallProfile>,
+
+        /// Target a specific MCP client
+        #[arg(long)]
+        client: Option<String>,
+
+        /// Show what would change without mutating the machine
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Prompt for optional configuration interactively
+        #[arg(long, default_value_t = false)]
+        interactive: bool,
+    },
+
     /// Show ecosystem status
     Status,
 
@@ -256,6 +279,20 @@ fn main() -> Result<()> {
             tools,
         } => commands::uninstall::run(all, dry_run, &tools),
         Commands::Provider { command } => commands::provider::run(command),
+        Commands::Setup {
+            profile,
+            client,
+            dry_run,
+            interactive,
+        } => {
+            let opts = commands::setup::SetupOptions {
+                profile,
+                client,
+                dry_run,
+                interactive,
+            };
+            commands::setup::run(&opts)
+        }
         Commands::Status => commands::status::run(),
         Commands::Rollback { args } => commands::rollback::run(&args),
         Commands::Backup { command } => match command {
@@ -285,6 +322,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Package { .. } => "package",
         Commands::Uninstall { .. } => "uninstall",
         Commands::Provider { .. } => "provider",
+        Commands::Setup { .. } => "setup",
         Commands::Status => "status",
         Commands::Rollback { .. } => "rollback",
         Commands::Backup { .. } => "backup",
@@ -298,11 +336,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_removed_setup_shim_is_rejected() {
-        let Err(err) = Cli::try_parse_from(["stipe", "setup", "codex"]) else {
-            panic!("expected parse failure");
-        };
-        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    fn test_setup_parses_with_no_flags() {
+        let cli = Cli::try_parse_from(["stipe", "setup"]).expect("setup should parse with no flags");
+        assert!(matches!(cli.command, Commands::Setup { profile: None, .. }));
+    }
+
+    #[test]
+    fn test_setup_accepts_profile_flag() {
+        let cli = Cli::try_parse_from(["stipe", "setup", "--profile", "claude-code"])
+            .expect("setup should accept --profile");
+        match cli.command {
+            Commands::Setup { profile, .. } => {
+                assert_eq!(profile, Some(commands::install::InstallProfile::ClaudeCode));
+            }
+            _ => panic!("expected setup command"),
+        }
+    }
+
+    #[test]
+    fn test_setup_accepts_dry_run_flag() {
+        let cli = Cli::try_parse_from(["stipe", "setup", "--dry-run"])
+            .expect("setup should accept --dry-run");
+        match cli.command {
+            Commands::Setup { dry_run, .. } => assert!(dry_run),
+            _ => panic!("expected setup command"),
+        }
     }
 
     #[test]
