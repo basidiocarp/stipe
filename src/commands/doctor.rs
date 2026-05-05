@@ -1341,8 +1341,38 @@ fn build_report_with_saved_profile(
     checks.extend(check_instruction_files());
 
     let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
-    let healthy = checks.iter().all(|check| check.passed) && hook_failures == 0;
-    let failing = checks.iter().filter(|check| !check.passed).count() + hook_failures;
+    if !hook_paths.is_empty() {
+        checks.push(HealthCheck {
+            name: "hook paths".to_string(),
+            passed: hook_failures == 0,
+            message: if hook_failures == 0 {
+                "All configured hook paths are present.".to_string()
+            } else {
+                let stale: Vec<_> = hook_paths
+                    .iter()
+                    .filter(|h| !h.passed)
+                    .map(|h| format!("  {} ({})", h.path.display(), h.event))
+                    .collect();
+                format!(
+                    "{hook_failures} hook path(s) not found on disk:\n{}",
+                    stale.join("\n")
+                )
+            },
+            repair_actions: if hook_failures == 0 {
+                Vec::new()
+            } else {
+                vec![RepairAction::stipe(
+                    "repair-hooks",
+                    "Repair stale hook paths",
+                    "Reinstall hooks to restore missing hook scripts.",
+                    &["init", "--repair"],
+                    RepairTier::Primary,
+                )]
+            },
+        });
+    }
+    let healthy = checks.iter().all(|check| check.passed);
+    let failing = checks.iter().filter(|check| !check.passed).count();
     let repair_actions = dedupe_repair_actions(
         checks
             .iter()

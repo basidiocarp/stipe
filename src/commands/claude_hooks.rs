@@ -360,11 +360,38 @@ pub(crate) fn hook_entries_at_path(settings_path: &Path) -> Result<Vec<HookEntry
     Ok(entries)
 }
 
+/// Canonical path where Claude Code resolves `${CLAUDE_PLUGIN_ROOT}` for lamella hooks.
+fn lamella_plugin_root() -> Option<PathBuf> {
+    if let Ok(home) = std::env::var("LAMELLA_HOME") {
+        let p = PathBuf::from(home);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    dirs::home_dir().map(|h| h.join(".claude").join("plugins").join("lamella"))
+}
+
 fn extract_hook_path(command: &str) -> Option<PathBuf> {
     let home = dirs::home_dir();
+    let plugin_root = lamella_plugin_root();
 
     for token in command.split_whitespace() {
         let candidate = token.trim_matches(|ch| matches!(ch, '"' | '\''));
+
+        // Resolve ${CLAUDE_PLUGIN_ROOT} — Claude Code substitutes this at hook run-time.
+        let resolved_candidate;
+        let candidate = if candidate.contains("${CLAUDE_PLUGIN_ROOT}") {
+            if let Some(ref root) = plugin_root {
+                resolved_candidate =
+                    candidate.replace("${CLAUDE_PLUGIN_ROOT}", &root.to_string_lossy());
+                resolved_candidate.as_str()
+            } else {
+                continue;
+            }
+        } else {
+            candidate
+        };
+
         let path = if let Some(suffix) = candidate.strip_prefix("$HOME/") {
             home.as_ref().map(|home| home.join(suffix))
         } else if let Some(suffix) = candidate.strip_prefix("~/") {
@@ -691,5 +718,17 @@ mod tests {
 
         assert!(!claude_hooks_configured_at_path(&settings_path));
         let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_extract_hook_path_resolves_claude_plugin_root() {
+        // Lamella hooks use ${CLAUDE_PLUGIN_ROOT} which must be resolved to a concrete path.
+        let plugin_root = lamella_plugin_root().expect("lamella_plugin_root returns Some");
+        let command = format!(
+            r#"node "${{CLAUDE_PLUGIN_ROOT}}/scripts/hooks/pre-tool.js""#
+        );
+        let resolved = extract_hook_path(&command);
+        let expected = plugin_root.join("scripts/hooks/pre-tool.js");
+        assert_eq!(resolved, Some(expected));
     }
 }
