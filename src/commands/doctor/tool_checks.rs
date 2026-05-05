@@ -567,6 +567,74 @@ pub(super) fn check_hyphae_db_at_path(db_path: &Path) -> HealthCheck {
     }
 }
 
+/// Check that Canopy's SQLite database is running in WAL mode.
+///
+/// Queries via the `sqlite3` CLI if available. Passes as advisory if sqlite3
+/// is not installed, since WAL mode is unconditionally set at Canopy startup.
+pub(super) fn check_canopy_wal_mode() -> HealthCheck {
+    let Some(data_dir) = dirs::data_dir() else {
+        return HealthCheck {
+            name: "canopy WAL mode".to_string(),
+            passed: true,
+            message: "Cannot determine data directory (advisory)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    };
+
+    let db_path = data_dir
+        .join("basidiocarp")
+        .join("canopy")
+        .join("canopy.db");
+
+    if !db_path.exists() {
+        return HealthCheck {
+            name: "canopy WAL mode".to_string(),
+            passed: true,
+            message: "Canopy database not initialized (WAL mode set on first run)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    }
+
+    match std::process::Command::new("sqlite3")
+        .arg(&db_path)
+        .arg("PRAGMA journal_mode;")
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let mode = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .to_string();
+            if mode == "wal" {
+                HealthCheck {
+                    name: "canopy WAL mode".to_string(),
+                    passed: true,
+                    message: "WAL mode active".to_string(),
+                    repair_actions: Vec::new(),
+                }
+            } else {
+                HealthCheck {
+                    name: "canopy WAL mode".to_string(),
+                    passed: false,
+                    message: format!("journal_mode is '{mode}', expected 'wal' — restart Canopy to apply"),
+                    repair_actions: Vec::new(),
+                }
+            }
+        }
+        Ok(_) => HealthCheck {
+            name: "canopy WAL mode".to_string(),
+            passed: true,
+            message: "sqlite3 query failed (database may be locked); WAL mode set at Canopy startup (advisory)".to_string(),
+            repair_actions: Vec::new(),
+        },
+        Err(_) => HealthCheck {
+            name: "canopy WAL mode".to_string(),
+            passed: true,
+            message: "sqlite3 not available; WAL mode set at Canopy startup (advisory)".to_string(),
+            repair_actions: Vec::new(),
+        },
+    }
+}
+
 pub(super) fn check_mcp_startups() -> Vec<HealthCheck> {
     tool_registry::doctor_specs()
         .into_iter()
