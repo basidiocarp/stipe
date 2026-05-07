@@ -72,11 +72,12 @@ mod tests {
         assert_eq!(Tool::from_binary_name("canopy"), Some(Tool::Canopy));
         assert_eq!(Tool::from_binary_name("volva"), Some(Tool::Volva));
         assert_eq!(Tool::from_binary_name("cap"), Some(Tool::Cap));
+        assert_eq!(Tool::from_binary_name("stipe"), Some(Tool::Stipe));
     }
 
     #[test]
-    fn unmanaged_binaries_stay_outside_spore_mapping() {
-        assert_eq!(Tool::from_binary_name("stipe"), None);
+    fn unknown_binaries_stay_outside_spore_mapping() {
+        assert_eq!(Tool::from_binary_name("__unknown__"), None);
     }
 
     #[test]
