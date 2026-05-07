@@ -385,8 +385,7 @@ fn extract_hook_path(command: &str) -> Option<PathBuf> {
             let Some(ref root) = plugin_root else {
                 continue;
             };
-            let resolved =
-                candidate.replace("${CLAUDE_PLUGIN_ROOT}", &root.to_string_lossy());
+            let resolved = candidate.replace("${CLAUDE_PLUGIN_ROOT}", &root.to_string_lossy());
             let path = PathBuf::from(resolved);
             if path
                 .extension()
