@@ -9,6 +9,8 @@ pub mod host;
 pub mod host_policy;
 pub mod init;
 pub mod install;
+pub mod install_state_doctor;
+pub mod install_state_repair;
 pub mod output;
 pub mod package_repair;
 pub mod provider;

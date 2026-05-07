@@ -23,6 +23,7 @@ use crate::commands::install::selection::{
 use crate::commands::output;
 use crate::commands::runtime_policy;
 use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
+use crate::install_state;
 use crate::verify;
 
 /// Configuration options for the install flow.
@@ -193,6 +194,29 @@ pub(crate) fn install_tool(
         );
     }
 
+    // Record the install in the SQLite install-state database.
+    // Compute a checksum of the installed binary for future drift detection.
+    // This is best-effort: a failure here does not abort the install.
+    let install_path_str = install_path.to_string_lossy();
+    let checksum = install_state::compute_checksum(&install_path).ok();
+    let checksum_ref = checksum.as_deref();
+    if let Ok(conn) = install_state::open() {
+        if let Err(error) = install_state::record_install(
+            &conn,
+            tool,
+            "binary",
+            Some(install_path_str.as_ref()),
+            Some(&version),
+            Some("lamella"),
+            checksum_ref,
+        ) {
+            eprintln!(
+                "  {} Could not record install state: {error}",
+                "!".yellow()
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -301,6 +325,28 @@ pub(crate) fn install_from_source(
             "  {} Could not write ownership state: {error}",
             "!".yellow()
         );
+    }
+
+    // Record the install in the SQLite install-state database.
+    // Best-effort: a failure here does not abort the install.
+    let binary_str = binary.to_string_lossy();
+    let checksum = install_state::compute_checksum(&binary).ok();
+    let checksum_ref = checksum.as_deref();
+    if let Ok(conn) = install_state::open() {
+        if let Err(error) = install_state::record_install(
+            &conn,
+            tool_name,
+            "binary",
+            Some(binary_str.as_ref()),
+            Some(&version),
+            Some("stipe-source"),
+            checksum_ref,
+        ) {
+            eprintln!(
+                "  {} Could not record install state: {error}",
+                "!".yellow()
+            );
+        }
     }
 
     Ok(version)

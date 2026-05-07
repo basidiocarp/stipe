@@ -7,6 +7,7 @@ mod backup;
 mod banner;
 mod commands;
 mod ecosystem;
+mod install_state;
 mod lockfile;
 #[cfg(unix)]
 mod socket_server;
@@ -132,6 +133,26 @@ enum Commands {
         /// Run deep verification, including functional smoke tests and MCP handshakes
         #[arg(long)]
         deep: bool,
+    },
+
+    /// Check install state of recorded items
+    #[command(name = "install-state-doctor")]
+    InstallStateDoctor,
+
+    /// Repair missing or drifted installed items
+    #[command(name = "install-state-repair")]
+    InstallStateRepair {
+        /// Show what would be repaired without making changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Scope for repair: hooks, skills, config, or all (default: all)
+        #[arg(long, value_parser = ["hooks", "skills", "config", "all"])]
+        scope: Option<String>,
+
+        /// Force repair of drift items (otherwise skipped)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Repair packaged skill and plugin state using Lamella with backup and rollback targets
@@ -279,6 +300,12 @@ fn main() -> Result<()> {
             developer,
             deep,
         } => commands::doctor::run(json, developer, deep),
+        Commands::InstallStateDoctor => commands::install_state_doctor::run(),
+        Commands::InstallStateRepair {
+            dry_run,
+            scope,
+            force,
+        } => commands::install_state_repair::run(dry_run, scope.as_deref(), force),
         Commands::Package { profile, dry_run } => commands::package_repair::run(profile, dry_run),
         Commands::Uninstall {
             all,
@@ -327,6 +354,8 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Init { .. } => "init",
         Commands::Host { .. } => "host",
         Commands::Doctor { .. } => "doctor",
+        Commands::InstallStateDoctor => "install-state-doctor",
+        Commands::InstallStateRepair { .. } => "install-state-repair",
         Commands::Package { .. } => "package",
         Commands::Uninstall { .. } => "uninstall",
         Commands::Provider { .. } => "provider",
