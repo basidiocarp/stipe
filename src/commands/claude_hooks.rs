@@ -379,18 +379,24 @@ fn extract_hook_path(command: &str) -> Option<PathBuf> {
         let candidate = token.trim_matches(|ch| matches!(ch, '"' | '\''));
 
         // Resolve ${CLAUDE_PLUGIN_ROOT} — Claude Code substitutes this at hook run-time.
-        let resolved_candidate;
-        let candidate = if candidate.contains("${CLAUDE_PLUGIN_ROOT}") {
-            if let Some(ref root) = plugin_root {
-                resolved_candidate =
-                    candidate.replace("${CLAUDE_PLUGIN_ROOT}", &root.to_string_lossy());
-                resolved_candidate.as_str()
-            } else {
+        // After substitution the result is already absolute, so return it directly to avoid
+        // the Unix-only starts_with('/') check below failing on Windows.
+        if candidate.contains("${CLAUDE_PLUGIN_ROOT}") {
+            let Some(ref root) = plugin_root else {
                 continue;
+            };
+            let resolved =
+                candidate.replace("${CLAUDE_PLUGIN_ROOT}", &root.to_string_lossy());
+            let path = PathBuf::from(resolved);
+            if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| matches!(ext, "js" | "sh" | "py"))
+            {
+                return Some(path);
             }
-        } else {
-            candidate
-        };
+            continue;
+        }
 
         let path = if let Some(suffix) = candidate.strip_prefix("$HOME/") {
             home.as_ref().map(|home| home.join(suffix))
