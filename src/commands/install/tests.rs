@@ -579,13 +579,24 @@ fn test_platform_key_known() {
     );
 }
 
+#[allow(unsafe_code)]
 fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
     let project_root = temp_test_dir(label);
     let config_root = project_root.join("config-root");
+    let backup_root = project_root.join("backups");
     fs::create_dir_all(&project_root).expect("create project root");
     fs::create_dir_all(&config_root).expect("create config root");
+    fs::create_dir_all(&backup_root).expect("create backup root");
 
     let lock_path = project_root.join("install.lock");
+
+    // Override STIPE_BACKUP_DIR so this test is not affected by env var leaks
+    // from concurrent tests (e.g. test_backup_hyphae_warns_on_failure).
+    // SAFETY: This is a test; the override is scoped to this closure via catch_unwind.
+    let prev_backup_dir = std::env::var("STIPE_BACKUP_DIR").ok();
+    unsafe {
+        std::env::set_var("STIPE_BACKUP_DIR", &backup_root);
+    }
 
     host_policy::with_project_root_override(project_root.clone(), || {
         runtime_policy::with_config_dir_override(config_root.clone(), || {
@@ -594,6 +605,13 @@ fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
             });
         });
     });
+
+    unsafe {
+        match prev_backup_dir {
+            Some(v) => std::env::set_var("STIPE_BACKUP_DIR", v),
+            None => std::env::remove_var("STIPE_BACKUP_DIR"),
+        }
+    }
 
     let _ = fs::remove_dir_all(project_root);
 }
