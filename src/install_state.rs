@@ -71,12 +71,15 @@ pub fn open() -> Result<Connection> {
 
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create stipe data directory")?;
+        std::fs::create_dir_all(parent).context("Failed to create stipe data directory")?;
     }
 
-    let conn = Connection::open(&path)
-        .with_context(|| format!("Failed to open install state database at {}", path.display()))?;
+    let conn = Connection::open(&path).with_context(|| {
+        format!(
+            "Failed to open install state database at {}",
+            path.display()
+        )
+    })?;
 
     // Initialize schema
     initialize_schema(&conn)?;
@@ -101,20 +104,24 @@ fn initialize_schema(conn: &Connection) -> Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );",
-    ).context("Failed to initialize install state schema")?;
+    )
+    .context("Failed to initialize install state schema")?;
 
     // Initialize schema version if not present
-    let has_version: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM install_state_meta WHERE key = 'schema_version')",
-        [],
-        |row| row.get(0),
-    ).context("Failed to check schema version")?;
+    let has_version: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM install_state_meta WHERE key = 'schema_version')",
+            [],
+            |row| row.get(0),
+        )
+        .context("Failed to check schema version")?;
 
     if !has_version {
         conn.execute(
             "INSERT INTO install_state_meta (key, value) VALUES (?, ?)",
             params!["schema_version", "1"],
-        ).context("Failed to initialize schema version")?;
+        )
+        .context("Failed to initialize schema version")?;
     }
 
     Ok(())
@@ -172,23 +179,27 @@ pub fn record_install(
 
 /// Lists all installed items.
 pub fn list_all(conn: &Connection) -> Result<Vec<InstalledItem>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, kind, path, version, installed_at, updated_at, source, checksum
-         FROM installed_items ORDER BY id"
-    ).context("Failed to prepare list query")?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, path, version, installed_at, updated_at, source, checksum
+         FROM installed_items ORDER BY id",
+        )
+        .context("Failed to prepare list query")?;
 
-    let items = stmt.query_map([], |row| {
-        Ok(InstalledItem {
-            id: row.get(0)?,
-            kind: row.get(1)?,
-            path: row.get(2)?,
-            version: row.get(3)?,
-            installed_at: row.get(4)?,
-            updated_at: row.get(5)?,
-            source: row.get(6)?,
-            checksum: row.get(7)?,
+    let items = stmt
+        .query_map([], |row| {
+            Ok(InstalledItem {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                path: row.get(2)?,
+                version: row.get(3)?,
+                installed_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                source: row.get(6)?,
+                checksum: row.get(7)?,
+            })
         })
-    }).context("Failed to query installed items")?;
+        .context("Failed to query installed items")?;
 
     let mut result = Vec::new();
     for item in items {
@@ -200,7 +211,7 @@ pub fn list_all(conn: &Connection) -> Result<Vec<InstalledItem>> {
 
 /// Computes SHA256 checksum of a file.
 pub fn compute_checksum(path: &Path) -> Result<String> {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     use std::fs::File;
     use std::io::Read;
 
@@ -210,7 +221,8 @@ pub fn compute_checksum(path: &Path) -> Result<String> {
     let mut buffer = [0; 8192];
 
     loop {
-        let bytes_read = file.read(&mut buffer)
+        let bytes_read = file
+            .read(&mut buffer)
             .context("Failed to read file for checksum")?;
         if bytes_read == 0 {
             break;
@@ -234,7 +246,15 @@ mod tests {
         let conn = Connection::open(&db_path)?;
         initialize_schema(&conn)?;
 
-        record_install(&conn, "test-item", "hook", Some("/path/to/item"), Some("1.0.0"), Some("test"), None)?;
+        record_install(
+            &conn,
+            "test-item",
+            "hook",
+            Some("/path/to/item"),
+            Some("1.0.0"),
+            Some("test"),
+            None,
+        )?;
 
         let items = list_all(&conn)?;
         assert_eq!(items.len(), 1);
@@ -254,8 +274,24 @@ mod tests {
         let conn = Connection::open(&db_path)?;
         initialize_schema(&conn)?;
 
-        record_install(&conn, "item", "hook", Some("/path1"), Some("1.0.0"), None, None)?;
-        record_install(&conn, "item", "hook", Some("/path2"), Some("2.0.0"), None, None)?;
+        record_install(
+            &conn,
+            "item",
+            "hook",
+            Some("/path1"),
+            Some("1.0.0"),
+            None,
+            None,
+        )?;
+        record_install(
+            &conn,
+            "item",
+            "hook",
+            Some("/path2"),
+            Some("2.0.0"),
+            None,
+            None,
+        )?;
 
         let items = list_all(&conn)?;
         assert_eq!(items.len(), 1);

@@ -52,7 +52,10 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
         match status {
             ItemStatus::Missing => {
                 if dry_run {
-                    println!("Would re-install [MISSING] {} (source: {:?})", item.id, item.source);
+                    println!(
+                        "Would re-install [MISSING] {} (source: {:?})",
+                        item.id, item.source
+                    );
                     preview_count += 1;
                 } else {
                     // Re-install logic is not yet implemented; report honestly rather

@@ -210,10 +210,7 @@ pub(crate) fn install_tool(
             Some("lamella"),
             checksum_ref,
         ) {
-            eprintln!(
-                "  {} Could not record install state: {error}",
-                "!".yellow()
-            );
+            eprintln!("  {} Could not record install state: {error}", "!".yellow());
         }
     }
 
@@ -342,10 +339,7 @@ pub(crate) fn install_from_source(
             Some("stipe-source"),
             checksum_ref,
         ) {
-            eprintln!(
-                "  {} Could not record install state: {error}",
-                "!".yellow()
-            );
+            eprintln!("  {} Could not record install state: {error}", "!".yellow());
         }
     }
 
