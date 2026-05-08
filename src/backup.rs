@@ -205,7 +205,10 @@ pub struct BackupOutcome {
 impl BackupOutcome {
     /// Returns true if the backup was completely successful.
     pub fn is_complete(&self) -> bool {
-        self.failed.is_empty() && self.missing.is_empty()
+        // A missing database or binary means there was nothing to back up (optional/not yet
+        // created). Only a copy failure — where the file exists but could not be written —
+        // is a real problem that should surface as incomplete.
+        self.failed.is_empty()
     }
 }
 
@@ -256,23 +259,22 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
         None
     };
 
-    // Find the hyphae database (default path)
-    let Some(home) = dirs::home_dir() else {
-        warn!("Could not determine home directory for hyphae database backup");
-        missing.push("hyphae database: home directory not found".to_string());
-        return BackupOutcome {
-            backup_dir: Some(backup_dir),
-            binaries_copied,
-            databases_copied,
-            missing,
-            failed,
-        };
-    };
-    let hyphae_db = home
-        .join(".local")
-        .join("share")
-        .join("hyphae")
-        .join("hyphae.db");
+    // Resolve the hyphae database path. The canonical location moved from
+    // `~/.local/share/hyphae/` to `~/.local/share/basidiocarp/hyphae/` after the
+    // shared storage root migration. Check the canonical path first, then the
+    // legacy path so that machines that haven't launched hyphae since the migration
+    // still get their database backed up.
+    let hyphae_db = dirs::data_dir().and_then(|data| {
+        let canonical = data.join("basidiocarp").join("hyphae").join("hyphae.db");
+        if canonical.exists() {
+            return Some(canonical);
+        }
+        let legacy = data.join("hyphae").join("hyphae.db");
+        if legacy.exists() {
+            return Some(legacy);
+        }
+        None
+    });
 
     // Backup the hyphae binary if it exists
     if let Some(bin_path) = hyphae_binary {
@@ -296,24 +298,25 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
         }
     }
 
-    // Backup the hyphae database if it exists
-    if hyphae_db.exists() {
+    // Backup the hyphae database if it was found at either the canonical or legacy path.
+    // If neither path exists the database has not been created yet (fresh install or hyphae
+    // has never been run); that is not an error, so we skip silently rather than flagging it
+    // as missing.
+    if let Some(db_path) = hyphae_db {
         let backup_db = backup_dir.join("hyphae.db");
-        match fs::copy(&hyphae_db, &backup_db) {
+        match fs::copy(&db_path, &backup_db) {
             Ok(_) => {
                 databases_copied.push(backup_db);
             }
             Err(e) => {
                 warn!(
                     "Failed to backup hyphae database from {}: {}",
-                    hyphae_db.display(),
+                    db_path.display(),
                     e
                 );
                 failed.push(format!("hyphae database: {e}"));
             }
         }
-    } else {
-        missing.push("hyphae database (not found at expected path)".to_string());
     }
 
     BackupOutcome {
