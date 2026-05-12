@@ -4,8 +4,10 @@ use std::path::PathBuf;
 
 /// Check the health of installed skills from a skill pack.
 pub(super) fn check_skills() -> HealthCheck {
-    let installed_manifest_path = get_installed_manifest_path();
+    check_skills_at(&get_installed_manifest_path())
+}
 
+fn check_skills_at(installed_manifest_path: &std::path::Path) -> HealthCheck {
     // If no manifest exists, this is OK (no skill pack installed)
     if !installed_manifest_path.exists() {
         return HealthCheck {
@@ -17,7 +19,7 @@ pub(super) fn check_skills() -> HealthCheck {
     }
 
     // Try to load and verify the manifest
-    match load_and_verify_manifest(&installed_manifest_path) {
+    match load_and_verify_manifest(installed_manifest_path) {
         Ok((passed, message)) => HealthCheck {
             name: "installed skills".to_string(),
             passed,
@@ -43,7 +45,7 @@ fn get_installed_manifest_path() -> PathBuf {
 }
 
 /// Load manifest and verify all skills.
-fn load_and_verify_manifest(manifest_path: &PathBuf) -> Result<(bool, String), String> {
+fn load_and_verify_manifest(manifest_path: &std::path::Path) -> Result<(bool, String), String> {
     let json = std::fs::read_to_string(manifest_path).map_err(|e| format!("read manifest: {e}"))?;
 
     let manifest: SkillPackManifest =
@@ -96,17 +98,18 @@ mod tests {
 
     #[test]
     fn test_check_skills_no_manifest() {
-        let check = check_skills();
+        let temp = tempfile::TempDir::new().unwrap();
+        let missing = temp.path().join("nonexistent.json");
+        let check = check_skills_at(&missing);
         assert!(check.passed);
         assert_eq!(check.name, "installed skills");
+        assert_eq!(check.message, "No skill pack installed");
     }
 
     #[test]
-    fn test_check_skills_with_temp_manifest() {
+    fn test_check_skills_with_empty_manifest() {
         let temp = tempfile::TempDir::new().unwrap();
-        let manifest_path = temp.path().join("basidiocarp").join("skills");
-        fs::create_dir_all(&manifest_path).unwrap();
-        let manifest_file = manifest_path.join(".installed-manifest.json");
+        let manifest_file = temp.path().join(".installed-manifest.json");
 
         let manifest_json = r#"{
             "pack_name": "test-pack",
@@ -115,9 +118,9 @@ mod tests {
         }"#;
         fs::write(&manifest_file, manifest_json).unwrap();
 
-        // We can't easily test with real paths without mocking, but at least verify
-        // the check structure is correct
-        let check = check_skills();
+        let check = check_skills_at(&manifest_file);
+        assert!(check.passed);
         assert_eq!(check.name, "installed skills");
+        assert!(check.message.contains("test-pack"));
     }
 }
