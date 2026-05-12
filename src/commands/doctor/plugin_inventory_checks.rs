@@ -31,18 +31,18 @@ use super::model::{PluginInventory, PluginInventoryItem, PluginPathStatus, Versi
 /// During `stipe doctor`, version drift for installed binaries is checked against these pins.
 fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
-    pins.insert("mycelium", "0.9.0");
-    pins.insert("hyphae", "0.12.0");
+    pins.insert("mycelium", "0.11.0");
+    pins.insert("hyphae", "0.14.0");
     pins.insert("rhizome", "0.8.0");
-    pins.insert("canopy", "0.6.0");
-    pins.insert("cortina", "0.3.0");
-    pins.insert("stipe", "0.6.0");
-    pins.insert("volva", "0.2.4");
-    pins.insert("hymenium", "0.6.0");
-    pins.insert("annulus", "0.5.5");
-    pins.insert("cap", "0.11.9");
+    pins.insert("canopy", "0.8.0");
+    pins.insert("cortina", "0.5.0");
+    pins.insert("stipe", "0.8.1");
+    pins.insert("volva", "0.3.1");
+    pins.insert("hymenium", "0.8.0");
+    pins.insert("annulus", "0.7.0");
+    pins.insert("cap", "0.13.0");
     pins.insert("lamella", "0.5.15");
-    pins.insert("spore", "0.4.11");
+    pins.insert("spore", "0.6.0");
     pins
 }
 

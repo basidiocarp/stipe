@@ -18,18 +18,18 @@ use crate::ecosystem::clients::{self, McpClient};
 /// Pinned tool versions from ecosystem-versions.toml. Must be kept in sync.
 fn pinned_ecosystem_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
-    pins.insert("mycelium", "0.9.0");
-    pins.insert("hyphae", "0.12.0");
+    pins.insert("mycelium", "0.11.0");
+    pins.insert("hyphae", "0.14.0");
     pins.insert("rhizome", "0.8.0");
-    pins.insert("canopy", "0.6.0");
-    pins.insert("cortina", "0.3.0");
-    pins.insert("stipe", "0.6.0");
-    pins.insert("volva", "0.2.4");
-    pins.insert("hymenium", "0.6.0");
-    pins.insert("annulus", "0.5.5");
-    pins.insert("cap", "0.11.9");
+    pins.insert("canopy", "0.8.0");
+    pins.insert("cortina", "0.5.0");
+    pins.insert("stipe", "0.8.1");
+    pins.insert("volva", "0.3.1");
+    pins.insert("hymenium", "0.8.0");
+    pins.insert("annulus", "0.7.0");
+    pins.insert("cap", "0.13.0");
     pins.insert("lamella", "0.5.15");
-    pins.insert("spore", "0.4.11");
+    pins.insert("spore", "0.6.0");
     pins
 }
 
@@ -895,19 +895,19 @@ mod tests {
         );
         assert_eq!(
             pinned.as_deref(),
-            Some("0.12.0"),
+            Some("0.14.0"),
             "pinned version should be returned"
         );
     }
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned) = check_version_drift("hyphae", "0.12.0");
+        let (is_behind, pinned) = check_version_drift("hyphae", "0.14.0");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
-        assert_eq!(pinned.as_deref(), Some("0.12.0"));
+        assert_eq!(pinned.as_deref(), Some("0.14.0"));
     }
 
     #[test]
