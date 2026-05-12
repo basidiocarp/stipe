@@ -129,7 +129,7 @@ pub fn check_completeness(tool_name: &str, install_dir: &Path) -> CompletenessRe
 ///
 /// A point "passes" here when it is confirmed absent.
 #[must_use]
-#[allow(dead_code)]
+#[allow(dead_code)] // planned API for post-uninstall verification; not yet wired to a CLI command
 pub fn check_absence(tool_name: &str, install_dir: &Path) -> CompletenessReport {
     let binary_path = install_dir.join(tool_name);
 
@@ -273,7 +273,7 @@ pub fn is_stipe_managed(tool_name: &str) -> bool {
 }
 
 /// Load the ownership state for a tool, if present.
-#[allow(dead_code)]
+#[allow(dead_code)] // planned API for ownership-aware repair; not yet wired to a CLI command
 pub fn load_ownership_state(tool_name: &str) -> Result<Option<OwnershipState>> {
     let Some(path) = ownership_path(tool_name) else {
         return Ok(None);

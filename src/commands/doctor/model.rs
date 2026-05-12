@@ -149,10 +149,10 @@ pub(super) struct InstallProfileSummary {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // ClaudeRoot not yet constructed; planned production callsite pending
 pub(super) enum ConfigFormat {
     Json,
     Toml,
-    #[allow(dead_code)]
     ClaudeRoot,
 }
 

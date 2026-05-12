@@ -579,7 +579,7 @@ fn test_platform_key_known() {
     );
 }
 
-#[allow(unsafe_code)]
+#[allow(unsafe_code)] // set_var is unsafe in Rust 2024; test helper serializes env access through its own sequencing
 fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
     let project_root = temp_test_dir(label);
     let config_root = project_root.join("config-root");

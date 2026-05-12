@@ -132,11 +132,11 @@ pub struct InstalledItem {
     pub id: String,
     pub kind: String,
     pub path: Option<String>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // persisted to DB and read into struct; not yet consumed by application logic
     pub version: Option<String>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // persisted to DB and read into struct; not yet consumed by application logic
     pub installed_at: i64,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // persisted to DB and read into struct; not yet consumed by application logic
     pub updated_at: i64,
     pub source: Option<String>,
     pub checksum: Option<String>,

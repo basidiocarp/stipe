@@ -329,7 +329,7 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
 }
 
 #[cfg(test)]
-#[allow(unsafe_code)]
+#[allow(unsafe_code)] // set_var is unsafe in Rust 2024; tests run sequentially so env mutation is safe
 mod tests {
     use super::*;
     use tempfile::TempDir;

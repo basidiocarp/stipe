@@ -732,16 +732,6 @@ pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCh
     }
 }
 
-#[allow(dead_code)]
-pub(super) fn installed_mcp_servers() -> Vec<&'static str> {
-    tool_registry::doctor_specs()
-        .into_iter()
-        .filter(|spec| spec.mcp_serve_args.is_some())
-        .filter(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
-        .map(|spec| spec.name)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -27,7 +27,7 @@ pub struct SkillEntry {
 
 /// Result of verifying a skill file.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // public API surface for skill verification; not yet consumed by a CLI command
 pub struct SkillVerifyResult {
     pub entry: SkillEntry,
     pub status: SkillVerifyStatus,
@@ -138,7 +138,7 @@ pub fn create_skill_snapshot(manifest: &SkillPackManifest) -> Result<SkillSnapsh
 
 /// Pre-install state of skill files for rollback.
 pub struct SkillSnapshot {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // TempDir is kept alive for RAII cleanup; dropped when SkillSnapshot drops
     pub snapshot_dir: tempfile::TempDir,
     pub files: Vec<(String, SkillFileState)>,
 }

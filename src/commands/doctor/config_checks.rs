@@ -1,11 +1,9 @@
 use serde_json::Value;
-use std::path::PathBuf;
 
 use super::host_policy;
 use super::model::{ConfigFormat, DriftReport, HealthCheck};
 use crate::commands::init::baseline;
 use crate::commands::repair::{RepairAction, RepairTier};
-use crate::ecosystem::clients::vscode_cline_settings_path;
 
 pub(super) struct ConfigDriftState {
     pub(super) check: HealthCheck,
@@ -87,77 +85,6 @@ pub(super) fn config_mentions_servers(
     }
 }
 
-#[allow(dead_code)]
-fn mcp_client_config_paths() -> Vec<(&'static str, PathBuf, ConfigFormat)> {
-    let mut paths = Vec::new();
-
-    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::ClaudeCode) {
-        paths.push(("Claude Code", path, ConfigFormat::ClaudeRoot));
-    }
-    if let Some(project_root) = host_policy::project_root() {
-        paths.push((
-            "Claude Code",
-            project_root.join(".mcp.json"),
-            ConfigFormat::Json,
-        ));
-    }
-    if let Some(path) = host_policy::host_config_path(host_policy::HostMode::Cursor) {
-        paths.push(("Cursor", path, ConfigFormat::Json));
-    }
-    if let Some(path) = host_policy::codex_notify_config_path(host_policy::HostConfigScope::User) {
-        paths.push(("Codex CLI", path, ConfigFormat::Toml));
-    }
-    if let Some(path) = host_policy::codex_notify_config_path(host_policy::HostConfigScope::Project)
-    {
-        paths.push(("Codex CLI", path, ConfigFormat::Toml));
-    }
-
-    let Some(home) = dirs::home_dir() else {
-        return paths;
-    };
-
-    paths.extend([
-        (
-            "Windsurf",
-            home.join(".windsurf").join("mcp.json"),
-            ConfigFormat::Json,
-        ),
-        (
-            "Continue",
-            home.join(".continue").join("config.json"),
-            ConfigFormat::Json,
-        ),
-    ]);
-
-    if let Some(cline_path) = vscode_cline_settings_path() {
-        paths.push(("Cline", cline_path, ConfigFormat::Json));
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        paths.push((
-            "Claude Desktop",
-            home.join("Library")
-                .join("Application Support")
-                .join("Claude")
-                .join("claude_desktop_config.json"),
-            ConfigFormat::Json,
-        ));
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(config_dir) = dirs::config_dir() {
-            paths.push((
-                "Claude Desktop",
-                config_dir.join("Claude").join("claude_desktop_config.json"),
-                ConfigFormat::Json,
-            ));
-        }
-    }
-
-    paths
-}
 
 pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
     match baseline::evaluate_drift() {
