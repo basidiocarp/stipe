@@ -19,7 +19,7 @@ use crate::ecosystem::clients::{self, McpClient};
 fn pinned_ecosystem_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
     pins.insert("mycelium", "0.11.0");
-    pins.insert("hyphae", "0.14.0");
+    pins.insert("hyphae", "0.14.2");
     pins.insert("rhizome", "0.8.0");
     pins.insert("canopy", "0.8.0");
     pins.insert("cortina", "0.5.0");
@@ -895,19 +895,19 @@ mod tests {
         );
         assert_eq!(
             pinned.as_deref(),
-            Some("0.14.0"),
+            Some("0.14.2"),
             "pinned version should be returned"
         );
     }
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned) = check_version_drift("hyphae", "0.14.0");
+        let (is_behind, pinned) = check_version_drift("hyphae", "0.14.2");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
-        assert_eq!(pinned.as_deref(), Some("0.14.0"));
+        assert_eq!(pinned.as_deref(), Some("0.14.2"));
     }
 
     #[test]

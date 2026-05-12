@@ -32,7 +32,7 @@ use super::model::{PluginInventory, PluginInventoryItem, PluginPathStatus, Versi
 fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
     let mut pins = HashMap::new();
     pins.insert("mycelium", "0.11.0");
-    pins.insert("hyphae", "0.14.0");
+    pins.insert("hyphae", "0.14.2");
     pins.insert("rhizome", "0.8.0");
     pins.insert("canopy", "0.8.0");
     pins.insert("cortina", "0.5.0");
