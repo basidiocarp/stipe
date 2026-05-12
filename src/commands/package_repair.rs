@@ -79,16 +79,12 @@ impl LamellaInvocation {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
     let profile = resolve_profile(profile);
     let lamella_invocations = lamella_invocations(profile);
 
-    println!();
-    println!("{}", "Package Repair".bold());
-    println!("{}", "─".repeat(75));
-    println!("Profile: {}", profile.profile_name());
-    println!("Lamella invocation(s):");
+    print_repair_header(&profile, &lamella_invocations);
+
     if lamella_invocations.is_empty() {
         println!("  - none for {}", profile.mode_label());
         println!(
@@ -101,105 +97,158 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
     let lamella_root = locate_lamella_root()?;
     let targets = package_state_targets(&lamella_invocations);
 
-    println!(
-        "Lamella source: {}",
-        host_policy::format_user_path(&lamella_root)
-    );
-    for invocation in &lamella_invocations {
-        println!("  - {}", lamella_command_string(invocation));
-    }
+    print_lamella_config(&lamella_root, &lamella_invocations);
 
     if dry_run {
-        for target in targets {
-            println!(
-                "Would back up {} before package install.",
-                host_policy::format_user_path(&target)
-            );
-        }
+        print_dry_run_targets(&targets);
         return Ok(());
     }
 
-    let backups = match prepare_backups(&targets) {
+    run_repair_with_backups(profile, &lamella_root, &lamella_invocations, &targets)
+}
+
+fn print_repair_header(profile: &InstallProfile, _invocations: &[LamellaInvocation]) {
+    println!();
+    println!("{}", "Package Repair".bold());
+    println!("{}", "─".repeat(75));
+    println!("Profile: {}", profile.profile_name());
+    println!("Lamella invocation(s):");
+}
+
+fn print_lamella_config(lamella_root: &Path, invocations: &[LamellaInvocation]) {
+    println!(
+        "Lamella source: {}",
+        host_policy::format_user_path(lamella_root)
+    );
+    for invocation in invocations {
+        println!("  - {}", lamella_command_string(invocation));
+    }
+}
+
+fn print_dry_run_targets(targets: &[PathBuf]) {
+    for target in targets {
+        println!(
+            "Would back up {} before package install.",
+            host_policy::format_user_path(target)
+        );
+    }
+}
+
+fn run_repair_with_backups(
+    profile: InstallProfile,
+    lamella_root: &Path,
+    lamella_invocations: &[LamellaInvocation],
+    targets: &[PathBuf],
+) -> Result<()> {
+    let backups = match prepare_backups(targets) {
         Ok(backups) => backups,
         Err(failure) => {
-            if !failure.backups.is_empty() {
-                for line in rollback_summary_lines(&failure.rollback) {
-                    println!("{line}");
-                }
-            }
-            let failure_message = format_backup_preparation_failure_message(
-                &failure.error,
-                failure.backups.len(),
-                &failure.rollback,
-            );
-            append_audit_log_best_effort(&build_audit_event(
-                "failed",
-                profile,
-                &lamella_root,
-                &lamella_invocations,
-                &failure.backups,
-                if failure.backups.is_empty() {
-                    None
-                } else {
-                    Some(&failure.rollback)
-                },
-                Some(&failure_message),
-            ));
-            return Err(anyhow!(failure_message));
+            handle_backup_failure(profile, lamella_root, lamella_invocations, &failure)?;
+            return Err(anyhow!("backup preparation failed"));
         }
     };
+
+    let status = run_lamella_install(lamella_root, lamella_invocations);
+
+    match status {
+        Ok(()) => handle_repair_success(profile, lamella_root, lamella_invocations, &backups),
+        Err(error) => handle_repair_failure(profile, lamella_root, lamella_invocations, &backups, error),
+    }
+}
+
+fn handle_backup_failure(
+    profile: InstallProfile,
+    lamella_root: &Path,
+    lamella_invocations: &[LamellaInvocation],
+    failure: &BackupPreparationFailure,
+) -> Result<()> {
+    if !failure.backups.is_empty() {
+        for line in rollback_summary_lines(&failure.rollback) {
+            println!("{line}");
+        }
+    }
+    let failure_message = format_backup_preparation_failure_message(
+        &failure.error,
+        failure.backups.len(),
+        &failure.rollback,
+    );
+    append_audit_log_best_effort(&build_audit_event(
+        "failed",
+        profile,
+        lamella_root,
+        lamella_invocations,
+        &failure.backups,
+        if failure.backups.is_empty() {
+            None
+        } else {
+            Some(&failure.rollback)
+        },
+        Some(&failure_message),
+    ));
+    Ok(())
+}
+
+fn handle_repair_success(
+    profile: InstallProfile,
+    lamella_root: &Path,
+    lamella_invocations: &[LamellaInvocation],
+    backups: &[PackageBackup],
+) -> Result<()> {
     let backup_paths = backups
         .iter()
         .map(|backup| host_policy::format_user_path(&backup.backup))
         .collect::<Vec<_>>();
-    let status = run_lamella_install(&lamella_root, &lamella_invocations);
 
-    match status {
-        Ok(()) => {
-            append_audit_log_best_effort(&build_audit_event(
-                "success",
-                profile,
-                &lamella_root,
-                &lamella_invocations,
-                &backups,
-                None,
-                None,
-            ));
-            if backup_paths.is_empty() {
-                println!("No existing package state required backup.");
-            } else {
-                println!("Backups created:");
-                for path in backup_paths {
-                    println!("  - {path}");
-                }
-                println!(
-                    "{}",
-                    "Rollback target: rename backup paths back to their original locations."
-                        .dimmed()
-                );
-            }
-            println!("{}", "Package repair completed.".green());
-            Ok(())
+    append_audit_log_best_effort(&build_audit_event(
+        "success",
+        profile,
+        lamella_root,
+        lamella_invocations,
+        backups,
+        None,
+        None,
+    ));
+
+    if backup_paths.is_empty() {
+        println!("No existing package state required backup.");
+    } else {
+        println!("Backups created:");
+        for path in backup_paths {
+            println!("  - {path}");
         }
-        Err(error) => {
-            let rollback = rollback_backups(&backups);
-            for line in rollback_summary_lines(&rollback) {
-                println!("{line}");
-            }
-            let error_string = error.to_string();
-            append_audit_log_best_effort(&build_audit_event(
-                "failed",
-                profile,
-                &lamella_root,
-                &lamella_invocations,
-                &backups,
-                Some(&rollback),
-                Some(&error_string),
-            ));
-            let failure_message = format_failed_package_repair_message(&error, &rollback);
-            Err(anyhow!(failure_message))
-        }
+        println!(
+            "{}",
+            "Rollback target: rename backup paths back to their original locations."
+                .dimmed()
+        );
     }
+    println!("{}", "Package repair completed.".green());
+    Ok(())
+}
+
+fn handle_repair_failure(
+    profile: InstallProfile,
+    lamella_root: &Path,
+    lamella_invocations: &[LamellaInvocation],
+    backups: &[PackageBackup],
+    error: anyhow::Error,
+) -> Result<()> {
+    let rollback = rollback_backups(backups);
+    for line in rollback_summary_lines(&rollback) {
+        println!("{line}");
+    }
+    let error_string = error.to_string();
+    append_audit_log_best_effort(&build_audit_event(
+        "failed",
+        profile,
+        lamella_root,
+        lamella_invocations,
+        backups,
+        Some(&rollback),
+        Some(&error_string),
+    ));
+    let failure_message = format_failed_package_repair_message(&error, &rollback);
+    Err(anyhow!(failure_message))
 }
 
 pub(crate) fn supports_profile(profile: InstallProfile) -> bool {

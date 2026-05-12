@@ -11,13 +11,14 @@ use crate::commands::developer_tools;
 use crate::commands::github;
 use crate::commands::github::GitHubClient;
 use crate::commands::install::release::{
-    download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
+    self, download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
     find_checksum_asset, find_matching_asset, normalize_version, platform_key,
     verify_asset_checksum, verify_binary, verify_functional,
 };
 use crate::commands::install::save_selected_profile;
+use crate::commands::install::profile_surface::ManualProfileMember;
 use crate::commands::install::selection::{
-    print_install_preview, print_profile_install_preview, render_embedded_profile_install_preview,
+    print_install_preview, render_embedded_profile_install_preview,
     resolve_requested_tools, split_requested_tools,
 };
 use crate::commands::output;
@@ -44,15 +45,55 @@ pub struct InstallOptions {
     pub force: bool,
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn install_tool(
     tool: &str,
     prefix: &Path,
     force: bool,
     client: &GitHubClient,
 ) -> Result<()> {
-    let spec = tool_registry::find(tool).ok_or_else(|| anyhow!("Unknown tool: {tool}"))?;
+    let install_path = prefix.join(tool);
 
+    if check_already_installed(&install_path, force) {
+        return Ok(());
+    }
+
+    let (release, data) = fetch_and_download_binary(tool, client)?;
+    let platform_key = platform_key();
+    let asset = find_matching_asset(&release, platform_key)?;
+    verify_download_checksum(&data, asset, &release, tool, client)?;
+
+    let temp_guard =
+        tempfile::TempDir::new().context("Failed to create temporary directory for extraction")?;
+    let extracted_path = extract_and_verify_binary(&data, temp_guard.path(), &release)?;
+
+    deploy_binary(&install_path, &extracted_path)?;
+    let version = verify_binary(&extracted_path)?;
+
+    verify_and_report_installation(tool, &install_path, &version, prefix)?;
+    record_install_state(tool, &install_path, &version)?;
+
+    Ok(())
+}
+
+fn check_already_installed(install_path: &Path, force: bool) -> bool {
+    if install_path.exists() && !force {
+        let tool = install_path.file_name().unwrap_or_default().to_string_lossy();
+        println!(
+            "  {} {} already installed at {}. Use --force to replace.",
+            "⊘".yellow(),
+            tool,
+            install_path.display()
+        );
+        true
+    } else {
+        false
+    }
+}
+
+fn fetch_and_download_binary(
+    tool: &str,
+    client: &GitHubClient,
+) -> Result<(release::GitHubRelease, Vec<u8>)> {
     println!("  {} Fetching release information...", "⏳".yellow());
 
     let release = fetch_latest_release(tool, client)?;
@@ -60,18 +101,6 @@ pub(crate) fn install_tool(
     let asset = find_matching_asset(&release, platform_key)?;
 
     println!("  {} Found {}: {}", "✓".green(), tool, release.version);
-
-    let install_path = prefix.join(tool);
-
-    if install_path.exists() && !force {
-        println!(
-            "  {} {} already installed at {}. Use --force to replace.",
-            "⊘".yellow(),
-            tool,
-            install_path.display()
-        );
-        return Ok(());
-    }
 
     println!("  {} Downloading {}...", "⏳".yellow(), asset.name);
     let progress = ProgressBar::new(0);
@@ -83,31 +112,43 @@ pub(crate) fn install_tool(
     );
     let data = download_binary(asset, &progress, client)?;
 
-    // Verify SHA-256 before extraction when a checksum asset is available.
-    let sha256sums = find_checksum_asset(&release)
-        .map(|cs_asset| download_sha256sums(cs_asset, client))
+    Ok((release, data))
+}
+
+fn verify_download_checksum(
+    data: &[u8],
+    asset: &release::ReleaseAsset,
+    release: &release::GitHubRelease,
+    tool: &str,
+    client: &GitHubClient,
+) -> Result<()> {
+    let sha256sums = find_checksum_asset(release)
+        .map(|cs_asset| download_sha256sums(&cs_asset, client))
         .transpose()?;
     if let Some(ref sums) = sha256sums {
-        verify_asset_checksum(&data, &asset.name, sums)
+        verify_asset_checksum(data, &asset.name, sums)
             .with_context(|| format!("Checksum verification failed for {}", asset.name))?;
     } else {
-        // TODO: upgrade to a hard failure once all releases publish SHA256SUMS.
         tracing::warn!(
             "no SHA256SUMS asset found for {} {}; skipping checksum verification",
             tool,
             release.version
         );
     }
+    Ok(())
+}
 
+fn extract_and_verify_binary(
+    data: &[u8],
+    temp_dir: &Path,
+    release: &release::GitHubRelease,
+) -> Result<PathBuf> {
     println!("  {} Extracting...", "⏳".yellow());
-    let temp_guard =
-        tempfile::TempDir::new().context("Failed to create temporary directory for extraction")?;
-    let extracted_path = extract_tarball(&data, temp_guard.path())?;
+    let extracted_path = extract_tarball(data, temp_dir)?;
 
     println!("  {} Verifying...", "⏳".yellow());
     let version = verify_binary(&extracted_path)?;
 
-    // Require the extracted binary version to match the expected release tag.
     if normalize_version(&version) != normalize_version(&release.version) {
         return Err(anyhow!(
             "Version mismatch after extraction: expected {}, binary reports {}",
@@ -116,7 +157,11 @@ pub(crate) fn install_tool(
         ));
     }
 
-    fs::copy(&extracted_path, &install_path).with_context(|| {
+    Ok(extracted_path)
+}
+
+fn deploy_binary(install_path: &Path, extracted_path: &Path) -> Result<()> {
+    fs::copy(extracted_path, install_path).with_context(|| {
         format!(
             "Failed to copy {} to {}",
             extracted_path.display(),
@@ -127,13 +172,10 @@ pub(crate) fn install_tool(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&install_path, fs::Permissions::from_mode(0o755))
+        fs::set_permissions(install_path, fs::Permissions::from_mode(0o755))
             .with_context(|| format!("Failed to make {} executable", install_path.display()))?;
     }
 
-    // macOS requires ad-hoc re-signing after copying a binary to a new location.
-    // Without this, the linker signature is invalidated and macOS kills the binary
-    // with SIGKILL (exit 137) on execution.
     #[cfg(target_os = "macos")]
     {
         let path_str = install_path.to_str().ok_or_else(|| {
@@ -147,7 +189,18 @@ pub(crate) fn install_tool(
             .output();
     }
 
-    match verify_functional(&install_path, spec) {
+    Ok(())
+}
+
+fn verify_and_report_installation(
+    tool: &str,
+    install_path: &Path,
+    version: &str,
+    prefix: &Path,
+) -> Result<()> {
+    let spec = tool_registry::find(tool).ok_or_else(|| anyhow!("Unknown tool: {tool}"))?;
+
+    match verify_functional(install_path, spec) {
         Ok(()) => {
             if spec.smoke_test_args.is_some() {
                 println!("  {} {} functional check passed", "✓".green(), tool);
@@ -166,8 +219,6 @@ pub(crate) fn install_tool(
         install_path.display()
     );
 
-    // Best-effort completeness check. Binary may not be on PATH yet (shell refresh
-    // required), so we warn rather than hard-fail when integration points are missing.
     let report = verify::check_completeness(tool, prefix);
     if !report.all_passed() {
         let failing: Vec<String> = report
@@ -186,7 +237,6 @@ pub(crate) fn install_tool(
         );
     }
 
-    // Record stipe ownership so doctor can distinguish managed vs user-added tools.
     if let Err(error) = verify::write_ownership_state(tool, &report) {
         eprintln!(
             "  {} Could not write ownership state: {error}",
@@ -194,11 +244,12 @@ pub(crate) fn install_tool(
         );
     }
 
-    // Record the install in the SQLite install-state database.
-    // Compute a checksum of the installed binary for future drift detection.
-    // This is best-effort: a failure here does not abort the install.
+    Ok(())
+}
+
+fn record_install_state(tool: &str, install_path: &Path, version: &str) -> Result<()> {
     let install_path_str = install_path.to_string_lossy();
-    let checksum = install_state::compute_checksum(&install_path).ok();
+    let checksum = install_state::compute_checksum(install_path).ok();
     let checksum_ref = checksum.as_deref();
     if let Ok(conn) = install_state::open() {
         if let Err(error) = install_state::record_install(
@@ -206,14 +257,13 @@ pub(crate) fn install_tool(
             tool,
             "binary",
             Some(install_path_str.as_ref()),
-            Some(&version),
+            Some(version),
             Some("lamella"),
             checksum_ref,
         ) {
             eprintln!("  {} Could not record install state: {error}", "!".yellow());
         }
     }
-
     Ok(())
 }
 
@@ -355,15 +405,54 @@ pub(crate) fn install_bin_dir() -> Result<PathBuf> {
     bin_paths::local_bin_dir().ok_or_else(|| anyhow!("Could not determine local bin directory"))
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     let _lock =
         crate::lockfile::acquire_lock(opts.force).context("could not acquire install lock")?;
     let span_context = install_span_context();
     let _workflow_span = workflow_span("install", &span_context).entered();
     let prefix = install_bin_dir()?;
-    let mut failures = Vec::new();
 
+    print_install_banner();
+
+    if let Some(profile) = opts
+        .profile
+        .filter(|profile| *profile != InstallProfile::DeveloperTools)
+    {
+        check_and_enforce_policy(profile)?;
+    }
+
+    if opts.profile == Some(InstallProfile::DeveloperTools) {
+        return handle_developer_tools_profile(tools);
+    }
+
+    let tools_to_install = resolve_requested_tools(opts.all, opts.profile, tools);
+
+    if opts.dry_run {
+        print_install_preview_and_exit(&prefix, tools_to_install);
+        return Ok(());
+    }
+
+    let (tools_to_install, manual_tools) = resolve_and_split_tools(tools_to_install)?;
+    println!();
+
+    let installed_binary_paths = build_binary_paths(&prefix, &tools_to_install);
+    create_preinstall_backup(&installed_binary_paths)?;
+
+    let mut failures = Vec::new();
+    if opts.from_source {
+        install_from_source_phase(opts, &tools_to_install, &mut failures);
+    } else {
+        install_from_releases_phase(&tools_to_install, &prefix, &mut failures);
+    }
+
+    let has_manual_follow_up = !manual_tools.is_empty();
+    print_manual_follow_up(&manual_tools);
+    println!();
+
+    finalize_install(failures, opts.profile, has_manual_follow_up)
+}
+
+fn print_install_banner() {
     crate::banner::print_banner();
     println!("{}", "Basidiocarp Ecosystem Installer".bold());
     println!("{}", "─".repeat(75));
@@ -372,167 +461,168 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
         "Bring the local operator canopy online with a deliberate rollout.".dimmed()
     );
     println!();
+}
 
-    if let Some(profile) = opts
-        .profile
-        .filter(|profile| *profile != InstallProfile::DeveloperTools)
-    {
-        let runtime_policy = runtime_policy::collect_runtime_policy(Some(profile));
-        for line in runtime_policy::render_install_policy_lines(profile, &runtime_policy) {
-            println!("{line}");
+fn check_and_enforce_policy(profile: InstallProfile) -> Result<()> {
+    let runtime_policy = runtime_policy::collect_runtime_policy(Some(profile));
+    for line in runtime_policy::render_install_policy_lines(profile, &runtime_policy) {
+        println!("{line}");
+    }
+    runtime_policy::enforce_install_profile_policy(profile, &runtime_policy)?;
+    println!();
+    Ok(())
+}
+
+fn handle_developer_tools_profile(tools: &[String]) -> Result<()> {
+    let unknown = developer_tools::unknown_requested_tools(tools);
+    let report = developer_tools::install_report(tools);
+
+    for line in developer_tools::render_install_advice(&report) {
+        println!("{line}");
+    }
+
+    if !unknown.is_empty() {
+        println!("Unknown developer tools:");
+        for name in unknown {
+            println!("  - {name}");
         }
-        runtime_policy::enforce_install_profile_policy(profile, &runtime_policy)?;
         println!();
     }
 
-    if opts.profile == Some(InstallProfile::DeveloperTools) {
-        let unknown = developer_tools::unknown_requested_tools(tools);
-        let report = developer_tools::install_report(tools);
+    Ok(())
+}
 
-        for line in developer_tools::render_install_advice(&report) {
-            println!("{line}");
+fn print_install_preview_and_exit(
+    prefix: &Path,
+    tools_to_install: Option<Vec<String>>,
+) {
+    match tools_to_install {
+        Some(ref requested) => {
+            let label = "all".to_string();
+            print_install_preview(prefix, requested, &label);
         }
-
-        if !unknown.is_empty() {
-            println!("Unknown developer tools:");
-            for name in unknown {
-                println!("  - {name}");
-            }
-            println!();
+        None => {
+            print_install_preview(prefix, &[], "interactive selection");
         }
-
-        return Ok(());
     }
+    println!();
+}
 
-    let tools_to_install = resolve_requested_tools(opts.all, opts.profile, tools);
-
-    if opts.dry_run {
-        match tools_to_install {
-            Some(ref requested) => {
-                if let Some(profile) = opts.profile {
-                    print_profile_install_preview(&prefix, profile, requested);
-                } else {
-                    let label = if opts.all {
-                        "all".to_string()
-                    } else {
-                        "explicit tools".to_string()
-                    };
-                    print_install_preview(&prefix, requested, &label);
-                }
-            }
-            None => {
-                print_install_preview(&prefix, &[], "interactive selection");
-            }
-        }
-
-        println!();
-        return Ok(());
-    }
-
+fn resolve_and_split_tools(tools_to_install: Option<Vec<String>>) -> Result<(Vec<String>, Vec<ManualProfileMember>)> {
     let tools_to_install: Vec<String> = if let Some(tools) = tools_to_install {
         tools
     } else {
-        let theme = ColorfulTheme::default();
-        let installable_specs = tool_registry::installable_specs();
-        println!("{}", "Choose your operator kit.".bold());
-        println!(
-            "{}",
-            "Managed tools start selected. Trim the list to fit this machine.".dimmed()
-        );
-        println!();
-
-        let tool_items: Vec<(String, bool)> = installable_specs
-            .iter()
-            .map(|spec| (format!("{:<15} — {}", spec.name, spec.description), true))
-            .collect();
-
-        let selections = MultiSelect::with_theme(&theme)
-            .items_checked(tool_items)
-            .interact()?;
-
-        if selections.is_empty() {
-            println!();
-            println!("{}", "No tools selected. Exiting.".yellow());
-            println!();
-            return Ok(());
-        }
-
-        selections
-            .iter()
-            .map(|&idx| installable_specs[idx].name.to_string())
-            .collect()
+        prompt_tool_selection()?
     };
-    let (tools_to_install, manual_tools) = split_requested_tools(&tools_to_install);
+    Ok(split_requested_tools(&tools_to_install))
+}
 
+fn prompt_tool_selection() -> Result<Vec<String>> {
+    let theme = ColorfulTheme::default();
+    let installable_specs = tool_registry::installable_specs();
+    println!("{}", "Choose your operator kit.".bold());
+    println!(
+        "{}",
+        "Managed tools start selected. Trim the list to fit this machine.".dimmed()
+    );
     println!();
 
-    // Collect the binary paths that will be installed so the backup can capture them.
-    let mut installed_binary_paths: Vec<(String, PathBuf)> = Vec::new();
-    for tool in &tools_to_install {
-        let tool_path = prefix.join(tool);
-        installed_binary_paths.push((tool.clone(), tool_path));
+    let tool_items: Vec<(String, bool)> = installable_specs
+        .iter()
+        .map(|spec| (format!("{:<15} — {}", spec.name, spec.description), true))
+        .collect();
+
+    let selections = MultiSelect::with_theme(&theme)
+        .items_checked(tool_items)
+        .interact()?;
+
+    if selections.is_empty() {
+        println!();
+        println!("{}", "No tools selected. Exiting.".yellow());
+        println!();
+        return Ok(Vec::new());
     }
 
-    // Create a backup before proceeding with any installations.
+    Ok(selections
+        .iter()
+        .map(|&idx| installable_specs[idx].name.to_string())
+        .collect())
+}
+
+fn build_binary_paths(prefix: &Path, tools: &[String]) -> Vec<(String, PathBuf)> {
+    tools
+        .iter()
+        .map(|tool| (tool.clone(), prefix.join(tool)))
+        .collect()
+}
+
+fn create_preinstall_backup(installed_binary_paths: &[(String, PathBuf)]) -> Result<()> {
     let timestamp = crate::backup::backup_timestamp();
     let stipe_version = env!("CARGO_PKG_VERSION");
-    crate::backup::create_backup(&timestamp, stipe_version, &installed_binary_paths, &[])
+    let _backup_path = crate::backup::create_backup(&timestamp, stipe_version, installed_binary_paths, &[])
         .context("could not create pre-install backup")?;
+    Ok(())
+}
 
-    if opts.from_source {
-        let monorepo_root = opts
-            .source_dir
-            .clone()
-            .unwrap_or_else(default_monorepo_root);
+fn install_from_source_phase(
+    opts: &InstallOptions,
+    tools: &[String],
+    failures: &mut Vec<String>,
+) {
+    let monorepo_root = opts
+        .source_dir
+        .clone()
+        .unwrap_or_else(default_monorepo_root);
 
-        for tool in &tools_to_install {
-            let tool_source = monorepo_root.join(tool);
-            let spec = tool_registry::find(tool);
-            let Some(spec) = spec else {
-                eprintln!("  {} Unknown tool: {}", "!".red(), tool);
-                continue;
-            };
-            match install_from_source(tool, spec, &tool_source) {
-                Ok(_version) => {}
-                Err(error) => {
-                    eprintln!(
-                        "  {} Failed to build {} from source: {}",
-                        "!".red(),
-                        tool,
-                        error
-                    );
-                    failures.push(format!("{tool}: {error}"));
-                }
-            }
-        }
-    } else {
-        let client = github::github_client();
-
-        for tool in &tools_to_install {
-            match install_tool_for_run(tool, &prefix, false, &client) {
-                Ok(()) => {}
-                Err(error) => {
-                    eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
-                    failures.push(format!("{tool}: {error}"));
-                }
+    for tool in tools {
+        let tool_source = monorepo_root.join(tool);
+        let spec = tool_registry::find(tool);
+        let Some(spec) = spec else {
+            eprintln!("  {} Unknown tool: {}", "!".red(), tool);
+            continue;
+        };
+        match install_from_source(tool, spec, &tool_source) {
+            Ok(_version) => {}
+            Err(error) => {
+                eprintln!(
+                    "  {} Failed to build {} from source: {}",
+                    "!".red(),
+                    tool,
+                    error
+                );
+                failures.push(format!("{tool}: {error}"));
             }
         }
     }
+}
 
-    let has_manual_follow_up = !manual_tools.is_empty();
+fn install_from_releases_phase(tools: &[String], prefix: &Path, failures: &mut Vec<String>) {
+    let client = github::github_client();
 
-    if has_manual_follow_up {
+    for tool in tools {
+        match install_tool_for_run(tool, prefix, false, &client) {
+            Ok(()) => {}
+            Err(error) => {
+                eprintln!("  {} Failed to install {}: {}", "!".red(), tool, error);
+                failures.push(format!("{tool}: {error}"));
+            }
+        }
+    }
+}
+
+fn print_manual_follow_up(manual_tools: &[ManualProfileMember]) {
+    if !manual_tools.is_empty() {
         println!();
         println!("{}", "Manual follow-up:".bold());
         for member in manual_tools {
             println!("  - {}: {}", member.name, member.install_hint);
         }
     }
+}
 
-    println!();
-
+fn finalize_install(failures: Vec<String>, profile: Option<InstallProfile>, has_manual_follow_up: bool) -> Result<()> {
     if failures.is_empty() {
-        let persisted_profile = selected_profile_for_persistence(&failures, opts.profile);
+        let persisted_profile = selected_profile_for_persistence(&failures, profile);
 
         if let Some(profile) = persisted_profile {
             persist_install_profile_state(profile)?;

@@ -26,7 +26,7 @@ mod server_checks;
 mod skills_checks;
 mod tool_checks;
 
-use config_checks::check_mcp_config_drift;
+use config_checks::{check_mcp_config_drift, ConfigDriftState};
 use council_checks::check_task_linked_council;
 use instruction_checks::check_instruction_files;
 use model::{
@@ -208,7 +208,6 @@ fn render_hook_paths(hook_paths: &[claude_hooks::HookPathSnapshot], colorize: bo
     lines
 }
 
-#[allow(clippy::too_many_lines)]
 fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![
         String::new(),
@@ -221,6 +220,26 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
         String::new(),
     ];
 
+    render_report_header(&mut lines, report, colorize);
+    render_report_overview(&mut lines, report, colorize);
+    render_report_providers(&mut lines, report, colorize, deep);
+    render_report_mcp(&mut lines, report, colorize, deep);
+    render_report_hosts(&mut lines, report, colorize);
+    render_report_runtime_policy(&mut lines, report, colorize, deep);
+    render_report_worktree(&mut lines, report, colorize, deep);
+    render_report_packages(&mut lines, report, colorize, deep);
+    render_report_drift(&mut lines, report, colorize);
+    render_report_hooks(&mut lines, report, colorize);
+    render_report_mcp_servers(&mut lines, report, colorize);
+    render_report_api_keys(&mut lines, report, colorize);
+    render_report_plugins(&mut lines, report, colorize, deep);
+    render_report_footer(&mut lines, report, colorize, deep);
+    render_report_developer_tools(&mut lines, report);
+
+    lines
+}
+
+fn render_report_header(lines: &mut Vec<String>, report: &DoctorReport, _colorize: bool) {
     if let Some(profile) = &report.install_profile {
         lines.push(format!(
             "Install profile: {} ({})",
@@ -229,10 +248,19 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
         ));
         lines.push(String::new());
     }
+}
 
+fn render_report_overview(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
     lines.extend(render_overview(report, colorize));
     lines.push(String::new());
+}
 
+fn render_report_providers(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     lines.extend(render_provider_health(
         &report.provider_health,
         colorize,
@@ -241,12 +269,21 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
     if !report.provider_health.is_empty() {
         lines.push(String::new());
     }
+}
 
+fn render_report_mcp(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     lines.extend(render_mcp_health(&report.mcp_health, colorize, deep));
     if !report.mcp_health.is_empty() {
         lines.push(String::new());
     }
+}
 
+fn render_report_hosts(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
     let host_checks = report
         .checks
         .iter()
@@ -256,17 +293,38 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
         lines.extend(render_host_status(&host_checks, colorize));
         lines.push(String::new());
     }
+}
 
+fn render_report_runtime_policy(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     if let Some(runtime_policy) = &report.runtime_policy {
         lines.extend(render_runtime_policy(runtime_policy, colorize, deep));
         lines.push(String::new());
     }
+}
 
+fn render_report_worktree(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     if let Some(worktree) = &report.worktree_config {
         lines.extend(render_worktree_config(worktree, colorize, deep));
         lines.push(String::new());
     }
+}
 
+fn render_report_packages(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     if let Some(inventory) = &report.package_inventory {
         lines.extend(render_package_inventory(inventory, colorize, deep));
         lines.push(String::new());
@@ -276,12 +334,25 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
         lines.extend(render_package_drift(drift, colorize, deep));
         lines.push(String::new());
     }
+}
 
+fn render_report_drift(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
+    if let Some(drift) = &report.drift
+        && !drift.findings.is_empty()
+    {
+        lines.extend(render_drift_report(drift, colorize));
+        lines.push(String::new());
+    }
+}
+
+fn render_report_hooks(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
     lines.extend(render_hook_paths(&report.hook_paths, colorize));
     if !report.hook_paths.is_empty() {
         lines.push(String::new());
     }
+}
 
+fn render_report_mcp_servers(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
     lines.extend(render_mcp_server_health(
         &report.mcp_server_health,
         colorize,
@@ -289,24 +360,33 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
     if !report.mcp_server_health.is_empty() {
         lines.push(String::new());
     }
+}
 
+fn render_report_api_keys(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
     lines.extend(render_api_key_health(&report.api_key_health, colorize));
     if !report.api_key_health.is_empty() {
         lines.push(String::new());
     }
+}
 
+fn render_report_plugins(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     if let Some(plugin_inventory) = &report.plugin_inventory {
         lines.extend(render_plugin_inventory(plugin_inventory, colorize, deep));
         lines.push(String::new());
     }
+}
 
-    if let Some(drift) = &report.drift
-        && !drift.findings.is_empty()
-    {
-        lines.extend(render_drift_report(drift, colorize));
-        lines.push(String::new());
-    }
-
+fn render_report_footer(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
     if report.healthy {
         lines.extend(render_footer_lines(
             &report.summary,
@@ -343,12 +423,12 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
     }
 
     lines.push(String::new());
+}
 
+fn render_report_developer_tools(lines: &mut Vec<String>, report: &DoctorReport) {
     if let Some(developer_tools) = &report.developer_tools {
         lines.extend(developer_tools::render_report(developer_tools));
     }
-
-    lines
 }
 
 fn render_overview(report: &DoctorReport, colorize: bool) -> Vec<String> {
@@ -1232,7 +1312,6 @@ fn host_health_checks() -> Vec<HealthCheck> {
         .collect()
 }
 
-#[allow(clippy::too_many_lines)]
 fn build_report_with_saved_profile(
     saved_profile: Option<install::SavedInstallProfile>,
     include_developer_tools: bool,
@@ -1248,135 +1327,25 @@ fn build_report_with_saved_profile(
     let package_inventory = collect_package_inventory();
     let worktree_config = collect_worktree_config_discovery();
     let (package_drift, package_drift_check) = collect_package_drift(saved_profile.as_ref());
-
-    let mut checks = if let Some(saved_profile) = &saved_profile {
-        check_profile_tools(saved_profile.profile, deep)
-    } else {
-        tool_registry::doctor_specs()
-            .into_iter()
-            .map(|spec| check_tool(spec, deep))
-            .collect::<Vec<_>>()
-    };
-    let mut hook_paths = claude_hooks::hook_path_snapshots();
-    // Also check lamella hook paths if available
-    hook_paths.extend(claude_hooks::lamella_hook_path_snapshots());
     let drift_state = check_mcp_config_drift();
-    let provider_failures = provider_health
-        .iter()
-        .filter(|provider| !provider.healthy)
-        .count();
-    let mcp_failures = mcp_health.iter().filter(|mcp| !mcp.healthy).count();
-    checks.push(HealthCheck {
-        name: "provider health".to_string(),
-        passed: provider_failures == 0,
-        message: if provider_failures == 0 {
-            "All detected providers are healthy.".to_string()
-        } else {
-            format!("{provider_failures} provider entries need attention")
-        },
-        repair_actions: if provider_failures == 0 {
-            Vec::new()
-        } else {
-            vec![RepairAction::stipe(
-                "host-doctor",
-                "Inspect host health",
-                "Inspect host/provider health and run targeted setup for missing provider configuration.",
-                &["host", "doctor"],
-                RepairTier::Primary,
-            )]
-        },
-    });
-    checks.push(HealthCheck {
-        name: "mcp registration".to_string(),
-        passed: mcp_failures == 0,
-        message: if mcp_failures == 0 {
-            "Required MCP registrations look healthy.".to_string()
-        } else {
-            format!("{mcp_failures} MCP registration entries need attention")
-        },
-        repair_actions: if mcp_failures == 0 {
-            Vec::new()
-        } else {
-            vec![RepairAction::stipe(
-                "repair-init",
-                "Repair shared MCP registrations",
-                "Reapply shared MCP configuration across detected hosts.",
-                &["init", "--repair"],
-                RepairTier::Primary,
-            )]
-        },
-    });
-    checks.push(HealthCheck {
-        name: "runtime policy".to_string(),
-        passed: !runtime_policy::policy_conflicts_with_active_profile(&runtime_policy),
-        message: runtime_policy::describe_runtime_policy(&runtime_policy),
-        repair_actions: Vec::new(),
-    });
-    checks.push(check_task_linked_council(
-        saved_profile.as_ref(),
-        &package_inventory,
-        &plugin_inventory,
-        &worktree_config,
-    ));
-    checks.extend([
-        check_shared_storage_root(),
-        check_hyphae_db(),
-        check_canopy_wal_mode(),
-        check_rhizome_compiled_env(),
-        check_capability_registry_health(&tool_registry::default_registry_path()),
-        drift_state.check.clone(),
-        package_drift_check,
-    ]);
+
+    let mut checks = build_initial_tool_checks(&saved_profile, deep);
+    let hook_paths = collect_hook_paths();
+
+    add_provider_checks(&mut checks, &provider_health);
+    add_mcp_checks(&mut checks, &mcp_health);
+    add_core_checks(&mut checks, &runtime_policy, &saved_profile, &package_inventory, &plugin_inventory, &worktree_config, &drift_state, package_drift_check);
+
     if deep {
         checks.extend(check_mcp_startups());
     }
 
-    // Additive ownership check: surface stipe-managed vs user-managed tools.
-    // Does not affect the overall healthy flag for tools not in the registry.
-    let ownership_check = check_install_ownership();
-    if let Some(check) = ownership_check {
-        checks.push(check);
-    }
-
+    add_ownership_checks(&mut checks);
     checks.extend(host_health_checks());
-
-    // Check that instruction files (CLAUDE.md, AGENTS.md) exist at expected ecosystem locations.
     checks.extend(check_instruction_files());
-
-    // Check installed skills
     checks.push(check_skills());
+    add_hook_checks(&mut checks, &hook_paths);
 
-    let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
-    if !hook_paths.is_empty() {
-        checks.push(HealthCheck {
-            name: "hook paths".to_string(),
-            passed: hook_failures == 0,
-            message: if hook_failures == 0 {
-                "All configured hook paths are present.".to_string()
-            } else {
-                let stale: Vec<_> = hook_paths
-                    .iter()
-                    .filter(|h| !h.passed)
-                    .map(|h| format!("  {} ({})", h.path.display(), h.event))
-                    .collect();
-                format!(
-                    "{hook_failures} hook path(s) not found on disk:\n{}",
-                    stale.join("\n")
-                )
-            },
-            repair_actions: if hook_failures == 0 {
-                Vec::new()
-            } else {
-                vec![RepairAction::stipe(
-                    "repair-hooks",
-                    "Repair stale hook paths",
-                    "Reinstall hooks to restore missing hook scripts.",
-                    &["init", "--repair"],
-                    RepairTier::Primary,
-                )]
-            },
-        });
-    }
     let healthy = checks.iter().all(|check| check.passed);
     let failing = checks.iter().filter(|check| !check.passed).count();
     let repair_actions = dedupe_repair_actions(
@@ -1412,6 +1381,151 @@ fn build_report_with_saved_profile(
         mcp_server_health,
         api_key_health,
         plugin_inventory: Some(plugin_inventory),
+    }
+}
+
+fn build_initial_tool_checks(
+    saved_profile: &Option<install::SavedInstallProfile>,
+    deep: bool,
+) -> Vec<HealthCheck> {
+    if let Some(saved_profile) = saved_profile {
+        check_profile_tools(saved_profile.profile, deep)
+    } else {
+        tool_registry::doctor_specs()
+            .into_iter()
+            .map(|spec| check_tool(spec, deep))
+            .collect::<Vec<_>>()
+    }
+}
+
+fn collect_hook_paths() -> Vec<claude_hooks::HookPathSnapshot> {
+    let mut hook_paths = claude_hooks::hook_path_snapshots();
+    hook_paths.extend(claude_hooks::lamella_hook_path_snapshots());
+    hook_paths
+}
+
+fn add_provider_checks(checks: &mut Vec<HealthCheck>, provider_health: &[ProviderHealth]) {
+    let provider_failures = provider_health
+        .iter()
+        .filter(|provider| !provider.healthy)
+        .count();
+    checks.push(HealthCheck {
+        name: "provider health".to_string(),
+        passed: provider_failures == 0,
+        message: if provider_failures == 0 {
+            "All detected providers are healthy.".to_string()
+        } else {
+            format!("{provider_failures} provider entries need attention")
+        },
+        repair_actions: if provider_failures == 0 {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "host-doctor",
+                "Inspect host health",
+                "Inspect host/provider health and run targeted setup for missing provider configuration.",
+                &["host", "doctor"],
+                RepairTier::Primary,
+            )]
+        },
+    });
+}
+
+fn add_mcp_checks(checks: &mut Vec<HealthCheck>, mcp_health: &[model::McpHealth]) {
+    let mcp_failures = mcp_health.iter().filter(|mcp| !mcp.healthy).count();
+    checks.push(HealthCheck {
+        name: "mcp registration".to_string(),
+        passed: mcp_failures == 0,
+        message: if mcp_failures == 0 {
+            "Required MCP registrations look healthy.".to_string()
+        } else {
+            format!("{mcp_failures} MCP registration entries need attention")
+        },
+        repair_actions: if mcp_failures == 0 {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "repair-init",
+                "Repair shared MCP registrations",
+                "Reapply shared MCP configuration across detected hosts.",
+                &["init", "--repair"],
+                RepairTier::Primary,
+            )]
+        },
+    });
+}
+
+fn add_core_checks(
+    checks: &mut Vec<HealthCheck>,
+    runtime_policy: &runtime_policy::RuntimePolicyReport,
+    saved_profile: &Option<install::SavedInstallProfile>,
+    package_inventory: &PackageInventory,
+    plugin_inventory: &PluginInventory,
+    worktree_config: &WorktreeConfigDiscovery,
+    drift_state: &ConfigDriftState,
+    package_drift_check: HealthCheck,
+) {
+    checks.push(HealthCheck {
+        name: "runtime policy".to_string(),
+        passed: !runtime_policy::policy_conflicts_with_active_profile(runtime_policy),
+        message: runtime_policy::describe_runtime_policy(runtime_policy),
+        repair_actions: Vec::new(),
+    });
+    checks.push(check_task_linked_council(
+        saved_profile.as_ref(),
+        package_inventory,
+        plugin_inventory,
+        worktree_config,
+    ));
+    checks.extend([
+        check_shared_storage_root(),
+        check_hyphae_db(),
+        check_canopy_wal_mode(),
+        check_rhizome_compiled_env(),
+        check_capability_registry_health(&tool_registry::default_registry_path()),
+        drift_state.check.clone(),
+        package_drift_check,
+    ]);
+}
+
+fn add_ownership_checks(checks: &mut Vec<HealthCheck>) {
+    let ownership_check = check_install_ownership();
+    if let Some(check) = ownership_check {
+        checks.push(check);
+    }
+}
+
+fn add_hook_checks(checks: &mut Vec<HealthCheck>, hook_paths: &[claude_hooks::HookPathSnapshot]) {
+    let hook_failures = hook_paths.iter().filter(|hook| !hook.passed).count();
+    if !hook_paths.is_empty() {
+        checks.push(HealthCheck {
+            name: "hook paths".to_string(),
+            passed: hook_failures == 0,
+            message: if hook_failures == 0 {
+                "All configured hook paths are present.".to_string()
+            } else {
+                let stale: Vec<_> = hook_paths
+                    .iter()
+                    .filter(|h| !h.passed)
+                    .map(|h| format!("  {} ({})", h.path.display(), h.event))
+                    .collect();
+                format!(
+                    "{hook_failures} hook path(s) not found on disk:\n{}",
+                    stale.join("\n")
+                )
+            },
+            repair_actions: if hook_failures == 0 {
+                Vec::new()
+            } else {
+                vec![RepairAction::stipe(
+                    "repair-hooks",
+                    "Repair stale hook paths",
+                    "Reinstall hooks to restore missing hook scripts.",
+                    &["init", "--repair"],
+                    RepairTier::Primary,
+                )]
+            },
+        });
     }
 }
 

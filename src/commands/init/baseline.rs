@@ -642,9 +642,36 @@ fn config_checksum_for_path(path: &Path) -> Option<String> {
     checksum_file(path).ok()
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> DriftReport {
     let mut findings = Vec::new();
+    let (config_files_by_path, mcp_by_path, hooks_by_path) = index_manifest(manifest);
+
+    check_config_files(&mut findings, &config_files_by_path, &mcp_by_path, &hooks_by_path);
+    check_mcp_servers(&mut findings, manifest);
+    check_hooks(&mut findings, manifest);
+
+    findings.sort_by(|left, right| {
+        let left_key = finding_sort_key(left);
+        let right_key = finding_sort_key(right);
+        left_key.cmp(&right_key)
+    });
+
+    let baseline_path =
+        baseline_path().unwrap_or_else(|| PathBuf::from("~/.local/share/stipe/init-baseline.json"));
+    DriftReport {
+        baseline_path,
+        generated_at_unix_nanos: now_unix_nanos(),
+        findings,
+    }
+}
+
+fn index_manifest(
+    manifest: &InitBaselineManifest,
+) -> (
+    BTreeMap<PathBuf, String>,
+    BTreeMap<PathBuf, Vec<&BaselineMcpServer>>,
+    BTreeMap<PathBuf, Vec<&BaselineHook>>,
+) {
     let mut config_files_by_path = BTreeMap::<PathBuf, String>::new();
     let mut mcp_by_path = BTreeMap::<PathBuf, Vec<&BaselineMcpServer>>::new();
     let mut hooks_by_path = BTreeMap::<PathBuf, Vec<&BaselineHook>>::new();
@@ -665,7 +692,16 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
             .push(hook);
     }
 
-    for (path, expected_checksum) in &config_files_by_path {
+    (config_files_by_path, mcp_by_path, hooks_by_path)
+}
+
+fn check_config_files(
+    findings: &mut Vec<DriftFinding>,
+    config_files_by_path: &BTreeMap<PathBuf, String>,
+    mcp_by_path: &BTreeMap<PathBuf, Vec<&BaselineMcpServer>>,
+    hooks_by_path: &BTreeMap<PathBuf, Vec<&BaselineHook>>,
+) {
+    for (path, expected_checksum) in config_files_by_path {
         match config_checksum_for_path(path) {
             Some(actual_checksum) if actual_checksum != *expected_checksum => {
                 findings.push(config_modified(
@@ -684,7 +720,9 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
             _ => {}
         }
     }
+}
 
+fn check_mcp_servers(findings: &mut Vec<DriftFinding>, manifest: &InitBaselineManifest) {
     for server in &manifest.mcp_servers {
         let current = current_mcp_servers_for_path(&server.path);
         let matching = current.iter().find(|entry| {
@@ -713,7 +751,9 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
             ));
         }
     }
+}
 
+fn check_hooks(findings: &mut Vec<DriftFinding>, manifest: &InitBaselineManifest) {
     for hook in &manifest.hooks {
         let current = current_hooks_for_path(&hook.path);
         let matching = current.iter().find(|entry| {
@@ -746,20 +786,6 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
                 hook.binary_path.clone(),
             ));
         }
-    }
-
-    findings.sort_by(|left, right| {
-        let left_key = finding_sort_key(left);
-        let right_key = finding_sort_key(right);
-        left_key.cmp(&right_key)
-    });
-
-    let baseline_path =
-        baseline_path().unwrap_or_else(|| PathBuf::from("~/.local/share/stipe/init-baseline.json"));
-    DriftReport {
-        baseline_path,
-        generated_at_unix_nanos: now_unix_nanos(),
-        findings,
     }
 }
 
