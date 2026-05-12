@@ -85,7 +85,6 @@ pub(super) fn config_mentions_servers(
     }
 }
 
-
 pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
     match baseline::evaluate_drift() {
         Ok(Some(report)) => {

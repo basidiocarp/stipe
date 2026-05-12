@@ -225,8 +225,7 @@ fn register_codex_toml_at_path(
     }
 
     let content = toml::to_string_pretty(&root)?;
-    atomic_write_bytes(config_path, content.as_bytes())
-        .map_err(anyhow::Error::new)?;
+    atomic_write_bytes(config_path, content.as_bytes()).map_err(anyhow::Error::new)?;
 
     if verbose > 0 {
         eprintln!(

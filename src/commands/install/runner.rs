@@ -10,16 +10,16 @@ use crate::commands::bin_paths;
 use crate::commands::developer_tools;
 use crate::commands::github;
 use crate::commands::github::GitHubClient;
+use crate::commands::install::profile_surface::ManualProfileMember;
 use crate::commands::install::release::{
     self, download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
     find_checksum_asset, find_matching_asset, normalize_version, platform_key,
     verify_asset_checksum, verify_binary, verify_functional,
 };
 use crate::commands::install::save_selected_profile;
-use crate::commands::install::profile_surface::ManualProfileMember;
 use crate::commands::install::selection::{
-    print_install_preview, render_embedded_profile_install_preview,
-    resolve_requested_tools, split_requested_tools,
+    print_install_preview, render_embedded_profile_install_preview, resolve_requested_tools,
+    split_requested_tools,
 };
 use crate::commands::output;
 use crate::commands::runtime_policy;
@@ -77,7 +77,10 @@ pub(crate) fn install_tool(
 
 fn check_already_installed(install_path: &Path, force: bool) -> bool {
     if install_path.exists() && !force {
-        let tool = install_path.file_name().unwrap_or_default().to_string_lossy();
+        let tool = install_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
         println!(
             "  {} {} already installed at {}. Use --force to replace.",
             "⊘".yellow(),
@@ -492,10 +495,7 @@ fn handle_developer_tools_profile(tools: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn print_install_preview_and_exit(
-    prefix: &Path,
-    tools_to_install: Option<Vec<String>>,
-) {
+fn print_install_preview_and_exit(prefix: &Path, tools_to_install: Option<Vec<String>>) {
     match tools_to_install {
         Some(ref requested) => {
             let label = "all".to_string();
@@ -508,7 +508,9 @@ fn print_install_preview_and_exit(
     println!();
 }
 
-fn resolve_and_split_tools(tools_to_install: Option<Vec<String>>) -> Result<(Vec<String>, Vec<ManualProfileMember>)> {
+fn resolve_and_split_tools(
+    tools_to_install: Option<Vec<String>>,
+) -> Result<(Vec<String>, Vec<ManualProfileMember>)> {
     let tools_to_install: Vec<String> = if let Some(tools) = tools_to_install {
         tools
     } else {
@@ -559,16 +561,13 @@ fn build_binary_paths(prefix: &Path, tools: &[String]) -> Vec<(String, PathBuf)>
 fn create_preinstall_backup(installed_binary_paths: &[(String, PathBuf)]) -> Result<()> {
     let timestamp = crate::backup::backup_timestamp();
     let stipe_version = env!("CARGO_PKG_VERSION");
-    let _backup_path = crate::backup::create_backup(&timestamp, stipe_version, installed_binary_paths, &[])
-        .context("could not create pre-install backup")?;
+    let _backup_path =
+        crate::backup::create_backup(&timestamp, stipe_version, installed_binary_paths, &[])
+            .context("could not create pre-install backup")?;
     Ok(())
 }
 
-fn install_from_source_phase(
-    opts: &InstallOptions,
-    tools: &[String],
-    failures: &mut Vec<String>,
-) {
+fn install_from_source_phase(opts: &InstallOptions, tools: &[String], failures: &mut Vec<String>) {
     let monorepo_root = opts
         .source_dir
         .clone()
@@ -620,7 +619,11 @@ fn print_manual_follow_up(manual_tools: &[ManualProfileMember]) {
     }
 }
 
-fn finalize_install(failures: Vec<String>, profile: Option<InstallProfile>, has_manual_follow_up: bool) -> Result<()> {
+fn finalize_install(
+    failures: Vec<String>,
+    profile: Option<InstallProfile>,
+    has_manual_follow_up: bool,
+) -> Result<()> {
     if failures.is_empty() {
         let persisted_profile = selected_profile_for_persistence(&failures, profile);
 

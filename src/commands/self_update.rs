@@ -113,8 +113,12 @@ fn run_update(check: bool) -> Result<()> {
     let data = download_binary(asset, &progress, &client)?;
 
     // Verify SHA-256 before extraction.
-    let sha256sums_asset = find_checksum_asset(&release)
-        .ok_or_else(|| anyhow!("no SHA256SUMS asset found in stipe {} release", release.version))?;
+    let sha256sums_asset = find_checksum_asset(&release).ok_or_else(|| {
+        anyhow!(
+            "no SHA256SUMS asset found in stipe {} release",
+            release.version
+        )
+    })?;
     let sha256sums = download_sha256sums(sha256sums_asset, &client)?;
     verify_asset_checksum(&data, &asset.name, &sha256sums)
         .with_context(|| format!("Checksum verification failed for {}", asset.name))?;

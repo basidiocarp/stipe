@@ -646,7 +646,12 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
     let mut findings = Vec::new();
     let (config_files_by_path, mcp_by_path, hooks_by_path) = index_manifest(manifest);
 
-    check_config_files(&mut findings, &config_files_by_path, &mcp_by_path, &hooks_by_path);
+    check_config_files(
+        &mut findings,
+        &config_files_by_path,
+        &mcp_by_path,
+        &hooks_by_path,
+    );
     check_mcp_servers(&mut findings, manifest);
     check_hooks(&mut findings, manifest);
 

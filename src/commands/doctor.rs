@@ -26,7 +26,7 @@ mod server_checks;
 mod skills_checks;
 mod tool_checks;
 
-use config_checks::{check_mcp_config_drift, ConfigDriftState};
+use config_checks::{ConfigDriftState, check_mcp_config_drift};
 use council_checks::check_task_linked_council;
 use instruction_checks::check_instruction_files;
 use model::{
@@ -271,12 +271,7 @@ fn render_report_providers(
     }
 }
 
-fn render_report_mcp(
-    lines: &mut Vec<String>,
-    report: &DoctorReport,
-    colorize: bool,
-    deep: bool,
-) {
+fn render_report_mcp(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool, deep: bool) {
     lines.extend(render_mcp_health(&report.mcp_health, colorize, deep));
     if !report.mcp_health.is_empty() {
         lines.push(String::new());
@@ -1334,7 +1329,16 @@ fn build_report_with_saved_profile(
 
     add_provider_checks(&mut checks, &provider_health);
     add_mcp_checks(&mut checks, &mcp_health);
-    add_core_checks(&mut checks, &runtime_policy, &saved_profile, &package_inventory, &plugin_inventory, &worktree_config, &drift_state, package_drift_check);
+    add_core_checks(
+        &mut checks,
+        &runtime_policy,
+        &saved_profile,
+        &package_inventory,
+        &plugin_inventory,
+        &worktree_config,
+        &drift_state,
+        package_drift_check,
+    );
 
     if deep {
         checks.extend(check_mcp_startups());

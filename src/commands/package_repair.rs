@@ -152,7 +152,9 @@ fn run_repair_with_backups(
 
     match status {
         Ok(()) => handle_repair_success(profile, lamella_root, lamella_invocations, &backups),
-        Err(error) => handle_repair_failure(profile, lamella_root, lamella_invocations, &backups, error),
+        Err(error) => {
+            handle_repair_failure(profile, lamella_root, lamella_invocations, &backups, error)
+        }
     }
 }
 
@@ -218,8 +220,7 @@ fn handle_repair_success(
         }
         println!(
             "{}",
-            "Rollback target: rename backup paths back to their original locations."
-                .dimmed()
+            "Rollback target: rename backup paths back to their original locations.".dimmed()
         );
     }
     println!("{}", "Package repair completed.".green());
