@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::{Map, Value, json};
+use spore::atomic_write_bytes;
 use spore::editors::{Editor, McpServer as SporeMcpServer, register_mcp_servers};
 use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use tempfile::NamedTempFile;
 
 use crate::commands::host_policy::{self, HostConfigScope};
 
@@ -225,13 +224,9 @@ fn register_codex_toml_at_path(
         server_map.insert(server.name.clone(), toml::Value::Table(server_table));
     }
 
-    let parent = config_path
-        .parent()
-        .context("Codex config path has no parent directory")?;
     let content = toml::to_string_pretty(&root)?;
-    let mut temp_file = NamedTempFile::new_in(parent)?;
-    temp_file.write_all(content.as_bytes())?;
-    temp_file.persist(config_path)?;
+    atomic_write_bytes(config_path, content.as_bytes())
+        .map_err(anyhow::Error::new)?;
 
     if verbose > 0 {
         eprintln!(

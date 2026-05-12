@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
+use spore::atomic_write_bytes;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::NamedTempFile;
 
 use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
@@ -43,17 +42,8 @@ fn write_config(config_path: &Path, root: &toml::Value) -> Result<()> {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
 
-    let parent = config_path
-        .parent()
-        .with_context(|| format!("missing parent for {}", config_path.display()))?;
     let content = toml::to_string_pretty(root).context("serializing Codex config")?;
-    let mut temp_file =
-        NamedTempFile::new_in(parent).with_context(|| format!("creating {}", parent.display()))?;
-    temp_file
-        .write_all(content.as_bytes())
-        .with_context(|| format!("writing {}", config_path.display()))?;
-    temp_file
-        .persist(config_path)
+    atomic_write_bytes(config_path, content.as_bytes())
         .with_context(|| format!("writing {}", config_path.display()))?;
     Ok(())
 }
