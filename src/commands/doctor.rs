@@ -43,8 +43,9 @@ use provider_checks::{collect_api_key_health, collect_mcp_health, collect_provid
 use server_checks::collect_mcp_server_health;
 use skills_checks::check_skills;
 use tool_checks::{
-    check_canopy_wal_mode, check_capability_registry_health, check_hyphae_db, check_mcp_startups,
-    check_profile_tools, check_rhizome_compiled_env, check_shared_storage_root, check_tool,
+    check_canopy_wal_mode, check_capability_registry_health, check_hook_command_runnability,
+    check_hyphae_db, check_mcp_startups, check_profile_tools, check_rhizome_compiled_env,
+    check_shared_storage_root, check_tool,
 };
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -1639,6 +1640,11 @@ fn add_hook_checks(checks: &mut Vec<HealthCheck>, hook_paths: &[claude_hooks::Ho
                 )]
             },
         });
+    }
+
+    // Verify that cortina/annulus hook commands reference runnable binaries.
+    if let Some(runnability_check) = check_hook_command_runnability() {
+        checks.push(runnability_check);
     }
 }
 

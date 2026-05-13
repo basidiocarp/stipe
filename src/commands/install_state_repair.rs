@@ -40,6 +40,8 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
 
     let mut preview_count = 0;
     let mut skipped_drift_count = 0;
+    // Tracks items that need repair but have no implementation yet.
+    let mut unhandled_count = 0;
 
     for item in &items {
         // Skip if not in scope
@@ -64,6 +66,7 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
                         "MISSING `{}`: repair not yet implemented (use --dry-run to preview)",
                         item.id
                     );
+                    unhandled_count += 1;
                 }
             }
             ItemStatus::Drift => {
@@ -77,6 +80,7 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
                             "DRIFT `{}`: repair not yet implemented (use --dry-run to preview)",
                             item.id
                         );
+                        unhandled_count += 1;
                     }
                 } else {
                     println!("Skipping [DRIFT] {} (use --force to repair)", item.id);
@@ -93,6 +97,13 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
         println!(
             "\nDry run: {preview_count} items would need repair, {skipped_drift_count} drift items skipped"
         );
+    } else if unhandled_count > 0 {
+        // Do not claim success when items were not actually repaired.
+        println!(
+            "\n{unhandled_count} item(s) need repair but have no automated fix yet. \
+             Re-install affected tools manually, then re-run `stipe doctor` to verify."
+        );
+        anyhow::bail!("{unhandled_count} item(s) could not be repaired");
     } else {
         println!("\nRepair complete: {skipped_drift_count} drift items skipped");
     }

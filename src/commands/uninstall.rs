@@ -1,9 +1,11 @@
 use anyhow::{Result, anyhow};
 use colored::Colorize;
+use spore::atomic_write_bytes;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::bin_paths;
+use super::host_policy;
 use super::tool_registry;
 use crate::verify;
 
@@ -105,6 +107,112 @@ fn print_preview(targets: &[UninstallTarget], all: bool) {
     }
 }
 
+/// Remove stipe-owned hook entries from a Claude Code settings.json so that
+/// cortina / annulus commands are not invoked after the binaries are gone.
+///
+/// Entries are identified by well-known subcommand patterns; absolute-path
+/// forms are handled by the `contains` checks on the command string.
+fn remove_stipe_hooks_from_settings(settings_path: &Path) -> Result<()> {
+    if !settings_path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(settings_path)
+        .map_err(|e| anyhow!("reading {}: {e}", settings_path.display()))?;
+
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+
+    let mut root: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("parsing {}: {e}", settings_path.display()))?;
+
+    let stipe_subcommands = [
+        "adapter claude-code pre-tool-use",
+        "adapter claude-code post-tool-use",
+        "adapter claude-code stop",
+        "adapter claude-code pre-compact",
+        "adapter claude-code user-prompt-submit",
+    ];
+
+    let stipe_statusline_markers = ["cortina statusline", "annulus statusline"];
+
+    let mut changed = false;
+
+    // Remove hook entries whose command contains a stipe-owned subcommand.
+    if let Some(hooks) = root
+        .get_mut("hooks")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for event_entries in hooks.values_mut() {
+            let Some(entries) = event_entries.as_array_mut() else {
+                continue;
+            };
+
+            for entry in entries.iter_mut() {
+                let Some(inner_hooks) = entry
+                    .get_mut("hooks")
+                    .and_then(serde_json::Value::as_array_mut)
+                else {
+                    continue;
+                };
+
+                let before = inner_hooks.len();
+                inner_hooks.retain(|hook| {
+                    let cmd = hook
+                        .get("command")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    !stipe_subcommands
+                        .iter()
+                        .any(|pattern| cmd.contains(pattern))
+                });
+                if inner_hooks.len() != before {
+                    changed = true;
+                }
+            }
+
+            // Drop event entries whose inner hook list is now empty.
+            let before = entries.len();
+            entries.retain(|entry| {
+                entry
+                    .get("hooks")
+                    .and_then(serde_json::Value::as_array)
+                    .is_none_or(|h| !h.is_empty())
+            });
+            if entries.len() != before {
+                changed = true;
+            }
+        }
+    }
+
+    // Remove the statusLine field if it references cortina or annulus.
+    if let Some(status_line) = root.get("statusLine") {
+        let cmd = status_line
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if stipe_statusline_markers
+            .iter()
+            .any(|marker| cmd.contains(marker))
+        {
+            root.as_object_mut()
+                .expect("root must be an object")
+                .remove("statusLine");
+            changed = true;
+        }
+    }
+
+    if changed {
+        let serialized =
+            serde_json::to_string_pretty(&root).map_err(|e| anyhow!("serializing: {e}"))?;
+        atomic_write_bytes(settings_path, serialized.as_bytes())
+            .map_err(|e| anyhow!("writing {}: {e}", settings_path.display()))?;
+    }
+
+    Ok(())
+}
+
 pub fn run(all: bool, dry_run: bool, tools: &[String]) -> Result<()> {
     let bin_dir = bin_paths::local_bin_dir()
         .ok_or_else(|| anyhow!("Could not determine local bin directory"))?;
@@ -152,7 +260,27 @@ pub fn run(all: bool, dry_run: bool, tools: &[String]) -> Result<()> {
     }
 
     println!();
+
+    // Remove cortina/annulus hook registrations from Claude Code settings so
+    // subsequent tool calls do not attempt to run the now-missing binaries.
+    for settings_path in host_policy::claude_hook_settings_paths() {
+        if let Err(error) = remove_stipe_hooks_from_settings(&settings_path) {
+            eprintln!(
+                "  {} Could not remove hook entries from {}: {error}",
+                "!".yellow(),
+                settings_path.display()
+            );
+        } else if settings_path.exists() {
+            println!(
+                "  {} Removed cortina/annulus hooks from {}",
+                "✓".green(),
+                settings_path.display()
+            );
+        }
+    }
+
     if all {
+        println!();
         println!(
             "{}",
             "Note: MCP registrations in editor config files must be removed manually.".yellow()

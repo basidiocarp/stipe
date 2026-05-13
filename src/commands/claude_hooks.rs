@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::json;
+use spore::atomic_write_bytes;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -104,12 +105,65 @@ fn configured_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-fn hook_command(spec: HookSpec) -> String {
-    format!("cortina adapter claude-code {}", spec.subcommand)
+/// Resolve a binary name to its absolute path if available on PATH, with a
+/// fallback to the bare name. Emits a warning when the binary is not found so
+/// the operator knows the hook may not fire from GUI apps that lack ~/.local/bin.
+fn resolve_binary_path(binary_name: &str) -> String {
+    if let Ok(path) = which::which(binary_name) {
+        path.to_string_lossy().into_owned()
+    } else {
+        eprintln!(
+            "  warning: {binary_name} not found on PATH — hook registered with bare name; \
+             add ~/.local/bin to PATH to ensure hooks fire from GUI apps"
+        );
+        binary_name.to_string()
+    }
 }
 
+fn hook_command(spec: HookSpec) -> String {
+    let cortina = resolve_binary_path("cortina");
+    format!("{cortina} adapter claude-code {}", spec.subcommand)
+}
+
+fn statusline_command() -> String {
+    if annulus_available() {
+        resolve_binary_path("annulus") + " statusline"
+    } else {
+        resolve_binary_path("cortina") + " statusline"
+    }
+}
+
+/// Match a hook command entry against an expected command.
+///
+/// Handles two forms:
+/// - Absolute-path form:  `/path/to/cortina adapter claude-code pre-tool-use`
+/// - Legacy bare form:    `cortina adapter claude-code pre-tool-use`
+///
+/// Matching on the subcommand suffix rather than a plain substring prevents
+/// false positives (one subcommand accidentally matching another) and false
+/// negatives (absolute-path entries not matching a bare expected string).
 fn command_matches(existing: &str, expected: &str) -> bool {
-    existing == expected || existing.contains(expected)
+    if existing == expected {
+        return true;
+    }
+
+    // Extract the subcommand suffix after "adapter claude-code " from the
+    // expected command, then verify the existing command ends with that suffix.
+    // This handles both bare names and absolute-path forms uniformly.
+    if let Some(suffix) = expected.strip_prefix("cortina adapter claude-code ") {
+        let target = format!("adapter claude-code {suffix}");
+        return existing.ends_with(&target);
+    }
+
+    // For statusline-style commands, match on the trailing keyword phrase so
+    // that "/usr/local/bin/annulus statusline" matches "annulus statusline".
+    for marker in &["cortina statusline", "annulus statusline"] {
+        if expected.contains(marker) && existing.contains(marker) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn hook_entry_present(root: &serde_json::Value, spec: HookSpec, command: &str) -> bool {
@@ -240,16 +294,11 @@ fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
 }
 
 fn write_settings(settings_path: &Path, root: &serde_json::Value) -> Result<()> {
-    if let Some(parent) = settings_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    }
-
-    fs::write(
-        settings_path,
-        serde_json::to_string_pretty(root).context("serializing hook settings")?,
-    )
-    .with_context(|| format!("writing {}", settings_path.display()))?;
-    Ok(())
+    let content = serde_json::to_string_pretty(root).context("serializing hook settings")?;
+    // atomic_write_bytes creates parent directories and renames into place,
+    // preventing corruption if the process is interrupted mid-write.
+    atomic_write_bytes(settings_path, content.as_bytes())
+        .with_context(|| format!("writing {}", settings_path.display()))
 }
 
 fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
@@ -266,17 +315,16 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
 
     let mut wrote_annulus = false;
     if !statusline_configured(&root) {
-        let statusline_command = if annulus_available() {
+        let cmd = statusline_command();
+        if annulus_available() {
             wrote_annulus = true;
-            ANNULUS_STATUSLINE_COMMAND
-        } else {
-            CORTINA_STATUSLINE_COMMAND
-        };
-        install_statusline(&mut root, statusline_command);
+        }
+        install_statusline(&mut root, &cmd);
         changed = true;
     } else if !annulus_statusline_configured(&root) && annulus_available() {
         // Upgrade: cortina statusline → annulus statusline
-        install_statusline(&mut root, ANNULUS_STATUSLINE_COMMAND);
+        let cmd = resolve_binary_path("annulus") + " statusline";
+        install_statusline(&mut root, &cmd);
         wrote_annulus = true;
         changed = true;
     }
@@ -540,7 +588,8 @@ pub fn install_annulus_statusline(scope: HostConfigScope, verbose: u8) -> Result
         return Ok(false);
     }
 
-    install_statusline(&mut root, ANNULUS_STATUSLINE_COMMAND);
+    let cmd = resolve_binary_path("annulus") + " statusline";
+    install_statusline(&mut root, &cmd);
     write_settings(&settings_path, &root)?;
     ensure_annulus_config()?;
 

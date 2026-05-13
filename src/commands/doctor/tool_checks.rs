@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::model::HealthCheck;
 use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
+use crate::commands::claude_hooks;
 use crate::commands::host_policy;
 use crate::commands::install::release::{probe_mcp_server, verify_functional};
 use crate::commands::install::{
@@ -730,6 +731,115 @@ pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCh
             repair_actions: Vec::new(),
         }
     }
+}
+
+/// Check whether a hook command's leading binary token is actually runnable.
+///
+/// For absolute paths, verifies the file exists and the execute bit is set.
+/// For bare names, checks that `which` can locate the binary on PATH and
+/// warns when it cannot (hooks launched from GUI apps often have a restricted
+/// PATH that omits `~/.local/bin`).
+///
+/// Returns `None` when the command string is empty or unparseable.
+fn check_hook_runtime_path(cmd: &str) -> Option<(bool, String)> {
+    let binary_token = cmd.split_whitespace().next()?;
+
+    if binary_token.starts_with('/') {
+        // Absolute path: check existence and execute permission.
+        let path = Path::new(binary_token);
+        if !path.exists() {
+            return Some((false, format!("hook binary not found: {binary_token}")));
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path).ok()?.permissions().mode();
+            if mode & 0o111 == 0 {
+                return Some((
+                    false,
+                    format!("hook binary not executable (mode {mode:o}): {binary_token}"),
+                ));
+            }
+        }
+
+        Some((true, format!("hook binary found: {binary_token}")))
+    } else {
+        // Bare name: check PATH.
+        match which::which(binary_token) {
+            Ok(_) => Some((true, format!("{binary_token} found on PATH"))),
+            Err(_) => Some((
+                false,
+                format!(
+                    "{binary_token} not found on PATH — \
+                     hooks may not fire from GUI apps; add ~/.local/bin to PATH"
+                ),
+            )),
+        }
+    }
+}
+
+/// Audit all registered cortina/annulus hook commands across all settings paths
+/// and report any whose leading binary is absent or not executable.
+pub(super) fn check_hook_command_runnability() -> Option<HealthCheck> {
+    let mut failures: Vec<String> = Vec::new();
+    let mut total = 0usize;
+
+    for settings_path in host_policy::claude_hook_settings_paths() {
+        let Ok(entries) = claude_hooks::hook_entries_at_path(&settings_path) else {
+            continue;
+        };
+
+        for entry in entries {
+            // Only audit stipe-owned commands (cortina/annulus).
+            if !entry.command.contains("cortina")
+                && !entry.command.contains("annulus")
+                && !entry.command.contains("adapter claude-code")
+            {
+                continue;
+            }
+
+            total += 1;
+            if let Some((ok, msg)) = check_hook_runtime_path(&entry.command) {
+                if !ok {
+                    failures.push(format!(
+                        "  {} ({}): {msg}",
+                        entry.event,
+                        settings_path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    if total == 0 {
+        return None;
+    }
+
+    Some(HealthCheck {
+        name: "hook command runnability".to_string(),
+        passed: failures.is_empty(),
+        message: if failures.is_empty() {
+            "All hook commands point to runnable binaries.".to_string()
+        } else {
+            format!(
+                "{} hook command(s) reference missing or non-executable binaries:\n{}",
+                failures.len(),
+                failures.join("\n")
+            )
+        },
+        repair_actions: if failures.is_empty() {
+            Vec::new()
+        } else {
+            vec![RepairAction::stipe(
+                "reinstall-hooks",
+                "Reinstall hooks with correct binary paths",
+                "Re-run host setup to write absolute binary paths into hook commands.",
+                &["host", "setup", "claude-code"],
+                RepairTier::Primary,
+            )]
+        },
+    })
 }
 
 #[cfg(test)]

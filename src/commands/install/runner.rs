@@ -164,33 +164,57 @@ fn extract_and_verify_binary(
 }
 
 fn deploy_binary(install_path: &Path, extracted_path: &Path) -> Result<()> {
-    fs::copy(extracted_path, install_path).with_context(|| {
+    // Stage to a sibling temp path, set permissions, then atomically rename
+    // into place. This avoids ETXTBSY on Linux when replacing a running binary
+    // and prevents a partial overwrite from corrupting the existing installation.
+    let staging_path = install_path.with_extension("installing");
+
+    let result = deploy_to_staging(extracted_path, &staging_path, install_path);
+    if result.is_err() {
+        // Remove the staging file on any failure so a subsequent install attempt
+        // does not find a stale or partially-written binary.
+        let _ = fs::remove_file(&staging_path);
+    }
+    result
+}
+
+fn deploy_to_staging(extracted_path: &Path, staging_path: &Path, install_path: &Path) -> Result<()> {
+    fs::copy(extracted_path, staging_path).with_context(|| {
         format!(
             "Failed to copy {} to {}",
             extracted_path.display(),
-            install_path.display()
+            staging_path.display()
         )
     })?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(install_path, fs::Permissions::from_mode(0o755))
-            .with_context(|| format!("Failed to make {} executable", install_path.display()))?;
+        fs::set_permissions(staging_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("Failed to make {} executable", staging_path.display()))?;
     }
 
     #[cfg(target_os = "macos")]
     {
-        let path_str = install_path.to_str().ok_or_else(|| {
+        let path_str = staging_path.to_str().ok_or_else(|| {
             anyhow!(
-                "install path is not valid UTF-8: {}",
-                install_path.display()
+                "staging path is not valid UTF-8: {}",
+                staging_path.display()
             )
         })?;
         let _ = std::process::Command::new("codesign")
             .args(["--force", "--sign", "-", path_str])
             .output();
     }
+
+    // Atomic rename: same filesystem guaranteed because staging_path is a sibling.
+    fs::rename(staging_path, install_path).with_context(|| {
+        format!(
+            "Failed to rename {} to {}",
+            staging_path.display(),
+            install_path.display()
+        )
+    })?;
 
     Ok(())
 }
