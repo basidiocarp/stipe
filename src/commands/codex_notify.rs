@@ -7,7 +7,16 @@ use std::process::Command;
 use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
 
-const CODEX_NOTIFY_VALUES: [&str; 2] = ["hyphae", "codex-notify"];
+fn required_notify_values() -> Vec<String> {
+    vec!["hyphae".to_string(), "codex-notify".to_string()]
+}
+
+fn optional_cortina_adapter() -> Option<String> {
+    // Add cortina adapter if cortina is installed (use absolute path — macOS GUI PATH may not include ~/.local/bin)
+    which::which("cortina")
+        .ok()
+        .map(|cortina_path| format!("{} adapter codex turn-complete", cortina_path.display()))
+}
 
 fn hyphae_installed() -> bool {
     Command::new("hyphae")
@@ -53,13 +62,15 @@ pub fn codex_notify_configured_at_path(config_path: &Path) -> bool {
         return false;
     };
 
+    let required = required_notify_values();
+
     root.get("notify")
         .and_then(toml::Value::as_array)
         .is_some_and(|values| {
-            CODEX_NOTIFY_VALUES.iter().all(|required| {
+            required.iter().all(|required_val| {
                 values
                     .iter()
-                    .any(|entry| entry.as_str().is_some_and(|value| value == *required))
+                    .any(|entry| entry.as_str() == Some(required_val.as_str()))
             })
         })
 }
@@ -89,10 +100,26 @@ pub fn install_codex_notify(scope: HostConfigScope, verbose: u8) -> Result<bool>
         Some(_) | None => Vec::new(),
     };
 
+    let required = required_notify_values();
     let mut changed = false;
-    for value in CODEX_NOTIFY_VALUES {
-        if !notify.iter().any(|entry| entry.as_str() == Some(value)) {
-            notify.push(toml::Value::String(value.to_string()));
+    for value in required {
+        if !notify
+            .iter()
+            .any(|entry| entry.as_str() == Some(value.as_str()))
+        {
+            notify.push(toml::Value::String(value));
+            changed = true;
+        }
+    }
+
+    // Add cortina adapter if available and not already present
+    if let Some(cortina_adapter) = optional_cortina_adapter() {
+        if !notify.iter().any(|entry| {
+            entry
+                .as_str()
+                .is_some_and(|s| s.contains("cortina") && s.contains("adapter"))
+        }) {
+            notify.push(toml::Value::String(cortina_adapter));
             changed = true;
         }
     }
@@ -181,9 +208,13 @@ mod tests {
             Some(toml::Value::Array(values)) => values,
             _ => Vec::new(),
         };
-        for value in CODEX_NOTIFY_VALUES {
-            if !notify.iter().any(|entry| entry.as_str() == Some(value)) {
-                notify.push(toml::Value::String(value.to_string()));
+        let required = required_notify_values();
+        for value in required {
+            if !notify
+                .iter()
+                .any(|entry| entry.as_str() == Some(value.as_str()))
+            {
+                notify.push(toml::Value::String(value));
             }
         }
         root.insert("notify".to_string(), toml::Value::Array(notify));

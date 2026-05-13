@@ -92,7 +92,51 @@ pub(super) fn configure_codex_cli(
         }
     }
 
+    match run_lamella_codex_install(options.verbose) {
+        Ok(true) => {
+            if options.emit_stdout {
+                println!("    - Lamella codex skill profiles");
+            }
+        }
+        Ok(false) => {
+            // Failure is best-effort; don't fail the overall setup
+        }
+        Err(e) => {
+            if options.verbose > 0 {
+                eprintln!("  {} Lamella codex install warning: {e}", "!".yellow());
+            }
+        }
+    }
+
     Ok(())
+}
+
+fn run_lamella_codex_install(verbose: u8) -> anyhow::Result<bool> {
+    let Ok(lamella_path) = which::which("lamella") else {
+        if verbose > 0 {
+            eprintln!("  lamella not found on PATH — skipping skill install");
+            eprintln!("  Run 'lamella install-codex' manually after installing lamella");
+        }
+        return Ok(false);
+    };
+
+    let output = std::process::Command::new(&lamella_path)
+        .args(["install-codex"])
+        .output()
+        .with_context(|| "running lamella install-codex")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if verbose > 0 {
+            eprintln!("  lamella install-codex failed: {stderr}");
+        }
+        return Ok(false);
+    }
+
+    if verbose > 0 {
+        eprintln!("  Installed lamella codex skill profiles to ~/.codex/skills/");
+    }
+    Ok(true)
 }
 
 pub(super) fn configure_cursor_host(
