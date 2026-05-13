@@ -670,6 +670,7 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn index_manifest(
     manifest: &InitBaselineManifest,
 ) -> (

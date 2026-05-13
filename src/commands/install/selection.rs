@@ -180,6 +180,7 @@ fn render_profile_install_preview_with_footer(
     lines
 }
 
+#[cfg(test)]
 pub(super) fn render_profile_install_preview(
     prefix: &Path,
     profile: InstallProfile,
@@ -203,25 +204,6 @@ pub(super) fn print_install_preview(prefix: &Path, tools: &[String], mode_label:
         if index == 0 {
             println!("{}", line.yellow());
         } else if line.ends_with(':') || line.starts_with("Mode:") {
-            println!("{}", line.bold());
-        } else {
-            println!("{line}");
-        }
-    }
-}
-
-pub(super) fn print_profile_install_preview(
-    prefix: &Path,
-    profile: InstallProfile,
-    tools: &[String],
-) {
-    for (index, line) in render_profile_install_preview(prefix, profile, tools)
-        .into_iter()
-        .enumerate()
-    {
-        if index == 0 {
-            println!("{}", line.yellow());
-        } else if line.starts_with("Profile:") || line.ends_with(':') {
             println!("{}", line.bold());
         } else {
             println!("{line}");

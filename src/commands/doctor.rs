@@ -1324,7 +1324,7 @@ fn build_report_with_saved_profile(
     let (package_drift, package_drift_check) = collect_package_drift(saved_profile.as_ref());
     let drift_state = check_mcp_config_drift();
 
-    let mut checks = build_initial_tool_checks(&saved_profile, deep);
+    let mut checks = build_initial_tool_checks(saved_profile.as_ref(), deep);
     let hook_paths = collect_hook_paths();
 
     add_provider_checks(&mut checks, &provider_health);
@@ -1332,7 +1332,7 @@ fn build_report_with_saved_profile(
     add_core_checks(
         &mut checks,
         &runtime_policy,
-        &saved_profile,
+        saved_profile.as_ref(),
         &package_inventory,
         &plugin_inventory,
         &worktree_config,
@@ -1389,7 +1389,7 @@ fn build_report_with_saved_profile(
 }
 
 fn build_initial_tool_checks(
-    saved_profile: &Option<install::SavedInstallProfile>,
+    saved_profile: Option<&install::SavedInstallProfile>,
     deep: bool,
 ) -> Vec<HealthCheck> {
     if let Some(saved_profile) = saved_profile {
@@ -1459,10 +1459,11 @@ fn add_mcp_checks(checks: &mut Vec<HealthCheck>, mcp_health: &[model::McpHealth]
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_core_checks(
     checks: &mut Vec<HealthCheck>,
     runtime_policy: &runtime_policy::RuntimePolicyReport,
-    saved_profile: &Option<install::SavedInstallProfile>,
+    saved_profile: Option<&install::SavedInstallProfile>,
     package_inventory: &PackageInventory,
     plugin_inventory: &PluginInventory,
     worktree_config: &WorktreeConfigDiscovery,
@@ -1476,7 +1477,7 @@ fn add_core_checks(
         repair_actions: Vec::new(),
     });
     checks.push(check_task_linked_council(
-        saved_profile.as_ref(),
+        saved_profile,
         package_inventory,
         plugin_inventory,
         worktree_config,

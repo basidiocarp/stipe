@@ -70,7 +70,7 @@ pub(crate) fn install_tool(
     let version = verify_binary(&extracted_path)?;
 
     verify_and_report_installation(tool, &install_path, &version, prefix)?;
-    record_install_state(tool, &install_path, &version)?;
+    record_install_state(tool, &install_path, &version);
 
     Ok(())
 }
@@ -126,9 +126,9 @@ fn verify_download_checksum(
     client: &GitHubClient,
 ) -> Result<()> {
     let sha256sums = find_checksum_asset(release)
-        .map(|cs_asset| download_sha256sums(&cs_asset, client))
+        .map(|cs_asset| download_sha256sums(cs_asset, client))
         .transpose()?;
-    if let Some(ref sums) = sha256sums {
+    if let Some(sums) = &sha256sums {
         verify_asset_checksum(data, &asset.name, sums)
             .with_context(|| format!("Checksum verification failed for {}", asset.name))?;
     } else {
@@ -250,7 +250,7 @@ fn verify_and_report_installation(
     Ok(())
 }
 
-fn record_install_state(tool: &str, install_path: &Path, version: &str) -> Result<()> {
+fn record_install_state(tool: &str, install_path: &Path, version: &str) {
     let install_path_str = install_path.to_string_lossy();
     let checksum = install_state::compute_checksum(install_path).ok();
     let checksum_ref = checksum.as_deref();
@@ -267,7 +267,6 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str) -> Resul
             eprintln!("  {} Could not record install state: {error}", "!".yellow());
         }
     }
-    Ok(())
 }
 
 /// Default root directory for local source checkouts.
@@ -425,13 +424,14 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     }
 
     if opts.profile == Some(InstallProfile::DeveloperTools) {
-        return handle_developer_tools_profile(tools);
+        handle_developer_tools_profile(tools);
+        return Ok(());
     }
 
     let tools_to_install = resolve_requested_tools(opts.all, opts.profile, tools);
 
     if opts.dry_run {
-        print_install_preview_and_exit(&prefix, tools_to_install);
+        print_install_preview_and_exit(&prefix, tools_to_install.as_deref());
         return Ok(());
     }
 
@@ -452,7 +452,7 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     print_manual_follow_up(&manual_tools);
     println!();
 
-    finalize_install(failures, opts.profile, has_manual_follow_up)
+    finalize_install(&failures, opts.profile, has_manual_follow_up)
 }
 
 fn print_install_banner() {
@@ -476,7 +476,7 @@ fn check_and_enforce_policy(profile: InstallProfile) -> Result<()> {
     Ok(())
 }
 
-fn handle_developer_tools_profile(tools: &[String]) -> Result<()> {
+fn handle_developer_tools_profile(tools: &[String]) {
     let unknown = developer_tools::unknown_requested_tools(tools);
     let report = developer_tools::install_report(tools);
 
@@ -491,13 +491,11 @@ fn handle_developer_tools_profile(tools: &[String]) -> Result<()> {
         }
         println!();
     }
-
-    Ok(())
 }
 
-fn print_install_preview_and_exit(prefix: &Path, tools_to_install: Option<Vec<String>>) {
+fn print_install_preview_and_exit(prefix: &Path, tools_to_install: Option<&[String]>) {
     match tools_to_install {
-        Some(ref requested) => {
+        Some(requested) => {
             let label = "all".to_string();
             print_install_preview(prefix, requested, &label);
         }
@@ -620,12 +618,12 @@ fn print_manual_follow_up(manual_tools: &[ManualProfileMember]) {
 }
 
 fn finalize_install(
-    failures: Vec<String>,
+    failures: &[String],
     profile: Option<InstallProfile>,
     has_manual_follow_up: bool,
 ) -> Result<()> {
     if failures.is_empty() {
-        let persisted_profile = selected_profile_for_persistence(&failures, profile);
+        let persisted_profile = selected_profile_for_persistence(failures, profile);
 
         if let Some(profile) = persisted_profile {
             persist_install_profile_state(profile)?;

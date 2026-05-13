@@ -83,7 +83,7 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
     let profile = resolve_profile(profile);
     let lamella_invocations = lamella_invocations(profile);
 
-    print_repair_header(&profile, &lamella_invocations);
+    print_repair_header(profile, &lamella_invocations);
 
     if lamella_invocations.is_empty() {
         println!("  - none for {}", profile.mode_label());
@@ -107,7 +107,7 @@ pub fn run(profile: Option<InstallProfile>, dry_run: bool) -> Result<()> {
     run_repair_with_backups(profile, &lamella_root, &lamella_invocations, &targets)
 }
 
-fn print_repair_header(profile: &InstallProfile, _invocations: &[LamellaInvocation]) {
+fn print_repair_header(profile: InstallProfile, _invocations: &[LamellaInvocation]) {
     println!();
     println!("{}", "Package Repair".bold());
     println!("{}", "─".repeat(75));
@@ -143,7 +143,7 @@ fn run_repair_with_backups(
     let backups = match prepare_backups(targets) {
         Ok(backups) => backups,
         Err(failure) => {
-            handle_backup_failure(profile, lamella_root, lamella_invocations, &failure)?;
+            handle_backup_failure(profile, lamella_root, lamella_invocations, &failure);
             return Err(anyhow!("backup preparation failed"));
         }
     };
@@ -151,9 +151,12 @@ fn run_repair_with_backups(
     let status = run_lamella_install(lamella_root, lamella_invocations);
 
     match status {
-        Ok(()) => handle_repair_success(profile, lamella_root, lamella_invocations, &backups),
+        Ok(()) => {
+            handle_repair_success(profile, lamella_root, lamella_invocations, &backups);
+            Ok(())
+        }
         Err(error) => {
-            handle_repair_failure(profile, lamella_root, lamella_invocations, &backups, error)
+            handle_repair_failure(profile, lamella_root, lamella_invocations, &backups, &error)
         }
     }
 }
@@ -163,7 +166,7 @@ fn handle_backup_failure(
     lamella_root: &Path,
     lamella_invocations: &[LamellaInvocation],
     failure: &BackupPreparationFailure,
-) -> Result<()> {
+) {
     if !failure.backups.is_empty() {
         for line in rollback_summary_lines(&failure.rollback) {
             println!("{line}");
@@ -187,7 +190,6 @@ fn handle_backup_failure(
         },
         Some(&failure_message),
     ));
-    Ok(())
 }
 
 fn handle_repair_success(
@@ -195,7 +197,7 @@ fn handle_repair_success(
     lamella_root: &Path,
     lamella_invocations: &[LamellaInvocation],
     backups: &[PackageBackup],
-) -> Result<()> {
+) {
     let backup_paths = backups
         .iter()
         .map(|backup| host_policy::format_user_path(&backup.backup))
@@ -224,7 +226,6 @@ fn handle_repair_success(
         );
     }
     println!("{}", "Package repair completed.".green());
-    Ok(())
 }
 
 fn handle_repair_failure(
@@ -232,7 +233,7 @@ fn handle_repair_failure(
     lamella_root: &Path,
     lamella_invocations: &[LamellaInvocation],
     backups: &[PackageBackup],
-    error: anyhow::Error,
+    error: &anyhow::Error,
 ) -> Result<()> {
     let rollback = rollback_backups(backups);
     for line in rollback_summary_lines(&rollback) {
@@ -248,7 +249,7 @@ fn handle_repair_failure(
         Some(&rollback),
         Some(&error_string),
     ));
-    let failure_message = format_failed_package_repair_message(&error, &rollback);
+    let failure_message = format_failed_package_repair_message(error, &rollback);
     Err(anyhow!(failure_message))
 }
 
