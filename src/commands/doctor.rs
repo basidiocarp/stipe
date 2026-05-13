@@ -52,11 +52,21 @@ const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
 #[cfg(test)]
 mod tests;
 
-fn render_check_line(check: &HealthCheck, colorize: bool) -> String {
-    let (symbol, message) = if check.passed {
+fn render_check_line(check: &HealthCheck, colorize: bool, deep: bool) -> String {
+    let (symbol, raw_message) = if check.passed {
         ("✓", check.message.clone())
     } else {
         ("✗", check.message.clone())
+    };
+
+    let message = if check.passed && !deep {
+        // Trim verbose parenthetical from passing checks
+        raw_message
+            .find(" (")
+            .map(|i| raw_message[..i].to_string())
+            .unwrap_or(raw_message)
+    } else {
+        raw_message
     };
 
     let message = if colorize {
@@ -75,7 +85,14 @@ fn render_check_line(check: &HealthCheck, colorize: bool) -> String {
         check.name.clone()
     };
 
-    format!("  {name:<20} {symbol} {message}")
+    let line = format!("  {name:<20} {symbol} {message}");
+    // Indent continuation lines so they align with the start of the message text.
+    // Prefix: 2 margin + 20 name + 1 space + 1 symbol + 1 space = 25 chars.
+    if line.contains('\n') {
+        line.replace('\n', "\n                         ")
+    } else {
+        line
+    }
 }
 
 fn render_drift_finding(finding: &DriftFinding, colorize: bool) -> (String, String) {
@@ -221,13 +238,19 @@ fn render_report(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Strin
     ];
 
     render_report_header(&mut lines, report, colorize);
-    render_report_overview(&mut lines, report, colorize);
+    render_report_overview(&mut lines, report, colorize, deep);
     render_report_providers(&mut lines, report, colorize, deep);
     render_report_mcp(&mut lines, report, colorize, deep);
     render_report_hosts(&mut lines, report, colorize);
-    render_report_runtime_policy(&mut lines, report, colorize, deep);
-    render_report_worktree(&mut lines, report, colorize, deep);
-    render_report_packages(&mut lines, report, colorize, deep);
+    if deep {
+        render_report_runtime_policy(&mut lines, report, colorize, deep);
+    }
+    if deep {
+        render_report_worktree(&mut lines, report, colorize, deep);
+    }
+    if deep {
+        render_report_packages(&mut lines, report, colorize, deep);
+    }
     render_report_drift(&mut lines, report, colorize);
     render_report_hooks(&mut lines, report, colorize);
     render_report_mcp_servers(&mut lines, report, colorize);
@@ -250,8 +273,13 @@ fn render_report_header(lines: &mut Vec<String>, report: &DoctorReport, _coloriz
     }
 }
 
-fn render_report_overview(lines: &mut Vec<String>, report: &DoctorReport, colorize: bool) {
-    lines.extend(render_overview(report, colorize));
+fn render_report_overview(
+    lines: &mut Vec<String>,
+    report: &DoctorReport,
+    colorize: bool,
+    deep: bool,
+) {
+    lines.extend(render_overview(report, colorize, deep));
     lines.push(String::new());
 }
 
@@ -426,30 +454,110 @@ fn render_report_developer_tools(lines: &mut Vec<String>, report: &DoctorReport)
     }
 }
 
-fn render_overview(report: &DoctorReport, colorize: bool) -> Vec<String> {
+fn is_instruction_check(check: &HealthCheck) -> bool {
+    check.name.starts_with("L0:") || check.name.starts_with("L1:") || check.name.starts_with("L2:")
+}
+
+fn render_instruction_summary(checks: &[&HealthCheck], colorize: bool) -> String {
+    let total = checks.len();
+    let failed: Vec<_> = checks.iter().filter(|c| !c.passed).collect();
+    let name = "instruction files";
+    let name_fmt = if colorize {
+        name.bold().to_string()
+    } else {
+        name.to_string()
+    };
+    if failed.is_empty() {
+        let msg = format!("{total} files found");
+        let msg = if colorize {
+            msg.green().to_string()
+        } else {
+            msg
+        };
+        format!("  {name_fmt:<20} ✓ {msg}")
+    } else {
+        let passed = total - failed.len();
+        let missing: Vec<String> = failed
+            .iter()
+            .map(|c| {
+                c.name
+                    .split_once(": ")
+                    .map_or_else(|| c.name.clone(), |(_, n)| n.to_string())
+            })
+            .collect();
+        let msg = format!(
+            "{passed} passed, {} missing: {}",
+            failed.len(),
+            missing.join(", ")
+        );
+        let msg = if colorize { msg.red().to_string() } else { msg };
+        format!("  {name_fmt:<20} ✗ {msg}")
+    }
+}
+
+fn render_overview(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<String> {
     let mut lines = vec![if colorize {
         "Overview:".bold().to_string()
     } else {
         "Overview:".to_string()
     }];
 
-    lines.extend(
-        report
-            .checks
-            .iter()
-            .filter(|check| !is_host_check(check))
-            .map(|check| render_check_line(check, colorize)),
-    );
-
-    let host_checks = report
+    let regular_checks: Vec<&HealthCheck> = report
         .checks
         .iter()
-        .filter(|check| is_host_check(check))
-        .collect::<Vec<_>>();
+        .filter(|c| !is_host_check(c) && !is_instruction_check(c))
+        .collect();
+
+    let instruction_checks: Vec<&HealthCheck> = report
+        .checks
+        .iter()
+        .filter(|c| is_instruction_check(c))
+        .collect();
+
+    if deep {
+        // Deep: show all regular checks expanded
+        for check in &regular_checks {
+            lines.push(render_check_line(check, colorize, deep));
+        }
+    } else {
+        // Compact: show only failing regular checks
+        let failing: Vec<_> = regular_checks.iter().filter(|c| !c.passed).collect();
+        let passed_count = regular_checks.iter().filter(|c| c.passed).count();
+
+        for check in &failing {
+            lines.push(render_check_line(check, colorize, deep));
+        }
+
+        if passed_count > 0 {
+            let summary = format!("  ({passed_count} checks passed)");
+            let summary = if colorize {
+                summary.dimmed().to_string()
+            } else {
+                summary
+            };
+            lines.push(summary);
+        }
+    }
+
+    // Instruction checks: always collapsed in compact, expanded in deep
+    if !instruction_checks.is_empty() {
+        if deep {
+            for check in &instruction_checks {
+                lines.push(render_check_line(check, colorize, deep));
+            }
+        } else {
+            lines.push(render_instruction_summary(&instruction_checks, colorize));
+        }
+    }
+
+    // Host summary (unchanged)
+    let host_checks: Vec<&HealthCheck> =
+        report.checks.iter().filter(|c| is_host_check(c)).collect();
     if !host_checks.is_empty() {
         lines.push(render_check_line(
             &host_summary_check(&host_checks),
             colorize,
+            deep,
         ));
     }
 

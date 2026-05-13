@@ -488,7 +488,7 @@ fn test_render_report_includes_runtime_policy_section() {
         plugin_inventory: None,
     };
 
-    let lines = render_report(&report, false, false);
+    let lines = render_report(&report, false, true);
     assert!(lines.iter().any(|line| line == "Runtime policy:"));
     assert!(
         lines
@@ -508,7 +508,8 @@ fn test_render_report_includes_runtime_policy_section() {
     assert!(lines.iter().any(|line| line == "State: All checks passed."));
     assert!(lines.iter().any(|line| line
         == "Next step: stay on the current ecosystem configuration; no repair action is needed"));
-    assert!(lines.iter().any(|line| line
+    // When deep=true, the footer should not include the --deep hint
+    assert!(!lines.iter().any(|line| line
         == "Optional follow-up: run `stipe doctor --deep` for the expanded operator report"));
 }
 
