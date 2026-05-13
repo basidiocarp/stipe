@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::model::HealthCheck;
 use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
+use super::version_pins;
 use crate::commands::claude_hooks;
 use crate::commands::host_policy;
-use crate::commands::install::release::{probe_mcp_server, verify_functional};
+use crate::commands::install::release::{normalize_version, probe_mcp_server, verify_functional};
 use crate::commands::install::{
     InstallProfile, ManualProfileMember, expected_profile_tools, manual_member,
 };
@@ -16,30 +16,16 @@ use crate::ecosystem::clients::{self, McpClient};
 // Version drift detection
 // ---------------------------------------------------------------------------
 
-/// Pinned tool versions from ecosystem-versions.toml. Must be kept in sync.
-fn pinned_ecosystem_versions() -> HashMap<&'static str, &'static str> {
-    let mut pins = HashMap::new();
-    pins.insert("mycelium", "0.11.1");
-    pins.insert("hyphae", "0.14.2");
-    pins.insert("rhizome", "0.8.0");
-    pins.insert("canopy", "0.8.1");
-    pins.insert("cortina", "0.5.0");
-    pins.insert("stipe", "0.8.2");
-    pins.insert("volva", "0.3.1");
-    pins.insert("hymenium", "0.8.1");
-    pins.insert("annulus", "0.7.1");
-    pins.insert("cap", "0.13.0");
-    pins.insert("lamella", "0.5.15");
-    pins.insert("spore", "0.6.0");
-    pins
-}
-
 /// Check if an installed version is behind the pinned version.
 /// Returns (`is_behind`, `pinned_version`) or (false, None) if tool not in pins.
 fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String>) {
-    let pins = pinned_ecosystem_versions();
+    let pins = version_pins::pinned_ecosystem_versions();
     match pins.get(tool_name) {
-        Some(&pinned) => (installed != pinned, Some(pinned.to_string())),
+        Some(&pinned) => {
+            let installed_norm = normalize_version(installed);
+            let pinned_norm = normalize_version(pinned);
+            (installed_norm != pinned_norm, Some(pinned.to_string()))
+        }
         None => (false, None),
     }
 }

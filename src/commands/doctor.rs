@@ -25,6 +25,7 @@ pub(crate) mod provider_checks;
 mod server_checks;
 mod skills_checks;
 mod tool_checks;
+mod version_pins;
 
 use config_checks::{ConfigDriftState, check_mcp_config_drift};
 use council_checks::check_task_linked_council;

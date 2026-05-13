@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,22 +32,48 @@ pub struct ConfigRecord {
 
 /// Returns the backup base directory.
 /// Uses `STIPE_BACKUP_DIR` env var, falling back to `~/.local/share/stipe/backups`.
-pub fn backup_base_dir() -> PathBuf {
-    if let Ok(raw) = std::env::var("STIPE_BACKUP_DIR") {
+/// If an explicit `STIPE_BACKUP_DIR` env var is set, validates it against known
+/// system-critical directories to prevent accidental writes to system files.
+pub fn backup_base_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("HOME not set or not determinable"))?;
+
+    let (resolved, is_explicit_env_var) = if let Ok(raw) = std::env::var("STIPE_BACKUP_DIR") {
         // Expand tilde if present at the start of the path
         let expanded = if let Some(rest) = raw.strip_prefix("~/") {
-            dirs::home_dir().map_or_else(|| PathBuf::from(raw.clone()), |h| h.join(rest))
+            home.join(rest)
         } else if raw == "~" {
-            dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw.clone()))
+            home.clone()
         } else {
             PathBuf::from(&raw)
         };
-        return expanded;
+        (expanded, true)
+    } else {
+        let default = dirs::data_local_dir()
+            .unwrap_or_else(|| home.join(".local").join("share"))
+            .join("stipe")
+            .join("backups");
+        (default, false)
+    };
+
+    // If the env var was explicitly set, validate it does not write to system-critical dirs.
+    if is_explicit_env_var {
+        // Canonicalize if the path exists; otherwise use the resolved path directly
+        // to allow creation of new backup directories.
+        let canonical = std::fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
+
+        // Reject system-critical directories. This prevents accidental writes to /etc, /sys, /proc, etc.
+        let forbidden_dirs = ["/etc", "/sys", "/proc", "/boot", "/dev", "/var/log"];
+        for forbidden in &forbidden_dirs {
+            if canonical.starts_with(forbidden) {
+                return Err(anyhow!(
+                    "STIPE_BACKUP_DIR cannot be set to a system directory: {}",
+                    canonical.display()
+                ));
+            }
+        }
     }
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-        .join("stipe")
-        .join("backups")
+
+    Ok(resolved)
 }
 
 /// Creates a pre-install backup snapshot and returns the backup directory path.
@@ -57,7 +83,7 @@ pub fn create_backup(
     binary_paths: &[(String, PathBuf)],
     config_paths: &[PathBuf],
 ) -> Result<PathBuf> {
-    let base = backup_base_dir();
+    let base = backup_base_dir()?;
     let backup_dir = base.join(timestamp);
     let bin_dir = backup_dir.join("bin");
     let cfg_dir = backup_dir.join("config");
@@ -123,7 +149,7 @@ pub fn create_backup(
 
 /// Lists available backups, returning `(timestamp, backup_dir)` sorted newest first.
 pub fn list_backups() -> Result<Vec<(String, PathBuf)>> {
-    let base = backup_base_dir();
+    let base = backup_base_dir()?;
     if !base.exists() {
         return Ok(Vec::new());
     }
@@ -153,8 +179,38 @@ pub fn load_manifest(backup_dir: &Path) -> Result<BackupManifest> {
 pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
     for record in &manifest.binaries {
         if record.backup_path.exists() {
-            fs::copy(&record.backup_path, &record.original_path)
-                .with_context(|| format!("restore binary: {}", record.original_path.display()))?;
+            let tmp = record.original_path.with_extension("restoring");
+            fs::copy(&record.backup_path, &tmp).with_context(|| {
+                format!("restore binary (copy): {}", record.original_path.display())
+            })?;
+
+            let result = (|| {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).with_context(
+                        || {
+                            format!(
+                                "restore binary (permissions): {}",
+                                record.original_path.display()
+                            )
+                        },
+                    )?;
+                }
+
+                fs::rename(&tmp, &record.original_path).with_context(|| {
+                    format!(
+                        "restore binary (rename): {}",
+                        record.original_path.display()
+                    )
+                })?;
+                Ok::<(), anyhow::Error>(())
+            })();
+
+            if result.is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
+            result?;
         }
     }
     for record in &manifest.config_files {
@@ -218,9 +274,20 @@ impl BackupOutcome {
 /// what failed, and what was missing. Does not fail the upgrade even
 /// if backup is incomplete.
 pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> BackupOutcome {
-    let base = backup_base_dir();
     let backup_dir_name = format!("hyphae-{hyphae_version}-{timestamp}");
-    let backup_dir = base.join(&backup_dir_name);
+    let backup_dir = match backup_base_dir() {
+        Ok(base) => base.join(&backup_dir_name),
+        Err(e) => {
+            warn!("Failed to determine backup directory: {}", e);
+            return BackupOutcome {
+                backup_dir: None,
+                binaries_copied: Vec::new(),
+                databases_copied: Vec::new(),
+                missing: vec!["backup directory".to_string()],
+                failed: vec![format!("backup directory: {e}")],
+            };
+        }
+    };
 
     let mut binaries_copied = Vec::new();
     let mut databases_copied = Vec::new();

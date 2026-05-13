@@ -200,12 +200,23 @@ pub fn run_socket_server() -> Result<()> {
 
     if let Some(parent) = socket_path.parent() {
         std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     remove_stale_socket(&socket_path);
 
     let listener = std::os::unix::net::UnixListener::bind(&socket_path).map_err(|e| {
         anyhow::anyhow!("failed to bind stipe socket {}: {e}", socket_path.display())
     })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+    }
 
     write_endpoint_descriptor(&socket_path)?;
 

@@ -13,38 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::model::{PluginInventory, PluginInventoryItem, PluginPathStatus, VersionDriftStatus};
-
-// ---------------------------------------------------------------------------
-// Ecosystem version pins
-// ---------------------------------------------------------------------------
-
-/// Pinned tool versions from `ecosystem-versions.toml` (the `[tools]` table).
-///
-/// We embed the versions at compile time from the source-of-truth file.
-/// This avoids runtime file I/O for a file that lives outside the stipe repo
-/// boundary and may not be present on end-user machines.  When this crate is
-/// built from the workspace the values are current.  When it is installed as
-/// a release binary the values reflect the ecosystem state at release time,
-/// which is still the correct reference for version drift.
-///
-/// These versions must stay synchronized with ecosystem-versions.toml [tools] table.
-/// During `stipe doctor`, version drift for installed binaries is checked against these pins.
-fn pinned_tool_versions() -> HashMap<&'static str, &'static str> {
-    let mut pins = HashMap::new();
-    pins.insert("mycelium", "0.11.1");
-    pins.insert("hyphae", "0.14.2");
-    pins.insert("rhizome", "0.8.0");
-    pins.insert("canopy", "0.8.1");
-    pins.insert("cortina", "0.5.0");
-    pins.insert("stipe", "0.8.2");
-    pins.insert("volva", "0.3.1");
-    pins.insert("hymenium", "0.8.1");
-    pins.insert("annulus", "0.7.1");
-    pins.insert("cap", "0.13.0");
-    pins.insert("lamella", "0.5.15");
-    pins.insert("spore", "0.6.0");
-    pins
-}
+use super::version_pins;
 
 // ---------------------------------------------------------------------------
 // Annulus hook validation
@@ -291,7 +260,7 @@ fn resolve_version_drift(
 /// Collect the full plugin and hook inventory.
 #[must_use]
 pub(super) fn collect_plugin_inventory() -> PluginInventory {
-    let pins = pinned_tool_versions();
+    let pins = version_pins::pinned_ecosystem_versions();
 
     // Try annulus first; fall back to direct stat checks.
     let (annulus_used, annulus_items) = try_annulus_validate_hooks();
@@ -369,7 +338,7 @@ mod tests {
 
     #[test]
     fn pinned_tool_versions_table_is_non_empty() {
-        let pins = pinned_tool_versions();
+        let pins = version_pins::pinned_ecosystem_versions();
         assert!(pins.contains_key("cortina"));
         assert!(pins.contains_key("annulus"));
         assert!(pins.contains_key("hyphae"));

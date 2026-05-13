@@ -51,6 +51,16 @@ pub(crate) fn install_tool(
     force: bool,
     client: &GitHubClient,
 ) -> Result<()> {
+    install_tool_with_source(tool, prefix, force, client, None)
+}
+
+pub(crate) fn install_tool_with_source(
+    tool: &str,
+    prefix: &Path,
+    force: bool,
+    client: &GitHubClient,
+    source: Option<&str>,
+) -> Result<()> {
     let install_path = prefix.join(tool);
 
     if check_already_installed(&install_path, force) {
@@ -70,7 +80,7 @@ pub(crate) fn install_tool(
     let version = verify_binary(&extracted_path)?;
 
     verify_and_report_installation(tool, &install_path, &version, prefix)?;
-    record_install_state(tool, &install_path, &version);
+    record_install_state(tool, &install_path, &version, source.unwrap_or("lamella"));
 
     Ok(())
 }
@@ -178,7 +188,11 @@ fn deploy_binary(install_path: &Path, extracted_path: &Path) -> Result<()> {
     result
 }
 
-fn deploy_to_staging(extracted_path: &Path, staging_path: &Path, install_path: &Path) -> Result<()> {
+fn deploy_to_staging(
+    extracted_path: &Path,
+    staging_path: &Path,
+    install_path: &Path,
+) -> Result<()> {
     fs::copy(extracted_path, staging_path).with_context(|| {
         format!(
             "Failed to copy {} to {}",
@@ -274,7 +288,7 @@ fn verify_and_report_installation(
     Ok(())
 }
 
-fn record_install_state(tool: &str, install_path: &Path, version: &str) {
+fn record_install_state(tool: &str, install_path: &Path, version: &str, source: &str) {
     let install_path_str = install_path.to_string_lossy();
     let checksum = install_state::compute_checksum(install_path).ok();
     let checksum_ref = checksum.as_deref();
@@ -285,7 +299,7 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str) {
             "binary",
             Some(install_path_str.as_ref()),
             Some(version),
-            Some("lamella"),
+            Some(source),
             checksum_ref,
         ) {
             eprintln!("  {} Could not record install state: {error}", "!".yellow());

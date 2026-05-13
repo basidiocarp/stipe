@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use super::install;
+use super::install::release::normalize_version;
 use super::tool_registry;
 use super::tool_registry::InstallProfile;
 use crate::commands::github::GitHubClient;
@@ -73,7 +74,8 @@ fn check_tool_update(tool: &str, client: &GitHubClient) -> Result<UpdateInfo> {
     };
     let latest = fetch_latest_version(tool, client)?;
 
-    let update_available = needs_reinstall || installed != latest;
+    let update_available =
+        needs_reinstall || normalize_version(&installed) != normalize_version(&latest);
 
     Ok(UpdateInfo {
         installed,

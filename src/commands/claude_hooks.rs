@@ -336,7 +336,7 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
         ensure_annulus_config()?;
     }
 
-    Ok(true)
+    Ok(changed)
 }
 
 fn claude_hooks_configured_at_path(settings_path: &Path) -> bool {
@@ -659,6 +659,18 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
 
     // Run the validator if found
     if let Some(validator_path) = validator_script {
+        // Validate the script path is within home directory before execution
+        let Some(safe_prefix) = dirs::home_dir() else {
+            return snapshots;
+        };
+
+        // Try to canonicalize; if that fails, compare the path components directly
+        let canonical =
+            std::fs::canonicalize(&validator_path).unwrap_or_else(|_| validator_path.clone());
+        if !canonical.starts_with(&safe_prefix) {
+            return snapshots;
+        }
+
         if let Ok(output) = Command::new("node").arg(&validator_path).output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
