@@ -156,12 +156,16 @@ fn command_matches(existing: &str, expected: &str) -> bool {
         return true;
     }
 
-    // Extract the subcommand suffix after "adapter claude-code " from the
-    // expected command, then verify the existing command ends with that suffix.
-    // This handles both bare names and absolute-path forms uniformly.
-    if let Some(suffix) = expected.strip_prefix("cortina adapter claude-code ") {
-        let target = format!("adapter claude-code {suffix}");
-        return existing.ends_with(&target);
+    // For cortina adapter commands: extract "adapter claude-code <subcommand>" suffix
+    // from both existing and expected, then compare. This handles both bare and absolute paths.
+    if let Some(existing_pos) = existing.find("adapter claude-code ") {
+        if let Some(expected_pos) = expected.find("adapter claude-code ") {
+            let existing_suffix = &existing[existing_pos..];
+            let expected_suffix = &expected[expected_pos..];
+            if existing_suffix == expected_suffix {
+                return true;
+            }
+        }
     }
 
     // For statusline-style commands, match on the trailing keyword phrase so
@@ -203,6 +207,54 @@ fn hook_entry_present(root: &serde_json::Value, spec: HookSpec, command: &str) -
                 })
             })
     })
+}
+
+fn upgrade_hook_entry_if_bare(root: &mut serde_json::Value, spec: HookSpec, command: &str) -> bool {
+    let Some(entries) = root
+        .get_mut("hooks")
+        .and_then(|hooks| hooks.get_mut(spec.event))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return false;
+    };
+
+    for entry in entries.iter_mut() {
+        let matcher_matches = spec.matcher.is_none_or(|matcher| {
+            entry.get("matcher").and_then(serde_json::Value::as_str) == Some(matcher)
+        });
+        if !matcher_matches {
+            continue;
+        }
+
+        if let Some(hooks) = entry
+            .get_mut("hooks")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for hook in hooks.iter_mut() {
+                let existing = hook
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .map(std::string::ToString::to_string);
+
+                if let Some(existing_cmd) = existing {
+                    if command_matches(&existing_cmd, command) && existing_cmd != command {
+                        // Upgrade: existing command matches semantically but differs textually.
+                        // This typically means it's a bare name (e.g., "cortina adapter...")
+                        // while the new command is absolute path form. Replace it.
+                        if let Some(cmd_obj) = hook.as_object_mut() {
+                            cmd_obj.insert(
+                                "command".to_string(),
+                                serde_json::Value::String(command.to_owned()),
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str) {
@@ -316,7 +368,12 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
 
     for spec in CLAUDE_HOOK_SPECS {
         let command = hook_command(spec);
-        if !hook_entry_present(&root, spec, &command) {
+
+        // First, check if we need to upgrade a bare-name entry to absolute path form.
+        if upgrade_hook_entry_if_bare(&mut root, spec, &command) {
+            changed = true;
+        } else if !hook_entry_present(&root, spec, &command) {
+            // Entry not present and upgrade not needed; insert it.
             insert_hook_entry(&mut root, spec, &command);
             changed = true;
         }
@@ -655,11 +712,7 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
 
     // If no script found in standard locations, check $PATH for 'lamella-validate-hooks'
     let validator_script = validator_script.or_else(|| {
-        if Command::new("which")
-            .arg("lamella-validate-hooks")
-            .output()
-            .is_ok_and(|output| output.status.success())
-        {
+        if which::which("lamella-validate-hooks").is_ok() {
             Some(PathBuf::from("lamella-validate-hooks"))
         } else {
             None
@@ -680,7 +733,16 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
             return snapshots;
         }
 
-        if let Ok(output) = Command::new("node").arg(&validator_path).output() {
+        // Verify node is available before attempting to run the validator
+        let Ok(node_bin) = which::which("node") else {
+            tracing::warn!(
+                "node not found on PATH — lamella hook validator will not run; \
+                 hook paths cannot be validated for staleness"
+            );
+            return snapshots;
+        };
+
+        if let Ok(output) = Command::new(&node_bin).arg(&validator_path).output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             let combined = format!("{stdout}{stderr}");
@@ -803,5 +865,61 @@ mod tests {
         let resolved = extract_hook_path(&command);
         let expected = plugin_root.join("scripts/hooks/pre-tool.js");
         assert_eq!(resolved, Some(expected));
+    }
+
+    #[test]
+    fn test_upgrade_bare_hook_entry_to_absolute_path() {
+        let settings_path = test_settings_path("hooks-upgrade");
+        // Create a settings file with a bare-name hook entry (legacy format).
+        fs::write(
+            &settings_path,
+            json!({
+                "hooks": {
+                    "PreToolUse": [{
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "cortina adapter claude-code pre-tool-use",
+                            "timeout": 2,
+                            "statusMessage": "Cortina rewriting bash commands"
+                        }]
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        // Run install which should detect the bare entry and upgrade it to absolute path.
+        install_claude_hooks_at_path(&settings_path).unwrap();
+
+        // Verify the entry was upgraded to absolute path (not duplicated).
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+
+        let entries = root
+            .get("hooks")
+            .and_then(|hooks| hooks.get("PreToolUse"))
+            .and_then(serde_json::Value::as_array)
+            .expect("PreToolUse hooks array");
+
+        // Should be exactly one entry with the absolute path command.
+        assert_eq!(entries.len(), 1);
+        let hook_list = entries[0]
+            .get("hooks")
+            .and_then(serde_json::Value::as_array)
+            .expect("hooks array");
+        assert_eq!(hook_list.len(), 1);
+
+        let cmd = hook_list[0]
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .expect("command string");
+
+        // Should now be absolute path (not bare "cortina")
+        assert!(!cmd.eq("cortina adapter claude-code pre-tool-use"));
+        assert!(cmd.contains("cortina") && cmd.contains("adapter claude-code pre-tool-use"));
+
+        let _ = fs::remove_file(settings_path);
     }
 }

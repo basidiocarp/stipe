@@ -8,7 +8,26 @@ use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
 
 fn required_notify_values() -> Vec<String> {
-    vec!["hyphae".to_string(), "codex-notify".to_string()]
+    let mut values = Vec::new();
+
+    // Hyphae: use absolute path if available, fall back to bare name.
+    // (macOS GUI apps may not have ~/.local/bin on PATH, so absolute path is preferred)
+    let hyphae_value = which::which("hyphae")
+        .ok()
+        .and_then(|p| p.to_str().map(std::string::ToString::to_string))
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "hyphae not found on PATH — codex notify entry may fail in GUI launches"
+            );
+            "hyphae".to_string()
+        });
+    values.push(hyphae_value);
+
+    // codex-notify is a codex built-in subcommand, not a separate binary on PATH.
+    // Keep it as a bare string.
+    values.push("codex-notify".to_string());
+
+    values
 }
 
 fn optional_cortina_adapter() -> Option<String> {
@@ -57,6 +76,27 @@ fn write_config(config_path: &Path, root: &toml::Value) -> Result<()> {
     Ok(())
 }
 
+/// Check if a notify value is present in the array, handling both bare and absolute path forms.
+fn notify_value_present(values: &[toml::Value], required: &str) -> bool {
+    for entry in values {
+        if let Some(entry_str) = entry.as_str() {
+            // Exact match
+            if entry_str == required {
+                return true;
+            }
+            // For hyphae, also match bare "hyphae" against any absolute path ending with "/hyphae"
+            if required == "hyphae" && entry_str.ends_with("/hyphae") {
+                return true;
+            }
+            if entry_str == "hyphae" && required.ends_with("/hyphae") {
+                return true;
+            }
+            // For other tools, exact match is required (codex-notify is always bare)
+        }
+    }
+    false
+}
+
 pub fn codex_notify_configured_at_path(config_path: &Path) -> bool {
     let Ok(root) = load_or_create_config(config_path) else {
         return false;
@@ -67,11 +107,9 @@ pub fn codex_notify_configured_at_path(config_path: &Path) -> bool {
     root.get("notify")
         .and_then(toml::Value::as_array)
         .is_some_and(|values| {
-            required.iter().all(|required_val| {
-                values
-                    .iter()
-                    .any(|entry| entry.as_str() == Some(required_val.as_str()))
-            })
+            required
+                .iter()
+                .all(|required_val| notify_value_present(values, required_val))
         })
 }
 
@@ -103,10 +141,7 @@ pub fn install_codex_notify(scope: HostConfigScope, verbose: u8) -> Result<bool>
     let required = required_notify_values();
     let mut changed = false;
     for value in required {
-        if !notify
-            .iter()
-            .any(|entry| entry.as_str() == Some(value.as_str()))
-        {
+        if !notify_value_present(&notify, &value) {
             notify.push(toml::Value::String(value));
             changed = true;
         }
@@ -185,13 +220,29 @@ mod tests {
     #[test]
     fn test_codex_notify_configured_at_path_detects_required_entries_with_extras() {
         let config_path = test_config_path("codex-notify-detect");
+        // The check uses codex_notify_configured_at_path which verifies that hyphae and
+        // codex-notify are both present. It doesn't matter if hyphae is the bare name or
+        // an absolute path — the check matches on the string content.
+        // Create two cases to verify the function works with both bare and absolute forms.
+
+        // Case 1: with bare "hyphae" name
         fs::write(
             &config_path,
             r#"notify = ["existing-hook", "hyphae", "codex-notify"]"#,
         )
         .unwrap();
-
         assert!(codex_notify_configured_at_path(&config_path));
+
+        // Case 2: with absolute path (if hyphae is on PATH in test env)
+        if let Ok(hyphae_path) = which::which("hyphae") {
+            let hyphae_str = hyphae_path.to_string_lossy().to_string();
+            fs::write(
+                &config_path,
+                format!(r#"notify = ["existing-hook", "{hyphae_str}", "codex-notify"]"#),
+            )
+            .unwrap();
+            assert!(codex_notify_configured_at_path(&config_path));
+        }
     }
 
     #[test]

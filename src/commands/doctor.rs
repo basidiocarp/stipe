@@ -18,6 +18,7 @@ use crate::verify;
 mod config_checks;
 mod council_checks;
 mod instruction_checks;
+mod lamella_hooks_checks;
 pub(crate) mod model;
 mod package_checks;
 mod plugin_inventory_checks;
@@ -30,6 +31,7 @@ mod version_pins;
 use config_checks::{ConfigDriftState, check_mcp_config_drift};
 use council_checks::check_task_linked_council;
 use instruction_checks::check_instruction_files;
+use lamella_hooks_checks::check_lamella_hooks;
 use model::{
     ApiKeyHealth, ApiKeyStatus, AuthFreshness, DoctorReport, DriftFinding, DriftReport,
     HealthCheck, InstallProfileSummary, McpServerHealth, McpServerStatus, PackageDrift,
@@ -1459,6 +1461,7 @@ fn build_report_with_saved_profile(
     checks.extend(check_instruction_files());
     checks.push(check_skills());
     add_hook_checks(&mut checks, &hook_paths);
+    checks.push(check_lamella_hooks());
 
     let healthy = checks.iter().all(|check| check.passed);
     let failing = checks.iter().filter(|check| !check.passed).count();
