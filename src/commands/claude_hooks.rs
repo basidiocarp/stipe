@@ -34,7 +34,7 @@ struct HookSpec {
     timeout_secs: u64,
 }
 
-const CLAUDE_HOOK_SPECS: [HookSpec; 5] = [
+const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
     HookSpec {
         event: "PreToolUse",
         matcher: Some("Bash"),
@@ -56,6 +56,15 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 5] = [
         status_message: "Cortina capturing session summary",
         timeout_secs: 2,
     },
+    HookSpec {
+        event: "SessionEnd",
+        matcher: None,
+        subcommand: "session-end",
+        status_message: "Cortina capturing session end",
+        timeout_secs: 10,
+    },
+    // SessionStart: not yet registered — cortina has no SessionStart handler.
+    // Track in cortina handoff: session-lifecycle-hooks follow-up.
     HookSpec {
         event: "PreCompact",
         matcher: Some("*"),
