@@ -3,10 +3,15 @@ use serde::Serialize;
 use serde_json::json;
 use spore::atomic_write_bytes;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use super::host_policy::{self, HostConfigScope, HostMode};
+use crate::commands::install::release::run_command_with_timeout;
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HookEntrySnapshot {
@@ -94,17 +99,49 @@ const DEFAULT_ANNULUS_CONFIG: &str = "\
 ";
 
 pub fn cortina_installed() -> bool {
-    Command::new("cortina")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+    let mut cmd = Command::new("cortina");
+    cmd.arg("--version");
+    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
+        Ok(output) => {
+            if output.status.success() {
+                true
+            } else {
+                tracing::debug!("cortina --version returned non-zero exit code");
+                false
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            tracing::debug!("cortina --version timed out");
+            false
+        }
+        Err(_) => {
+            tracing::debug!("cortina --version failed to run");
+            false
+        }
+    }
 }
 
 fn annulus_available() -> bool {
-    Command::new("annulus")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+    let mut cmd = Command::new("annulus");
+    cmd.arg("--version");
+    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
+        Ok(output) => {
+            if output.status.success() {
+                true
+            } else {
+                tracing::debug!("annulus --version returned non-zero exit code");
+                false
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            tracing::debug!("annulus --version timed out");
+            false
+        }
+        Err(_) => {
+            tracing::debug!("annulus --version failed to run");
+            false
+        }
+    }
 }
 
 fn configured_paths() -> Vec<PathBuf> {

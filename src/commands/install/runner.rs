@@ -5,6 +5,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use spore::logging::{SpanContext, workflow_span};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
 
 use crate::commands::bin_paths;
 use crate::commands::developer_tools;
@@ -14,7 +16,7 @@ use crate::commands::install::profile_surface::ManualProfileMember;
 use crate::commands::install::release::{
     self, download_binary, download_sha256sums, extract_tarball, fetch_latest_release,
     find_checksum_asset, find_matching_asset, normalize_version, platform_key,
-    verify_asset_checksum, verify_binary, verify_functional,
+    run_command_with_timeout, verify_asset_checksum, verify_binary, verify_functional,
 };
 use crate::commands::install::save_selected_profile;
 use crate::commands::install::selection::{
@@ -193,6 +195,8 @@ fn deploy_to_staging(
     staging_path: &Path,
     install_path: &Path,
 ) -> Result<()> {
+    const CODESIGN_TIMEOUT: Duration = Duration::from_secs(30);
+
     fs::copy(extracted_path, staging_path).with_context(|| {
         format!(
             "Failed to copy {} to {}",
@@ -216,21 +220,28 @@ fn deploy_to_staging(
                 staging_path.display()
             )
         })?;
-        let output = std::process::Command::new("codesign")
-            .args(["--force", "--sign", "-", path_str])
-            .output();
-        if let Ok(out) = output {
-            if !out.status.success() {
-                eprintln!(
-                    "  {} codesign failed on {}: {}",
-                    "!".yellow(),
-                    staging_path.display(),
-                    String::from_utf8_lossy(&out.stderr).trim()
-                );
-                eprintln!(
-                    "  {} binary may be blocked by macOS Gatekeeper; reinstall or run: xattr -d com.apple.quarantine <path>",
-                    "→".yellow()
-                );
+        let mut codesign_cmd = Command::new("codesign");
+        codesign_cmd.args(["--force", "--sign", "-", path_str]);
+        match run_command_with_timeout(&mut codesign_cmd, CODESIGN_TIMEOUT) {
+            Ok(output) => {
+                if !output.status.success() {
+                    eprintln!(
+                        "  {} codesign failed on {}: {}",
+                        "!".yellow(),
+                        staging_path.display(),
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                    eprintln!(
+                        "  {} binary may be blocked by macOS Gatekeeper; reinstall or run: xattr -d com.apple.quarantine <path>",
+                        "→".yellow()
+                    );
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
+                return Err(anyhow!("codesign timed out after 30 seconds"));
+            }
+            Err(err) => {
+                return Err(anyhow!("codesign command failed: {err}"));
             }
         }
     }
@@ -366,6 +377,8 @@ pub(crate) fn install_from_source(
     spec: &ToolSpec,
     source_dir: &Path,
 ) -> Result<String> {
+    const CARGO_INSTALL_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
+
     let cargo_toml = source_dir.join("Cargo.toml");
     if !cargo_toml.exists() {
         anyhow::bail!(
@@ -383,14 +396,19 @@ pub(crate) fn install_from_source(
         install_path.display()
     );
 
-    let status = std::process::Command::new("cargo")
-        .args(["install", "--path"])
-        .arg(&install_path)
-        .status()
+    let mut cargo_cmd = Command::new("cargo");
+    cargo_cmd.args(["install", "--path"]).arg(&install_path);
+
+    let output = run_command_with_timeout(&mut cargo_cmd, CARGO_INSTALL_TIMEOUT)
         .with_context(|| format!("Failed to run cargo install for {tool_name}"))?;
 
-    if !status.success() {
-        anyhow::bail!("cargo install failed for {tool_name}");
+    if !output.status.success() {
+        tracing::error!(
+            tool = %tool_name,
+            status = ?output.status,
+            "cargo install timed out or failed"
+        );
+        anyhow::bail!("cargo install timed out after 10 minutes or failed for {tool_name}");
     }
 
     let binary = which::which(tool_name)

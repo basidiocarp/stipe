@@ -1,8 +1,13 @@
 use std::fs;
+use std::io;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use super::{ALL_CLIENTS, Editor, McpClient};
+use crate::commands::install::release::run_command_with_timeout;
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) fn detect_clients() -> Vec<McpClient> {
     let detected_editors = spore::editors::detect_descriptors()
@@ -42,10 +47,26 @@ fn shared_client_detected(client: McpClient, detected_editors: &[Editor]) -> boo
 }
 
 fn claude_cli_installed() -> bool {
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    let mut cmd = Command::new("claude");
+    cmd.arg("--version");
+    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
+        Ok(o) => {
+            if o.status.success() {
+                true
+            } else {
+                tracing::debug!("claude --version returned non-zero exit code");
+                false
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            tracing::debug!("claude --version timed out");
+            false
+        }
+        Err(_) => {
+            tracing::debug!("claude --version failed to run");
+            false
+        }
+    }
 }
 
 fn cline_installed() -> bool {

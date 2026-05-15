@@ -1,4 +1,6 @@
+use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 use super::model::HealthCheck;
@@ -6,12 +8,16 @@ use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
 use super::version_pins;
 use crate::commands::claude_hooks;
 use crate::commands::host_policy;
-use crate::commands::install::release::{normalize_version, probe_mcp_server, verify_functional};
+use crate::commands::install::release::{
+    normalize_version, probe_mcp_server, run_command_with_timeout, verify_functional,
+};
 use crate::commands::install::{
     InstallProfile, ManualProfileMember, expected_profile_tools, manual_member,
 };
 use crate::commands::repair::{RepairAction, RepairTier, cargo_install_action};
 use crate::ecosystem::clients::{self, McpClient};
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 // ---------------------------------------------------------------------------
 // Version drift detection
@@ -32,10 +38,26 @@ fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String
 }
 
 fn codex_cli_installed() -> bool {
-    std::process::Command::new("codex")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    let mut cmd = Command::new("codex");
+    cmd.arg("--version");
+    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
+        Ok(o) => {
+            if o.status.success() {
+                true
+            } else {
+                tracing::debug!("codex --version returned non-zero exit code");
+                false
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            tracing::debug!("codex --version timed out");
+            false
+        }
+        Err(_) => {
+            tracing::debug!("codex --version failed to run");
+            false
+        }
+    }
 }
 
 fn codex_environment_present() -> bool {
@@ -167,7 +189,14 @@ fn mcp_startup_actions(tool_name: &'static str) -> Vec<RepairAction> {
 }
 
 fn check_mcp_startup(spec: &ToolSpec) -> Option<HealthCheck> {
-    let args = spec.mcp_serve_args?;
+    let Some(args) = spec.mcp_serve_args else {
+        return Some(HealthCheck {
+            name: format!("{} MCP startup", spec.name),
+            passed: true,
+            message: "MCP server args not configured; probe skipped".to_string(),
+            repair_actions: Vec::new(),
+        });
+    };
     let ToolProbe::Installed(_) =
         tool_registry::probe_with_level(spec, tool_registry::VerifyLevel::Version)
     else {

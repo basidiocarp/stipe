@@ -7,10 +7,14 @@ use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::commands::install::release::run_command_with_timeout;
 
 use super::{McpClient, ServerConfig};
+
+const MCP_REGISTER_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) fn register_servers(
     client: McpClient,
@@ -100,8 +104,7 @@ fn register_claude_code(
         }
 
         let _subprocess_span = subprocess_span("claude mcp add", &span_context).entered();
-        let output = cmd
-            .output()
+        let output = run_command_with_timeout(&mut cmd, MCP_REGISTER_TIMEOUT)
             .with_context(|| format!("failed to run `claude mcp add` for {}", server.name))?;
         if !output.status.success() {
             failures.push(format!(

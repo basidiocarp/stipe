@@ -107,19 +107,21 @@ fn store_memory(
         hyphae_cmd.to_string()
     };
 
-    let status = Command::new(&resolved)
+    let output = Command::new(&resolved)
         .args(["store", "--topic", topic, "--importance", importance])
         .arg("--")
         .arg(content)
         .arg("--project")
         .arg(project)
-        .status()
+        .output()
         .context("Failed to run hyphae store command")?;
 
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::debug!("hyphae store command failed with stderr: {}", stderr);
         return Err(anyhow::anyhow!(
             "hyphae store command failed with exit code: {}",
-            status.code().unwrap_or(-1)
+            output.status.code().unwrap_or(-1)
         ));
     }
 

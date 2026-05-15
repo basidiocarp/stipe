@@ -2,9 +2,11 @@ use anyhow::Context;
 use colored::Colorize;
 use spore::logging::{SpanContext, subprocess_span, tool_span, workflow_span};
 use std::process::{Command, Output};
+use std::time::Duration;
 
 use crate::commands::codex_notify;
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::commands::install::release::run_command_with_timeout;
 use crate::commands::tool_registry;
 
 use super::EcosystemOptions;
@@ -112,6 +114,8 @@ pub(super) fn configure_codex_cli(
 }
 
 fn run_lamella_codex_install(verbose: u8) -> anyhow::Result<bool> {
+    const LAMELLA_CODEX_TIMEOUT: Duration = Duration::from_secs(30);
+
     let Ok(lamella_path) = which::which("lamella") else {
         if verbose > 0 {
             eprintln!("  lamella not found on PATH — skipping skill install");
@@ -120,9 +124,9 @@ fn run_lamella_codex_install(verbose: u8) -> anyhow::Result<bool> {
         return Ok(false);
     };
 
-    let output = std::process::Command::new(&lamella_path)
-        .args(["install-codex"])
-        .output()
+    let mut cmd = std::process::Command::new(&lamella_path);
+    cmd.args(["install-codex"]);
+    let output = run_command_with_timeout(&mut cmd, LAMELLA_CODEX_TIMEOUT)
         .with_context(|| "running lamella install-codex")?;
 
     if !output.status.success() {
@@ -159,6 +163,8 @@ pub(super) fn initialize_hyphae_db_if_needed(
     hyphae_installed: bool,
     emit_stdout: bool,
 ) -> anyhow::Result<()> {
+    const HYPHAE_STATS_TIMEOUT: Duration = Duration::from_secs(10);
+
     let span_context = ecosystem_span_context("hyphae");
     let _tool_span = tool_span("initialize_hyphae_db_if_needed", &span_context).entered();
 
@@ -179,7 +185,9 @@ pub(super) fn initialize_hyphae_db_if_needed(
             anyhow::anyhow!("hyphae binary not found; ensure it is installed and accessible")
         })?;
         let _subprocess_span = subprocess_span("hyphae stats", &span_context).entered();
-        match Command::new(&hyphae_bin).arg("stats").output() {
+        let mut hyphae_cmd = Command::new(&hyphae_bin);
+        hyphae_cmd.arg("stats");
+        match run_command_with_timeout(&mut hyphae_cmd, HYPHAE_STATS_TIMEOUT) {
             Ok(output) if output.status.success() => {
                 if emit_stdout {
                     println!("  {} Hyphae database initialized", "\u{2713}".green());
@@ -190,6 +198,12 @@ pub(super) fn initialize_hyphae_db_if_needed(
                     "Hyphae database initialization failed: {}",
                     describe_command_failure("hyphae stats", &output)
                 ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+                tracing::warn!(
+                    "hyphae stats timed out after 10 seconds; continuing without initialization"
+                );
+                return Ok(());
             }
             Err(error) => {
                 return Err(error).context("Hyphae database initialization failed");

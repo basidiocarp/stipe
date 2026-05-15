@@ -73,6 +73,10 @@ fn write_response(writer: &mut (impl Write + ?Sized), response: &Value) {
         {
             tracing::warn!(error = %e, "failed to write JSON-RPC response to client");
         }
+    } else {
+        tracing::warn!(
+            "stipe: socket write_response failed to serialize response; client will hang"
+        );
     }
 }
 

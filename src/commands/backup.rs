@@ -55,8 +55,9 @@ pub fn backup_hyphae() -> Result<()> {
     // Fail if critical components failed to backup
     if !outcome.failed.is_empty() {
         return Err(anyhow!(
-            "Hyphae backup incomplete: {} file(s) failed to copy",
-            outcome.failed.len()
+            "Hyphae backup incomplete: {} file(s) failed to copy; failed paths: {}",
+            outcome.failed.len(),
+            outcome.failed.join(", ")
         ));
     }
 

@@ -4,9 +4,13 @@ use spore::logging::{SpanContext, subprocess_span, tool_span};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use crate::commands::host_policy::{self, HostConfigScope};
+use crate::commands::install::release::run_command_with_timeout;
 use crate::ecosystem::status::claude_is_available;
+
+const MCP_REGISTER_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn current_project_root() -> Option<PathBuf> {
     host_policy::project_root()
@@ -108,7 +112,7 @@ pub(super) fn register_mcp(
     }
 
     let _subprocess_span = subprocess_span("claude mcp add", &span_context).entered();
-    let output = cmd.output()?;
+    let output = run_command_with_timeout(&mut cmd, MCP_REGISTER_TIMEOUT)?;
     if output.status.success() {
         Ok(RegistrationStatus::Registered)
     } else {
