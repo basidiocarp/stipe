@@ -257,26 +257,34 @@ fn upgrade_hook_entry_if_bare(root: &mut serde_json::Value, spec: HookSpec, comm
     false
 }
 
-fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str) {
+fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str) -> Result<()> {
     let root_obj = if let Some(obj) = root.as_object_mut() {
         obj
     } else {
         *root = json!({});
-        root.as_object_mut()
-            .expect("fresh object must be present after initialization")
+        root.as_object_mut().ok_or_else(|| {
+            anyhow::anyhow!("settings root is not an object — unexpected type in settings.json")
+        })?
     };
 
     let hooks = root_obj
         .entry("hooks")
         .or_insert_with(|| json!({}))
         .as_object_mut()
-        .expect("hooks must be an object");
+        .ok_or_else(|| {
+            anyhow::anyhow!("settings.hooks is not an object — unexpected type in settings.json")
+        })?;
 
     let event_hooks = hooks
         .entry(spec.event)
         .or_insert_with(|| json!([]))
         .as_array_mut()
-        .expect("event hook list must be an array");
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "settings.hooks.{} is not an array — unexpected type in settings.json",
+                spec.event
+            )
+        })?;
 
     let mut entry = serde_json::Map::new();
     if let Some(matcher) = spec.matcher {
@@ -296,6 +304,7 @@ fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str
     );
 
     event_hooks.push(serde_json::Value::Object(entry));
+    Ok(())
 }
 
 fn statusline_configured(root: &serde_json::Value) -> bool {
@@ -321,13 +330,14 @@ fn annulus_statusline_configured(root: &serde_json::Value) -> bool {
     })
 }
 
-fn install_statusline(root: &mut serde_json::Value, command: &str) {
+fn install_statusline(root: &mut serde_json::Value, command: &str) -> Result<()> {
     let root_obj = if let Some(obj) = root.as_object_mut() {
         obj
     } else {
         *root = json!({});
-        root.as_object_mut()
-            .expect("fresh object must be present after initialization")
+        root.as_object_mut().ok_or_else(|| {
+            anyhow::anyhow!("settings root is not an object — unexpected type in settings.json")
+        })?
     };
 
     root_obj.insert(
@@ -337,6 +347,7 @@ fn install_statusline(root: &mut serde_json::Value, command: &str) {
             "command": command,
         }),
     );
+    Ok(())
 }
 
 fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
@@ -374,7 +385,7 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
             changed = true;
         } else if !hook_entry_present(&root, spec, &command) {
             // Entry not present and upgrade not needed; insert it.
-            insert_hook_entry(&mut root, spec, &command);
+            insert_hook_entry(&mut root, spec, &command)?;
             changed = true;
         }
     }
@@ -385,12 +396,12 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
         if annulus_available() {
             wrote_annulus = true;
         }
-        install_statusline(&mut root, &cmd);
+        install_statusline(&mut root, &cmd)?;
         changed = true;
     } else if !annulus_statusline_configured(&root) && annulus_available() {
         // Upgrade: cortina statusline → annulus statusline
         let cmd = resolve_binary_path("annulus") + " statusline";
-        install_statusline(&mut root, &cmd);
+        install_statusline(&mut root, &cmd)?;
         wrote_annulus = true;
         changed = true;
     }
@@ -655,7 +666,7 @@ pub fn install_annulus_statusline(scope: HostConfigScope, verbose: u8) -> Result
     }
 
     let cmd = resolve_binary_path("annulus") + " statusline";
-    install_statusline(&mut root, &cmd);
+    install_statusline(&mut root, &cmd)?;
     write_settings(&settings_path, &root)?;
     ensure_annulus_config()?;
 
@@ -742,7 +753,11 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
             return snapshots;
         };
 
-        if let Ok(output) = Command::new(&node_bin).arg(&validator_path).output() {
+        let output = crate::commands::install::release::run_command_with_timeout(
+            Command::new(&node_bin).arg(&validator_path),
+            std::time::Duration::from_secs(10),
+        );
+        if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             let combined = format!("{stdout}{stderr}");

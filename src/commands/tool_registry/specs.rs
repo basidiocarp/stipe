@@ -231,6 +231,26 @@ const TOOL_SPECS: &[ToolSpec] = &[
         capability_ids: &[],
         contract_ids: &["stipe-doctor-v1", "stipe-init-plan-v1"],
     },
+    ToolSpec {
+        name: "lamella",
+        binary_name: "lamella",
+        release_repo: "lamella",
+        description: "skills and plugin packaging",
+        installable: true,
+        include_in_update_all: true,
+        include_in_uninstall_all: true,
+        include_in_status: true,
+        include_in_ecosystem: true,
+        include_in_install_all: true,
+        doctor_coverage: DoctorCoverage::Optional,
+        install_profiles: &[InstallProfile::FullStack],
+        missing_hint: Some("stipe install lamella"),
+        smoke_test_args: Some(&["--version"]),
+        smoke_test_expect: None,
+        mcp_serve_args: None,
+        capability_ids: &["plugin.packaging.v1"],
+        contract_ids: &["lamella-package-v1"],
+    },
 ];
 
 #[must_use]
@@ -300,10 +320,45 @@ pub fn find(name: &str) -> Option<&'static ToolSpec> {
 }
 
 #[must_use]
+pub fn all_specs() -> Vec<&'static ToolSpec> {
+    TOOL_SPECS.iter().collect()
+}
+
+#[must_use]
 pub fn release_archive_binaries() -> Vec<&'static str> {
     TOOL_SPECS
         .iter()
         .filter(|spec| spec.installable || spec.name == "stipe")
         .map(|spec| spec.binary_name)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::doctor::version_pins;
+
+    #[test]
+    fn pinned_and_installable_specs_stay_in_sync() {
+        let pins = version_pins::pinned_ecosystem_versions();
+
+        // Check that all pinned tools have a corresponding TOOL_SPECS entry
+        for (pinned_name, _version) in pins.iter() {
+            let spec = find(pinned_name);
+            assert!(
+                spec.is_some(),
+                "tool '{}' is pinned but not found in TOOL_SPECS",
+                pinned_name
+            );
+        }
+
+        // Check that all installable tools have a version pin
+        for spec in installable_specs() {
+            assert!(
+                pins.contains_key(spec.name),
+                "tool '{}' is installable but has no version pin",
+                spec.name
+            );
+        }
+    }
 }

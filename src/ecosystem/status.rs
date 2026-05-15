@@ -14,7 +14,8 @@ pub(super) fn tool_probe(tool_name: &str) -> ToolProbe {
 }
 
 pub(super) fn discover_codex_version() -> Option<String> {
-    let output = Command::new("codex").arg("--version").output().ok()?;
+    let path = which::which("codex").ok()?;
+    let output = Command::new(path).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -30,10 +31,10 @@ pub(super) fn discover_codex_version() -> Option<String> {
 }
 
 pub(super) fn claude_is_available() -> bool {
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    which::which("claude")
+        .ok()
+        .and_then(|path| Command::new(path).arg("--version").output().ok())
+        .is_some_and(|o| o.status.success())
 }
 
 pub(super) fn render_tool_status(

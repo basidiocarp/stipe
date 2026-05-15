@@ -39,8 +39,10 @@ fn write_endpoint_descriptor(socket_path: &Path) -> Result<()> {
 }
 
 fn remove_stale_socket(socket_path: &Path) {
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(socket_path);
+    if let Err(e) = std::fs::remove_file(socket_path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(path = %socket_path.display(), error = %e, "could not remove stale socket");
+        }
     }
 }
 
@@ -64,9 +66,13 @@ fn err_response(id: Value, code: i64, message: impl Into<String>) -> Value {
 
 fn write_response(writer: &mut (impl Write + ?Sized), response: &Value) {
     if let Ok(bytes) = serde_json::to_vec(response) {
-        let _ = writer.write_all(&bytes);
-        let _ = writer.write_all(b"\n");
-        let _ = writer.flush();
+        if let Err(e) = writer
+            .write_all(&bytes)
+            .and_then(|()| writer.write_all(b"\n"))
+            .and_then(|()| writer.flush())
+        {
+            tracing::warn!(error = %e, "failed to write JSON-RPC response to client");
+        }
     }
 }
 

@@ -26,7 +26,7 @@ pub(crate) mod provider_checks;
 mod server_checks;
 mod skills_checks;
 mod tool_checks;
-mod version_pins;
+pub(crate) mod version_pins;
 
 use config_checks::{ConfigDriftState, check_mcp_config_drift};
 use council_checks::check_task_linked_council;
@@ -431,21 +431,33 @@ fn render_report_footer(
             colorize,
         ));
     } else {
-        let repair_plan = build_repair_plan(&report.repair_actions);
-        lines.extend(render_footer_lines(
-            &report.summary,
-            &format!("run `{}`", repair_plan.primary.command),
-            repair_plan
-                .follow_up
-                .as_ref()
-                .map(|action| format!("run `{}`", action.command)),
-            colorize,
-        ));
+        match build_repair_plan(&report.repair_actions) {
+            Ok(repair_plan) => {
+                lines.extend(render_footer_lines(
+                    &report.summary,
+                    &format!("run `{}`", repair_plan.primary.command),
+                    repair_plan
+                        .follow_up
+                        .as_ref()
+                        .map(|action| format!("run `{}`", action.command)),
+                    colorize,
+                ));
 
-        let additional_actions = render_additional_repair_actions(&repair_plan, colorize);
-        if !additional_actions.is_empty() {
-            lines.push(String::new());
-            lines.extend(additional_actions);
+                let additional_actions = render_additional_repair_actions(&repair_plan, colorize);
+                if !additional_actions.is_empty() {
+                    lines.push(String::new());
+                    lines.extend(additional_actions);
+                }
+            }
+            Err(e) => {
+                lines.extend(render_footer_lines(
+                    &report.summary,
+                    "review the failing sections above",
+                    None,
+                    colorize,
+                ));
+                tracing::error!("failed to build repair plan: {e}");
+            }
         }
     }
 
@@ -1248,7 +1260,7 @@ struct RepairPlan {
     manual: Vec<RepairAction>,
 }
 
-fn build_repair_plan(repair_actions: &[RepairAction]) -> RepairPlan {
+fn build_repair_plan(repair_actions: &[RepairAction]) -> Result<RepairPlan> {
     let mut actions = repair_actions.to_vec();
     actions.sort_by_key(repair_action_priority);
 
@@ -1257,7 +1269,7 @@ fn build_repair_plan(repair_actions: &[RepairAction]) -> RepairPlan {
         .find(|action| action.tier == RepairTier::Primary)
         .cloned()
         .or_else(|| actions.first().cloned())
-        .expect("repair plan requires at least one action");
+        .ok_or_else(|| anyhow::anyhow!("repair plan produced no actions; nothing to apply"))?;
 
     let follow_up = actions
         .iter()
@@ -1285,13 +1297,13 @@ fn build_repair_plan(repair_actions: &[RepairAction]) -> RepairPlan {
         }
     }
 
-    RepairPlan {
+    Ok(RepairPlan {
         primary,
         follow_up,
         remaining_primary,
         secondary,
         manual,
-    }
+    })
 }
 
 fn repair_action_priority(action: &RepairAction) -> (u8, u8, String) {

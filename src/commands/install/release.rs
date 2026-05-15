@@ -531,7 +531,10 @@ pub(crate) fn probe_mcp_server(
     })
 }
 
-fn run_command_with_timeout(command: &mut Command, timeout: Duration) -> std::io::Result<Output> {
+pub(crate) fn run_command_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> std::io::Result<Output> {
     let tool_name = command.get_program().to_string_lossy().to_string();
     let span_context = span_context_for_command(command, &tool_name);
     let command_name = command.get_program().to_string_lossy().to_string();

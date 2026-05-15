@@ -310,6 +310,7 @@ mod tests {
                 "annulus".to_string(),
                 "hymenium".to_string(),
                 "stipe".to_string(),
+                "lamella".to_string(),
             ]
         );
     }

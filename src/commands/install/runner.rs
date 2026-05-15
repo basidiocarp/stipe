@@ -216,9 +216,23 @@ fn deploy_to_staging(
                 staging_path.display()
             )
         })?;
-        let _ = std::process::Command::new("codesign")
+        let output = std::process::Command::new("codesign")
             .args(["--force", "--sign", "-", path_str])
             .output();
+        if let Ok(out) = output {
+            if !out.status.success() {
+                eprintln!(
+                    "  {} codesign failed on {}: {}",
+                    "!".yellow(),
+                    staging_path.display(),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+                eprintln!(
+                    "  {} binary may be blocked by macOS Gatekeeper; reinstall or run: xattr -d com.apple.quarantine <path>",
+                    "→".yellow()
+                );
+            }
+        }
     }
 
     // Atomic rename: same filesystem guaranteed because staging_path is a sibling.
@@ -303,7 +317,21 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str, source: 
             checksum_ref,
         ) {
             eprintln!("  {} Could not record install state: {error}", "!".yellow());
+            tracing::error!(
+                tool = %tool,
+                install_path = %install_path.display(),
+                error = %error,
+                "stipe: install state record failed"
+            );
         }
+    } else if let Err(error) = install_state::open() {
+        eprintln!("  {} Could not record install state: {error}", "!".yellow());
+        tracing::error!(
+            tool = %tool,
+            install_path = %install_path.display(),
+            error = %error,
+            "stipe: install state record failed"
+        );
     }
 }
 

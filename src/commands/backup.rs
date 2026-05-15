@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use std::process::Command;
+use std::time::Duration;
 
 /// Creates a manual backup of the Hyphae database and binary.
 pub fn backup_hyphae() -> Result<()> {
@@ -64,10 +65,12 @@ pub fn backup_hyphae() -> Result<()> {
 
 /// Attempts to get the current hyphae version by running `hyphae --version`
 fn get_hyphae_version() -> Result<String> {
-    let output = Command::new("hyphae")
-        .arg("--version")
-        .output()
-        .context("Failed to get hyphae version")?;
+    let resolved = which::which("hyphae").context("hyphae not found on PATH")?;
+    let output = crate::commands::install::release::run_command_with_timeout(
+        Command::new(resolved).arg("--version"),
+        Duration::from_secs(5),
+    )
+    .context("Failed to get hyphae version")?;
 
     if !output.status.success() {
         return Err(anyhow!("hyphae --version returned non-zero exit code"));

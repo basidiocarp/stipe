@@ -3,6 +3,7 @@ use colored::Colorize;
 use spore::logging::{SpanContext, workflow_span};
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
 use super::install;
 use super::install::release::normalize_version;
@@ -14,10 +15,12 @@ use crate::commands::github::GitHubClient;
 mod tests;
 
 fn get_installed_version(tool: &str) -> Result<String> {
-    let output = Command::new(tool)
-        .arg("--version")
-        .output()
-        .with_context(|| format!("Failed to get version for {tool}"))?;
+    let resolved = which::which(tool).with_context(|| format!("{tool} not found on PATH"))?;
+    let output = install::release::run_command_with_timeout(
+        Command::new(resolved).arg("--version"),
+        Duration::from_secs(5),
+    )
+    .with_context(|| format!("Failed to get version for {tool}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

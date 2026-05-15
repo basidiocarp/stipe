@@ -27,7 +27,8 @@ fn test_profile_tools_cover_expected_sets() {
     assert_eq!(
         full_stack,
         vec![
-            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus", "hymenium"
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus", "hymenium",
+            "lamella"
         ]
     );
 }
@@ -67,7 +68,7 @@ fn test_doctor_specs_include_optional_canopy_and_volva() {
     assert_eq!(
         names,
         vec![
-            "mycelium", "hyphae", "rhizome", "canopy", "volva", "annulus", "hymenium"
+            "mycelium", "hyphae", "rhizome", "canopy", "volva", "annulus", "hymenium", "lamella"
         ]
     );
 }

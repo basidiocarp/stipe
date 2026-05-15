@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use spore::atomic_write_bytes;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
@@ -38,10 +37,15 @@ fn optional_cortina_adapter() -> Option<String> {
 }
 
 fn hyphae_installed() -> bool {
-    Command::new("hyphae")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+    which::which("hyphae")
+        .ok()
+        .and_then(|path| {
+            std::process::Command::new(path)
+                .arg("--version")
+                .output()
+                .ok()
+        })
+        .is_some_and(|o| o.status.success())
 }
 
 fn configured_paths() -> Vec<PathBuf> {

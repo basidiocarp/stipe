@@ -18,7 +18,24 @@ fn detect_project_type() -> &'static str {
 
 /// Check if hyphae is available by running `hyphae --version`.
 fn hyphae_available(hyphae_cmd: &str) -> bool {
-    Command::new(hyphae_cmd)
+    let resolved = if let Some(path) = std::path::Path::new(hyphae_cmd).to_str() {
+        if std::path::Path::new(path).is_absolute() {
+            hyphae_cmd.to_string()
+        } else {
+            which::which(hyphae_cmd)
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .or_else(|| {
+                    tracing::debug!("hyphae not found on PATH, falling back to bare name");
+                    Some(hyphae_cmd.to_string())
+                })
+                .unwrap()
+        }
+    } else {
+        hyphae_cmd.to_string()
+    };
+
+    Command::new(&resolved)
         .arg("--version")
         .output()
         .is_ok_and(|output| output.status.success())
@@ -27,7 +44,24 @@ fn hyphae_available(hyphae_cmd: &str) -> bool {
 /// Check if hyphae already has memories for this project.
 /// If the command fails or JSON cannot be parsed, we assume it's safe to proceed with seeding.
 fn has_existing_memories(project: &str, hyphae_cmd: &str) -> bool {
-    let Ok(output) = Command::new(hyphae_cmd)
+    let resolved = if let Some(path) = std::path::Path::new(hyphae_cmd).to_str() {
+        if std::path::Path::new(path).is_absolute() {
+            hyphae_cmd.to_string()
+        } else {
+            which::which(hyphae_cmd)
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .or_else(|| {
+                    tracing::debug!("hyphae not found on PATH, falling back to bare name");
+                    Some(hyphae_cmd.to_string())
+                })
+                .unwrap()
+        }
+    } else {
+        hyphae_cmd.to_string()
+    };
+
+    let Ok(output) = Command::new(&resolved)
         .args(["memory", "stats", "--json", "--project", project])
         .output()
     else {
@@ -56,7 +90,24 @@ fn store_memory(
     content: &str,
     hyphae_cmd: &str,
 ) -> Result<()> {
-    let status = Command::new(hyphae_cmd)
+    let resolved = if let Some(path) = std::path::Path::new(hyphae_cmd).to_str() {
+        if std::path::Path::new(path).is_absolute() {
+            hyphae_cmd.to_string()
+        } else {
+            which::which(hyphae_cmd)
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+                .or_else(|| {
+                    tracing::debug!("hyphae not found on PATH, falling back to bare name");
+                    Some(hyphae_cmd.to_string())
+                })
+                .unwrap()
+        }
+    } else {
+        hyphae_cmd.to_string()
+    };
+
+    let status = Command::new(&resolved)
         .args(["store", "--topic", topic, "--importance", importance])
         .arg("--")
         .arg(content)

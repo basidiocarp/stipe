@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::model::HealthCheck;
 use super::tool_registry::{self, DoctorCoverage, ToolProbe, ToolSpec};
@@ -107,6 +108,20 @@ fn missing_tool_actions(tool: &ToolSpec) -> Vec<RepairAction> {
             &["install", "annulus"],
             RepairTier::Primary,
         )],
+        "hymenium" => vec![RepairAction::stipe(
+            "install-hymenium",
+            "Install Hymenium",
+            "Install the workflow orchestration engine.",
+            &["install", "hymenium"],
+            RepairTier::Primary,
+        )],
+        "cortina" => vec![RepairAction::stipe(
+            "install-cortina",
+            "Install Cortina",
+            "Install the hook runner and session tracking tool.",
+            &["install", "cortina"],
+            RepairTier::Primary,
+        )],
         _ => Vec::new(),
     }
 }
@@ -136,20 +151,15 @@ fn mcp_startup_actions(tool_name: &'static str) -> Vec<RepairAction> {
         ),
     ];
 
-    let update_args = ["update", tool_name];
-    actions.push(RepairAction::stipe(
-        if tool_name == "hyphae" {
-            "update-hyphae"
-        } else {
-            "update-rhizome"
-        },
-        if tool_name == "hyphae" {
-            "Update Hyphae"
-        } else {
-            "Update Rhizome"
-        },
-        "Replace the installed binary with the latest managed release.",
-        &update_args,
+    let action_key = format!("update-{tool_name}");
+    let action_title = format!("Update {tool_name}");
+    let command = format!("stipe update {tool_name}");
+    actions.push(RepairAction::manual(
+        action_key,
+        action_title,
+        "Replace the installed binary with the latest managed release.".to_string(),
+        command,
+        vec!["update".to_string(), tool_name.to_string()],
         RepairTier::Secondary,
     ));
 
@@ -582,11 +592,13 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
         };
     }
 
-    match std::process::Command::new("sqlite3")
-        .arg(&db_path)
-        .arg("PRAGMA journal_mode;")
-        .output()
-    {
+    let output = crate::commands::install::release::run_command_with_timeout(
+        std::process::Command::new("sqlite3")
+            .arg(&db_path)
+            .arg("PRAGMA journal_mode;"),
+        Duration::from_secs(3),
+    );
+    match output {
         Ok(output) if output.status.success() => {
             let mode = String::from_utf8_lossy(&output.stdout)
                 .trim()
@@ -624,10 +636,11 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
 
 pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
     // Check if rhizome is available
-    let rhizome_available = std::process::Command::new("rhizome")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success());
+    let rhizome_available = crate::commands::install::release::run_command_with_timeout(
+        std::process::Command::new("rhizome").arg("--version"),
+        Duration::from_secs(5),
+    )
+    .is_ok_and(|o| o.status.success());
 
     if !rhizome_available {
         return HealthCheck {
@@ -639,10 +652,11 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
     }
 
     // Check if a compiled-env memoir exists in hyphae
-    let artifact_exists = std::process::Command::new("hyphae")
-        .args(["memoir", "show", "--name", "compiled-env:*"])
-        .output()
-        .is_ok_and(|o| o.status.success());
+    let artifact_exists = crate::commands::install::release::run_command_with_timeout(
+        std::process::Command::new("hyphae").args(["memoir", "show", "--name", "compiled-env:*"]),
+        Duration::from_secs(5),
+    )
+    .is_ok_and(|o| o.status.success());
 
     if artifact_exists {
         HealthCheck {

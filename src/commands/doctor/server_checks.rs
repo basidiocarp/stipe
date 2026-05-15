@@ -16,19 +16,20 @@ use super::model::{McpServerHealth, McpServerStatus};
 /// Timeout for the MCP `initialize` handshake in binary health checks.
 const MCP_SERVER_HEALTH_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Names of MCP servers whose binary health we surface in `stipe doctor`.
-const MCP_SERVER_NAMES: &[&str] = &["hyphae", "rhizome", "canopy"];
-
 /// Collect a [`McpServerHealth`] entry for every registered MCP server.
 ///
 /// This runs independently of the existing `--deep` MCP startup checks.
 /// Each server is checked with a 3-second timeout so a non-responding server
 /// never hangs the doctor run.
+///
+/// MCP servers are discovered dynamically from `TOOL_SPECS` by checking for
+/// entries with `mcp_serve_args` defined.
 #[must_use]
 pub(super) fn collect_mcp_server_health() -> Vec<McpServerHealth> {
-    MCP_SERVER_NAMES
-        .iter()
-        .map(|name| check_mcp_server_binary(name))
+    tool_registry::all_specs()
+        .into_iter()
+        .filter(|spec| spec.mcp_serve_args.is_some())
+        .map(|spec| check_mcp_server_binary(spec.name))
         .collect()
 }
 
@@ -122,10 +123,13 @@ mod tests {
     #[test]
     fn collect_mcp_server_health_returns_one_entry_per_server() {
         let health = collect_mcp_server_health();
-        assert_eq!(health.len(), MCP_SERVER_NAMES.len());
+        let expected_count = tool_registry::all_specs()
+            .into_iter()
+            .filter(|spec| spec.mcp_serve_args.is_some())
+            .count();
+        assert_eq!(health.len(), expected_count);
         assert!(health.iter().any(|h| h.name == "hyphae"));
         assert!(health.iter().any(|h| h.name == "rhizome"));
-        assert!(health.iter().any(|h| h.name == "canopy"));
     }
 
     #[test]

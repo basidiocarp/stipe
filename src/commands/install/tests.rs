@@ -49,7 +49,8 @@ fn test_profile_tools_cover_expected_sets() {
     assert_eq!(
         full_stack,
         vec![
-            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus", "hymenium"
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus", "hymenium",
+            "lamella"
         ]
     );
 
@@ -95,6 +96,7 @@ fn test_resolve_requested_tools_handles_all_mode() {
             "volva".to_string(),
             "annulus".to_string(),
             "hymenium".to_string(),
+            "lamella".to_string(),
         ]
     );
 }
@@ -203,6 +205,7 @@ fn test_render_install_preview_snapshot_for_interactive_mode() {
             "  volva           backend operations CLI".to_string(),
             "  annulus         operator utilities".to_string(),
             "  hymenium        workflow orchestration engine".to_string(),
+            "  lamella         skills and plugin packaging".to_string(),
         ]
     );
 }
