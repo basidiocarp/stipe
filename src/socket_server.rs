@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde_json::{Value, json};
+use spore::atomic_write_bytes;
 use tracing::{debug, error};
 
 const CAPABILITY_ID: &str = "ecosystem.setup.v1";
@@ -34,7 +35,10 @@ fn write_endpoint_descriptor(socket_path: &Path) -> Result<()> {
         "version": env!("CARGO_PKG_VERSION"),
         "health_probe": { "method": PING_METHOD, "timeout_ms": 1000 }
     });
-    std::fs::write(&descriptor_path, serde_json::to_string_pretty(&descriptor)?)?;
+    atomic_write_bytes(
+        &descriptor_path,
+        serde_json::to_string_pretty(&descriptor)?.as_bytes(),
+    )?;
     Ok(())
 }
 

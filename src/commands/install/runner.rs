@@ -317,16 +317,29 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str, source: 
     let install_path_str = install_path.to_string_lossy();
     let checksum = install_state::compute_checksum(install_path).ok();
     let checksum_ref = checksum.as_deref();
-    if let Ok(conn) = install_state::open() {
-        if let Err(error) = install_state::record_install(
-            &conn,
-            tool,
-            "binary",
-            Some(install_path_str.as_ref()),
-            Some(version),
-            Some(source),
-            checksum_ref,
-        ) {
+    // Open the database once; reuse the same connection for the insert so we
+    // never hold two connections to the same file simultaneously.
+    match install_state::open() {
+        Ok(conn) => {
+            if let Err(error) = install_state::record_install(
+                &conn,
+                tool,
+                "binary",
+                Some(install_path_str.as_ref()),
+                Some(version),
+                Some(source),
+                checksum_ref,
+            ) {
+                eprintln!("  {} Could not record install state: {error}", "!".yellow());
+                tracing::error!(
+                    tool = %tool,
+                    install_path = %install_path.display(),
+                    error = %error,
+                    "stipe: install state record failed"
+                );
+            }
+        }
+        Err(error) => {
             eprintln!("  {} Could not record install state: {error}", "!".yellow());
             tracing::error!(
                 tool = %tool,
@@ -335,14 +348,6 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str, source: 
                 "stipe: install state record failed"
             );
         }
-    } else if let Err(error) = install_state::open() {
-        eprintln!("  {} Could not record install state: {error}", "!".yellow());
-        tracing::error!(
-            tool = %tool,
-            install_path = %install_path.display(),
-            error = %error,
-            "stipe: install state record failed"
-        );
     }
 }
 

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use spore::atomic_write_bytes;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -385,7 +386,8 @@ fn save_policy_file(path: &Path, policy: &StoredRuntimePolicy) -> Result<()> {
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
 
     let content = toml::to_string_pretty(policy).context("serializing runtime policy")?;
-    fs::write(path, content).with_context(|| format!("writing {}", path.display()))?;
+    atomic_write_bytes(path, content.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 

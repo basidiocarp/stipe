@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use spore::atomic_write_bytes;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -312,7 +313,7 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
 
     let installed_manifest_path = config_dir.join(".installed-manifest.json");
     let json = serde_json::to_string_pretty(&manifest).context("serialize installed manifest")?;
-    fs::write(&installed_manifest_path, json).with_context(|| {
+    atomic_write_bytes(&installed_manifest_path, json.as_bytes()).with_context(|| {
         format!(
             "write installed manifest: {}",
             installed_manifest_path.display()

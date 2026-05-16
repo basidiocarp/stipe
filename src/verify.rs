@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use spore::atomic_write_bytes;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -245,7 +246,7 @@ pub fn write_ownership_state(tool_name: &str, report: &CompletenessReport) -> Re
 
     let content = serde_json::to_string_pretty(&state).context("serializing ownership state")?;
 
-    std::fs::write(&path, content)
+    atomic_write_bytes(&path, content.as_bytes())
         .with_context(|| format!("writing ownership state to {}", path.display()))?;
 
     Ok(())

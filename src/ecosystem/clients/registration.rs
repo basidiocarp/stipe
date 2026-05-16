@@ -228,7 +228,8 @@ fn register_codex_toml_at_path(
     }
 
     let content = toml::to_string_pretty(&root)?;
-    atomic_write_bytes(config_path, content.as_bytes()).map_err(anyhow::Error::new)?;
+    atomic_write_bytes(config_path, content.as_bytes())
+        .with_context(|| format!("write Codex config: {}", config_path.display()))?;
 
     if verbose > 0 {
         eprintln!(
@@ -303,7 +304,8 @@ fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<()> {
     }
 
     let json_str = serde_json::to_string_pretty(&root)?;
-    fs::write(&config_path, json_str)?;
+    atomic_write_bytes(&config_path, json_str.as_bytes())
+        .with_context(|| format!("write Continue config: {}", config_path.display()))?;
 
     if verbose > 0 {
         eprintln!(

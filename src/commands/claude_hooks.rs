@@ -686,7 +686,7 @@ fn ensure_annulus_config() -> Result<()> {
     }
     fs::create_dir_all(&config_dir)
         .with_context(|| format!("creating annulus config directory {}", config_dir.display()))?;
-    fs::write(&config_path, DEFAULT_ANNULUS_CONFIG)
+    atomic_write_bytes(&config_path, DEFAULT_ANNULUS_CONFIG.as_bytes())
         .with_context(|| format!("writing default annulus config {}", config_path.display()))?;
     Ok(())
 }

@@ -37,9 +37,23 @@ pub(crate) const MCP_INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":1,"meth
 /// Maximum bytes to download for a release archive. Rejects oversized or malformed responses.
 pub(crate) const MAX_RELEASE_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024; // 100 MB
 
-/// Strip a leading `v` from a version string for comparison (e.g. `"v0.5.1"` → `"0.5.1"`).
+/// Strip a leading `v` and any pre-release suffix from a version string.
+///
+/// Examples:
+/// - `"v0.5.1"` → `"0.5.1"`
+/// - `"0.5.1"` → `"0.5.1"`
+/// - `"v0.5.1-alpha.1"` → `"0.5.1"`
+/// - `"v0.5.1-rc.2"` → `"0.5.1"`
 pub(crate) fn normalize_version(version: &str) -> &str {
-    version.trim_start_matches('v')
+    let stripped = version.trim_start_matches('v');
+    // Drop pre-release suffix (e.g. "-alpha.1", "-beta.2", "-rc.1") so that
+    // GitHub release tags with suffixes compare equal to installed versions
+    // without them, avoiding false drift reports.
+    if let Some(idx) = stripped.find('-') {
+        &stripped[..idx]
+    } else {
+        stripped
+    }
 }
 
 pub(crate) fn platform_key() -> &'static str {
@@ -277,6 +291,19 @@ pub(crate) fn extract_tarball(data: &[u8], dest_dir: &Path) -> Result<PathBuf> {
                 );
             }
             continue;
+        }
+
+        // Reject path traversal attempts before touching the filesystem.
+        // Checking for Component::ParentDir blocks `../` sequences even when the
+        // entry type filter above would have allowed a Regular file through.
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(anyhow!(
+                "archive contains path traversal: {}",
+                path.display()
+            ));
         }
 
         if let Some(file_name) = path.file_name()
@@ -748,5 +775,27 @@ mod tests {
         assert!(verify_mcp_handshake(&script, spec).is_ok());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normalize_version_strips_leading_v() {
+        assert_eq!(normalize_version("v0.5.1"), "0.5.1");
+    }
+
+    #[test]
+    fn normalize_version_no_leading_v() {
+        assert_eq!(normalize_version("0.5.1"), "0.5.1");
+    }
+
+    #[test]
+    fn normalize_version_strips_pre_release_suffix() {
+        assert_eq!(normalize_version("v0.5.1-alpha.1"), "0.5.1");
+        assert_eq!(normalize_version("v0.5.1-beta.2"), "0.5.1");
+        assert_eq!(normalize_version("v0.5.1-rc.1"), "0.5.1");
+    }
+
+    #[test]
+    fn normalize_version_no_v_with_pre_release_suffix() {
+        assert_eq!(normalize_version("0.5.1-alpha.1"), "0.5.1");
     }
 }

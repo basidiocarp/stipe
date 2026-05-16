@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use spore::atomic_write_bytes;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -461,7 +462,12 @@ fn write_manifest(path: &Path, manifest: &InitBaselineManifest) -> Result<()> {
     }
 
     let content = serde_json::to_string_pretty(manifest).context("serializing init baseline")?;
-    fs::write(path, content).with_context(|| format!("writing {}", path.display()))?;
+
+    // Write atomically so a kill mid-write leaves the previous baseline intact
+    // rather than an empty or partial file that breaks all subsequent doctor checks.
+    atomic_write_bytes(path, content.as_bytes())
+        .with_context(|| format!("writing baseline to {}", path.display()))?;
+
     Ok(())
 }
 

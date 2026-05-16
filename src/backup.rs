@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use spore::atomic_write_bytes;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -141,7 +142,7 @@ pub fn create_backup(
 
     let manifest_path = backup_dir.join("manifest.json");
     let json = serde_json::to_string_pretty(&manifest).context("serialize backup manifest")?;
-    fs::write(&manifest_path, json)
+    atomic_write_bytes(&manifest_path, json.as_bytes())
         .with_context(|| format!("write manifest: {}", manifest_path.display()))?;
 
     Ok(backup_dir)
@@ -215,8 +216,28 @@ pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
     }
     for record in &manifest.config_files {
         if record.backup_path.exists() {
-            fs::copy(&record.backup_path, &record.original_path)
-                .with_context(|| format!("restore config: {}", record.original_path.display()))?;
+            // Use staging+rename so a kill mid-restore leaves the original
+            // config intact rather than truncated.
+            let staging_path = record
+                .original_path
+                .parent()
+                .ok_or_else(|| anyhow!("config path has no parent: {}", record.original_path.display()))?
+                .join(format!(
+                    ".restoring-{}",
+                    record.original_path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            fs::copy(&record.backup_path, &staging_path).with_context(|| {
+                format!(
+                    "restore config (copy to staging): {}",
+                    record.original_path.display()
+                )
+            })?;
+            fs::rename(&staging_path, &record.original_path).with_context(|| {
+                format!(
+                    "restore config (rename staging): {}",
+                    record.original_path.display()
+                )
+            })?;
         }
     }
     Ok(())

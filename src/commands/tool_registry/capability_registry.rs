@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use serde_json::json;
+use spore::atomic_write_bytes;
 
 use super::model::ToolProbe;
 use super::probe::{VerifyLevel, probe_with_level, resolve_binary_path};
@@ -75,7 +76,7 @@ pub fn write_capability_registry(path: &Path) -> Result<()> {
     }
 
     let content = serde_json::to_string_pretty(&registry)?;
-    std::fs::write(path, content)
+    atomic_write_bytes(path, content.as_bytes())
         .with_context(|| format!("cannot write capability registry to {}", path.display()))?;
 
     Ok(())

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -68,26 +69,6 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
         fs::create_dir_all(parent).context("create stipe data dir")?;
     }
 
-    if path.exists() {
-        let content = fs::read_to_string(&path).context("read lock file")?;
-        if let Ok(record) = serde_json::from_str::<LockRecord>(&content) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let age = now.saturating_sub(record.timestamp_secs);
-
-            if age < STALE_THRESHOLD_SECS && !force {
-                bail!(
-                    "stipe install is already running (PID {}, started {}s ago). \
-                     Use --force to override.",
-                    record.pid,
-                    age
-                );
-            }
-            // Stale lock or force — reclaim it silently
-        }
-    }
-
     let record = LockRecord {
         pid: std::process::id(),
         timestamp_secs: SystemTime::now()
@@ -95,7 +76,61 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
             .map_or(0, |d| d.as_secs()),
     };
     let json = serde_json::to_string(&record).context("serialize lock record")?;
-    fs::write(&path, json).with_context(|| format!("write lock file: {}", path.display()))?;
+
+    // Atomic exclusive create — only one caller wins the race.
+    // O_CREAT | O_EXCL guarantees that exactly one process creates the file.
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(mut f) => {
+            f.write_all(json.as_bytes())
+                .with_context(|| format!("write lock file: {}", path.display()))?;
+            return Ok(LockGuard);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Lost the race — inspect the existing lock.
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("open lock file: {}", path.display()));
+        }
+    }
+
+    // Read the existing lock and decide whether to reclaim or bail.
+    let content = fs::read_to_string(&path).context("read lock file")?;
+    if let Ok(existing) = serde_json::from_str::<LockRecord>(&content) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let age = now.saturating_sub(existing.timestamp_secs);
+
+        if age < STALE_THRESHOLD_SECS && !force {
+            bail!(
+                "stipe install is already running (PID {}, started {}s ago). \
+                 Use --force to override.",
+                existing.pid,
+                age
+            );
+        }
+
+        // Stale lock or force — reclaim it.
+        eprintln!(
+            "Warning: reclaiming stale lock (PID {}, age {}s)",
+            existing.pid, age
+        );
+    }
+
+    // Remove the old lock then retry the exclusive create once.
+    fs::remove_file(&path)
+        .with_context(|| format!("remove stale lock file: {}", path.display()))?;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .with_context(|| format!("acquire lock file after reclaim: {}", path.display()))?;
+    f.write_all(json.as_bytes())
+        .with_context(|| format!("write lock file: {}", path.display()))?;
     Ok(LockGuard)
 }
 
