@@ -921,6 +921,12 @@ mod tests {
 
     #[test]
     fn test_upgrade_bare_hook_entry_to_absolute_path() {
+        // Only testable when cortina is installed at an absolute path; without it
+        // resolve_binary_path returns the bare name and no upgrade can occur.
+        if which::which("cortina").is_err() {
+            return;
+        }
+
         let settings_path = test_settings_path("hooks-upgrade");
         // Create a settings file with a bare-name hook entry (legacy format).
         fs::write(
