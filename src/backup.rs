@@ -221,10 +221,19 @@ pub fn restore_from_backup(manifest: &BackupManifest) -> Result<()> {
             let staging_path = record
                 .original_path
                 .parent()
-                .ok_or_else(|| anyhow!("config path has no parent: {}", record.original_path.display()))?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "config path has no parent: {}",
+                        record.original_path.display()
+                    )
+                })?
                 .join(format!(
                     ".restoring-{}",
-                    record.original_path.file_name().unwrap_or_default().to_string_lossy()
+                    record
+                        .original_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
                 ));
             fs::copy(&record.backup_path, &staging_path).with_context(|| {
                 format!(

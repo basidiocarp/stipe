@@ -130,7 +130,8 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
         .truncate(true)
         .open(&tmp_path)
         .with_context(|| format!("create temp lock file: {}", tmp_path.display()))?;
-    tmp_f.write_all(json.as_bytes())
+    tmp_f
+        .write_all(json.as_bytes())
         .with_context(|| format!("write temp lock file: {}", tmp_path.display()))?;
     drop(tmp_f); // Ensure the file is closed before rename
 
@@ -140,7 +141,9 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
             // If rename fails, another process likely claimed the lock.
             // Clean up the temp file and return "lock held" error.
             let _ = fs::remove_file(&tmp_path);
-            bail!("Failed to reclaim lock (rename race): another process claimed the lock. Error: {e}");
+            bail!(
+                "Failed to reclaim lock (rename race): another process claimed the lock. Error: {e}"
+            );
         }
     }
 }
