@@ -121,17 +121,28 @@ pub fn acquire_lock(force: bool) -> Result<LockGuard> {
         );
     }
 
-    // Remove the old lock then retry the exclusive create once.
-    fs::remove_file(&path)
-        .with_context(|| format!("remove stale lock file: {}", path.display()))?;
-    let mut f = std::fs::OpenOptions::new()
+    // Atomically replace the stale lock using rename (POSIX atomic on same filesystem).
+    // This eliminates the TOCTOU race between delete and create_new.
+    let tmp_path = path.with_extension("tmp");
+    let mut tmp_f = std::fs::OpenOptions::new()
         .write(true)
-        .create_new(true)
-        .open(&path)
-        .with_context(|| format!("acquire lock file after reclaim: {}", path.display()))?;
-    f.write_all(json.as_bytes())
-        .with_context(|| format!("write lock file: {}", path.display()))?;
-    Ok(LockGuard)
+        .create(true)
+        .truncate(true)
+        .open(&tmp_path)
+        .with_context(|| format!("create temp lock file: {}", tmp_path.display()))?;
+    tmp_f.write_all(json.as_bytes())
+        .with_context(|| format!("write temp lock file: {}", tmp_path.display()))?;
+    drop(tmp_f); // Ensure the file is closed before rename
+
+    match fs::rename(&tmp_path, &path) {
+        Ok(()) => Ok(LockGuard),
+        Err(e) => {
+            // If rename fails, another process likely claimed the lock.
+            // Clean up the temp file and return "lock held" error.
+            let _ = fs::remove_file(&tmp_path);
+            bail!("Failed to reclaim lock (rename race): another process claimed the lock. Error: {e}");
+        }
+    }
 }
 
 /// Releases the install lock.
