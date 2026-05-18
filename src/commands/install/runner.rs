@@ -195,8 +195,6 @@ fn deploy_to_staging(
     staging_path: &Path,
     install_path: &Path,
 ) -> Result<()> {
-    const CODESIGN_TIMEOUT: Duration = Duration::from_secs(30);
-
     fs::copy(extracted_path, staging_path).with_context(|| {
         format!(
             "Failed to copy {} to {}",
@@ -214,6 +212,7 @@ fn deploy_to_staging(
 
     #[cfg(target_os = "macos")]
     {
+        const CODESIGN_TIMEOUT: Duration = Duration::from_secs(30);
         let path_str = staging_path.to_str().ok_or_else(|| {
             anyhow!(
                 "staging path is not valid UTF-8: {}",
