@@ -144,16 +144,25 @@ pub(super) fn build_ecosystem_servers(
     if hyphae_installed {
         servers.push(ServerConfig {
             name: "hyphae".to_string(),
-            command: "hyphae".to_string(),
+            // Resolve to absolute path: GUI launchers (Claude Code, Codex) may not have
+            // ~/.local/bin on PATH, so bare names fail at MCP server startup.
+            command: resolve_tool_binary("hyphae"),
             args: vec!["serve".to_string()],
         });
     }
     if rhizome_installed {
         servers.push(ServerConfig {
             name: "rhizome".to_string(),
-            command: "rhizome".to_string(),
+            command: resolve_tool_binary("rhizome"),
             args: vec!["serve".to_string(), "--expanded".to_string()],
         });
     }
     servers
+}
+
+fn resolve_tool_binary(name: &str) -> String {
+    tool_registry::find(name)
+        .and_then(tool_registry::resolve_binary_path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_string())
 }

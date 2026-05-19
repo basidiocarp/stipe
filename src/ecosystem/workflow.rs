@@ -171,7 +171,12 @@ fn configure_claude_code(
     if context.hyphae_probe.is_installed() {
         let span_context = ecosystem_span_context("hyphae");
         let _tool_span = tool_span("register_hyphae_mcp", &span_context).entered();
-        match register_mcp("hyphae", &["hyphae", "serve"], scope, options.verbose) {
+        // Resolve absolute path: Claude Code launched from GUI may not have ~/.local/bin on PATH.
+        let hyphae_bin = tool_registry::find("hyphae")
+            .and_then(tool_registry::resolve_binary_path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "hyphae".to_string());
+        match register_mcp("hyphae", &[&hyphae_bin, "serve"], scope, options.verbose) {
             Ok(status) => configured.push(match status {
                 RegistrationStatus::AlreadyRegistered => "hyphae MCP (already registered)",
                 RegistrationStatus::Registered => "hyphae MCP",
@@ -183,9 +188,13 @@ fn configure_claude_code(
     if context.rhizome_probe.is_installed() {
         let span_context = ecosystem_span_context("rhizome");
         let _tool_span = tool_span("register_rhizome_mcp", &span_context).entered();
+        let rhizome_bin = tool_registry::find("rhizome")
+            .and_then(tool_registry::resolve_binary_path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "rhizome".to_string());
         match register_mcp(
             "rhizome",
-            &["rhizome", "serve", "--expanded"],
+            &[&rhizome_bin, "serve", "--expanded"],
             scope,
             options.verbose,
         ) {
