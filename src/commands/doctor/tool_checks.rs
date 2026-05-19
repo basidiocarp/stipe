@@ -1112,19 +1112,19 @@ mod tests {
         );
         assert_eq!(
             pinned.as_deref(),
-            Some("0.14.2"),
+            Some("0.15.0"),
             "pinned version should be returned"
         );
     }
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned) = check_version_drift("hyphae", "0.14.2");
+        let (is_behind, pinned) = check_version_drift("hyphae", "0.15.0");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
-        assert_eq!(pinned.as_deref(), Some("0.14.2"));
+        assert_eq!(pinned.as_deref(), Some("0.15.0"));
     }
 
     #[test]
