@@ -17,7 +17,7 @@ pub fn pinned_ecosystem_versions() -> HashMap<&'static str, &'static str> {
         pins.insert("rhizome", "0.11.1");
         pins.insert("canopy", "0.9.1");
         pins.insert("cortina", "0.6.1");
-        pins.insert("stipe", "0.8.5");
+        pins.insert("stipe", "0.8.6");
         pins.insert("volva", "0.3.2");
         pins.insert("hymenium", "0.8.2");
         pins.insert("annulus", "0.7.2");

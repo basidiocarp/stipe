@@ -104,11 +104,11 @@ fn test_codex_notify_adapter_configured_at_path_detects_notify_entry() {
     fs::create_dir_all(&temp_dir).unwrap();
 
     let config_path = temp_dir.join("config.toml");
-    fs::write(&config_path, r#"notify = ["hyphae", "codex-notify"]"#).unwrap();
+    fs::write(&config_path, r#"notify = ["hyphae"]"#).unwrap();
 
     assert!(codex_notify_adapter_configured_at_path(&config_path));
 
-    fs::write(&config_path, r#"notify = ["hyphae", "something-else"]"#).unwrap();
+    fs::write(&config_path, r#"notify = ["something-else"]"#).unwrap();
     assert!(!codex_notify_adapter_configured_at_path(&config_path));
 
     let _ = fs::remove_dir_all(&temp_dir);

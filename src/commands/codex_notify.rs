@@ -23,10 +23,6 @@ fn required_notify_values() -> Vec<String> {
         );
     values.push(hyphae_value);
 
-    // codex-notify is a codex built-in subcommand, not a separate binary on PATH.
-    // Keep it as a bare string.
-    values.push("codex-notify".to_string());
-
     values
 }
 
@@ -197,7 +193,7 @@ pub fn codex_notify_repair_action() -> RepairAction {
         "codex_notify_adapter_setup".to_string(),
         "Configure the Codex notify adapter".to_string(),
         format!(
-            "Write notify = [\"hyphae\", \"codex-notify\"] to one of {} and complete Codex host mode.",
+            "Write notify = [\"hyphae\"] to one of {} and complete Codex host mode.",
             host_policy::format_config_path_list(&host_policy::codex_notify_config_paths())
         ),
         "stipe host setup codex".to_string(),
@@ -222,17 +218,12 @@ mod tests {
     #[test]
     fn test_codex_notify_configured_at_path_detects_required_entries_with_extras() {
         let config_path = test_config_path("codex-notify-detect");
-        // The check uses codex_notify_configured_at_path which verifies that hyphae and
-        // codex-notify are both present. It doesn't matter if hyphae is the bare name or
-        // an absolute path — the check matches on the string content.
-        // Create two cases to verify the function works with both bare and absolute forms.
+        // The check uses codex_notify_configured_at_path which verifies that hyphae is
+        // present. It doesn't matter if hyphae is the bare name or an absolute path —
+        // the check matches on the string content.
 
         // Case 1: with bare "hyphae" name
-        fs::write(
-            &config_path,
-            r#"notify = ["existing-hook", "hyphae", "codex-notify"]"#,
-        )
-        .unwrap();
+        fs::write(&config_path, r#"notify = ["existing-hook", "hyphae"]"#).unwrap();
         assert!(codex_notify_configured_at_path(&config_path));
 
         // Case 2: with absolute path (if hyphae is on PATH in test env)
@@ -240,7 +231,7 @@ mod tests {
             let hyphae_str = hyphae_path.to_string_lossy().to_string();
             fs::write(
                 &config_path,
-                format!(r#"notify = ["existing-hook", "{hyphae_str}", "codex-notify"]"#),
+                format!(r#"notify = ["existing-hook", "{hyphae_str}"]"#),
             )
             .unwrap();
             assert!(codex_notify_configured_at_path(&config_path));
@@ -276,7 +267,6 @@ mod tests {
         let content = fs::read_to_string(&config_path).unwrap();
         assert!(content.contains("existing-hook"));
         assert!(content.contains("hyphae"));
-        assert!(content.contains("codex-notify"));
         assert!(codex_notify_configured_at_path(&config_path));
     }
 
