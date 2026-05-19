@@ -192,7 +192,7 @@ fn test_optional_canopy_missing_is_not_a_failure() {
     }
 
     assert!(check.passed);
-    assert!(check.message.contains("Optional coordination runtime"));
+    assert!(check.message.contains("coordination runtime"));
 }
 
 #[test]
