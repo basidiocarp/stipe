@@ -74,14 +74,7 @@ fn test_doctor_specs_include_optional_canopy_and_volva() {
     assert_eq!(
         names,
         vec![
-            "mycelium",
-            "hyphae",
-            "rhizome",
-            "canopy",
-            "cortina",
-            "volva",
-            "annulus",
-            "hymenium",
+            "mycelium", "hyphae", "rhizome", "canopy", "cortina", "volva", "annulus", "hymenium",
             "lamella",
         ]
     );

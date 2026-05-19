@@ -162,4 +162,3 @@ pub fn register_servers(
 pub fn print_generic_config(servers: &[ServerConfig]) {
     registration::print_generic_config(servers);
 }
-

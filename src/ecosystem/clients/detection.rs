@@ -70,4 +70,3 @@ fn continue_installed() -> bool {
         .config_path()
         .is_some_and(|p| p.exists() || p.parent().is_some_and(Path::exists))
 }
-

@@ -138,7 +138,10 @@ fn rhizome_socket_alive() -> bool {
     let Some(data_dir) = dirs::data_dir() else {
         return false;
     };
-    let endpoint_path = data_dir.join("basidiocarp").join("rhizome").join("rhizome.endpoint.json");
+    let endpoint_path = data_dir
+        .join("basidiocarp")
+        .join("rhizome")
+        .join("rhizome.endpoint.json");
     if !endpoint_path.exists() {
         return false;
     }
@@ -162,7 +165,11 @@ pub(super) fn build_ecosystem_servers(
     hyphae_installed: bool,
     rhizome_installed: bool,
 ) -> Vec<ServerConfig> {
-    build_ecosystem_servers_with_socket_check(hyphae_installed, rhizome_installed, rhizome_socket_alive())
+    build_ecosystem_servers_with_socket_check(
+        hyphae_installed,
+        rhizome_installed,
+        rhizome_socket_alive(),
+    )
 }
 
 // Test seam: tests call this directly to inject the socket-running flag without

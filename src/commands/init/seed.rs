@@ -195,7 +195,10 @@ pub fn seed_first_run_interactive(project: &str, dry_run: bool) -> Result<()> {
 fn resolve_hyphae_cmd() -> String {
     crate::commands::tool_registry::find("hyphae")
         .and_then(crate::commands::tool_registry::resolve_binary_path)
-        .map_or_else(|| "hyphae".to_string(), |p| p.to_string_lossy().into_owned())
+        .map_or_else(
+            || "hyphae".to_string(),
+            |p| p.to_string_lossy().into_owned(),
+        )
 }
 
 fn seed_first_run_interactive_internal(

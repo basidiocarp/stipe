@@ -33,9 +33,12 @@ fn required_notify_values() -> Vec<String> {
 fn optional_cortina_adapter() -> Option<String> {
     // Resolve via spore discovery so the absolute path is used even when
     // ~/.local/bin is absent from the GUI launcher's PATH.
-    let cortina_path = tool_registry::find("cortina")
-        .and_then(tool_registry::resolve_binary_path)?;
-    Some(format!("{} adapter codex turn-complete", cortina_path.display()))
+    let cortina_path =
+        tool_registry::find("cortina").and_then(tool_registry::resolve_binary_path)?;
+    Some(format!(
+        "{} adapter codex turn-complete",
+        cortina_path.display()
+    ))
 }
 
 fn hyphae_installed() -> bool {

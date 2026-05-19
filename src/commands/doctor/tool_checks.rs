@@ -709,8 +709,8 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
 pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
     // Resolve via tool registry (spore-based, PATH-independent) so this check
     // works when rhizome is installed at ~/.local/bin but not on PATH.
-    let Some(rhizome_bin) = tool_registry::find("rhizome")
-        .and_then(tool_registry::resolve_binary_path)
+    let Some(rhizome_bin) =
+        tool_registry::find("rhizome").and_then(tool_registry::resolve_binary_path)
     else {
         return HealthCheck {
             name: "rhizome compiled environment".to_string(),
@@ -736,8 +736,8 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
     }
 
     // Check if a compiled-env memoir exists in hyphae
-    let Some(hyphae_bin) = tool_registry::find("hyphae")
-        .and_then(tool_registry::resolve_binary_path)
+    let Some(hyphae_bin) =
+        tool_registry::find("hyphae").and_then(tool_registry::resolve_binary_path)
     else {
         return HealthCheck {
             name: "rhizome compiled environment".to_string(),

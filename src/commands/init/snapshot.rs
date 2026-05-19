@@ -60,7 +60,10 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
     let annulus_broken = matches!(annulus_probe, Some(ToolProbe::Broken));
     // Match the priority order doctor uses: canonical path first, legacy path second.
     let hyphae_db_exists = dirs::data_dir().is_some_and(|base| {
-        base.join("basidiocarp").join("hyphae").join("hyphae.db").exists()
+        base.join("basidiocarp")
+            .join("hyphae")
+            .join("hyphae.db")
+            .exists()
             || base.join("hyphae").join("hyphae.db").exists()
     });
 
