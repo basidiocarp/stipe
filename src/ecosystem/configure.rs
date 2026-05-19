@@ -116,9 +116,14 @@ pub(super) fn configure_codex_cli(
 fn run_lamella_codex_install(verbose: u8) -> anyhow::Result<bool> {
     const LAMELLA_CODEX_TIMEOUT: Duration = Duration::from_secs(30);
 
-    let Ok(lamella_path) = which::which("lamella") else {
+    // Prefer spore-based resolution so this works even when ~/.local/bin is not
+    // on PATH (e.g. immediately after a fresh install before the shell is reloaded).
+    let Some(lamella_path) = tool_registry::find("lamella")
+        .and_then(tool_registry::resolve_binary_path)
+        .or_else(|| which::which("lamella").ok())
+    else {
         if verbose > 0 {
-            eprintln!("  lamella not found on PATH — skipping skill install");
+            eprintln!("  lamella not found — skipping skill install");
             eprintln!("  Run 'lamella install-codex' manually after installing lamella");
         }
         return Ok(false);
@@ -168,12 +173,18 @@ pub(super) fn initialize_hyphae_db_if_needed(
     let span_context = ecosystem_span_context("hyphae");
     let _tool_span = tool_span("initialize_hyphae_db_if_needed", &span_context).entered();
 
-    if let Some(data_dir) = hyphae_installed
-        .then(dirs::data_dir)
-        .flatten()
-        .map(|d| d.join("hyphae"))
-        .filter(|d| !d.join("hyphae.db").exists())
+    let Some(base) = hyphae_installed.then(dirs::data_dir).flatten() else {
+        return Ok(());
+    };
+    // Check both the canonical path and the legacy path. Doctor uses the same
+    // priority order; keeping them aligned prevents spurious re-initialization.
+    let new_db = base.join("basidiocarp").join("hyphae").join("hyphae.db");
+    let legacy_db = base.join("hyphae").join("hyphae.db");
+    if new_db.exists() || legacy_db.exists() {
+        return Ok(());
+    }
     {
+        let data_dir = base.join("basidiocarp").join("hyphae");
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("creating {}", data_dir.display()))?;
         // Resolve the binary through the tool registry rather than relying on PATH.
@@ -234,7 +245,7 @@ pub(super) fn configure_detected_clients(
             vec![c]
         } else {
             eprintln!(
-                "  {} Unknown client '{name}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot",
+                "  {} Unknown client '{name}'. Known: claude-code, cursor, windsurf, continue, claude-desktop, codex, gemini, copilot",
                 "!".yellow(),
             );
             return Ok(());

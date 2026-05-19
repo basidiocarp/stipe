@@ -29,10 +29,6 @@ pub(super) fn register_servers(
     match client {
         McpClient::ClaudeCode => register_claude_code(servers, scope, verbose),
         McpClient::Continue => register_continue(servers, verbose),
-        McpClient::Cline => {
-            print_cline_snippet(servers);
-            Ok(())
-        }
         McpClient::Cursor
         | McpClient::Windsurf
         | McpClient::ClaudeDesktop
@@ -183,21 +179,17 @@ fn register_codex_toml_at_path(
         fs::create_dir_all(parent)?;
     }
 
-    let mut root: toml::Value = if config_path.exists() {
-        let content = fs::read_to_string(config_path)?;
-        if content.trim().is_empty() {
-            toml::Value::Table(toml::map::Map::new())
-        } else {
-            toml::from_str(&content)?
-        }
+    let existing_content = if config_path.exists() {
+        fs::read_to_string(config_path)?
     } else {
-        toml::Value::Table(toml::map::Map::new())
+        String::new()
     };
 
-    if config_path.exists() {
-        let backup = config_path.with_extension("toml.bak");
-        fs::copy(config_path, &backup)?;
-    }
+    let mut root: toml::Value = if existing_content.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        toml::from_str(&existing_content)?
+    };
 
     let root_table = root
         .as_table_mut()
@@ -227,8 +219,17 @@ fn register_codex_toml_at_path(
         server_map.insert(server.name.clone(), toml::Value::Table(server_table));
     }
 
-    let content = toml::to_string_pretty(&root)?;
-    atomic_write_bytes(config_path, content.as_bytes())
+    let new_content = toml::to_string_pretty(&root)?;
+    if new_content == existing_content {
+        return Ok(());
+    }
+
+    if !existing_content.is_empty() {
+        let backup = config_path.with_extension("toml.bak");
+        fs::copy(config_path, &backup)?;
+    }
+
+    atomic_write_bytes(config_path, new_content.as_bytes())
         .with_context(|| format!("write Codex config: {}", config_path.display()))?;
 
     if verbose > 0 {
@@ -316,33 +317,6 @@ fn register_continue(servers: &[ServerConfig], verbose: u8) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn print_cline_snippet(servers: &[ServerConfig]) {
-    println!();
-    println!(
-        "  {} Cline uses VS Code settings. Add this to your VS Code settings.json:",
-        "→".dimmed()
-    );
-    println!();
-
-    let mut mcp_servers = Map::new();
-    for server in servers {
-        mcp_servers.insert(
-            server.name.clone(),
-            json!({
-                "command": server.command,
-                "args": server.args,
-            }),
-        );
-    }
-
-    let snippet = json!({ "cline.mcpServers": mcp_servers });
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&snippet).unwrap_or_default()
-    );
-    println!();
 }
 
 fn registration_span_context(tool: &str) -> SpanContext {

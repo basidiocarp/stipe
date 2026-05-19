@@ -29,7 +29,6 @@ fn test_shared_editor_mapping_covers_supported_shared_hosts() {
     assert_eq!(McpClient::Windsurf.shared_editor(), Some(Editor::Windsurf));
     assert_eq!(McpClient::CodexCli.shared_editor(), Some(Editor::CodexCli));
     assert_eq!(McpClient::Continue.shared_editor(), None);
-    assert_eq!(McpClient::Cline.shared_editor(), None);
 }
 
 #[test]
@@ -44,7 +43,6 @@ fn test_collect_detected_clients_preserves_inventory_order() {
     let detected = super::detection::collect_detected_clients(
         &[Editor::CodexCli, Editor::Cursor],
         true,
-        true,
         false,
     );
 
@@ -53,7 +51,6 @@ fn test_collect_detected_clients_preserves_inventory_order() {
         vec![
             McpClient::ClaudeCode,
             McpClient::Cursor,
-            McpClient::Cline,
             McpClient::CodexCli,
         ]
     );
@@ -61,23 +58,21 @@ fn test_collect_detected_clients_preserves_inventory_order() {
 
 #[test]
 fn test_collect_detected_clients_keeps_claude_hybrid_detection() {
-    let detected = super::detection::collect_detected_clients(&[], true, false, false);
+    let detected = super::detection::collect_detected_clients(&[], true, false);
 
     assert_eq!(detected, vec![McpClient::ClaudeCode]);
 }
 
 #[test]
-fn test_collect_detected_clients_does_not_map_vscode_to_cline() {
-    let detected =
-        super::detection::collect_detected_clients(&[Editor::VsCode], false, false, false);
+fn test_collect_detected_clients_does_not_map_vscode() {
+    let detected = super::detection::collect_detected_clients(&[Editor::VsCode], false, false);
 
     assert!(detected.is_empty());
 }
 
 #[test]
 fn test_collect_detected_clients_keeps_continue_outside_shared_overlap() {
-    let detected =
-        super::detection::collect_detected_clients(&[Editor::Cursor], false, false, true);
+    let detected = super::detection::collect_detected_clients(&[Editor::Cursor], false, true);
 
     assert_eq!(detected, vec![McpClient::Cursor, McpClient::Continue]);
 }

@@ -149,6 +149,12 @@ fn verify_download_checksum(
             tool,
             release.version
         );
+        eprintln!(
+            "  {} No SHA256SUMS asset found for {} {} — checksum verification skipped.",
+            "!".yellow(),
+            tool,
+            release.version
+        );
     }
     Ok(())
 }
@@ -415,7 +421,9 @@ pub(crate) fn install_from_source(
         anyhow::bail!("cargo install timed out after 10 minutes or failed for {tool_name}");
     }
 
-    let binary = which::which(tool_name)
+    let binary = tool_registry::find(tool_name)
+        .and_then(tool_registry::resolve_binary_path)
+        .or_else(|| which::which(tool_name).ok())
         .with_context(|| format!("{tool_name} not found in PATH after cargo install"))?;
     let version = verify_binary(&binary)?;
 
@@ -527,7 +535,7 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     println!();
 
     let installed_binary_paths = build_binary_paths(&prefix, &tools_to_install);
-    create_preinstall_backup(&installed_binary_paths)?;
+    let backup_path = create_preinstall_backup(&installed_binary_paths)?;
 
     let mut failures = Vec::new();
     if opts.from_source {
@@ -540,7 +548,7 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     print_manual_follow_up(&manual_tools);
     println!();
 
-    finalize_install(&failures, opts.profile, has_manual_follow_up)
+    finalize_install(&failures, opts.profile, has_manual_follow_up, &backup_path)
 }
 
 fn print_install_banner() {
@@ -644,13 +652,13 @@ fn build_binary_paths(prefix: &Path, tools: &[String]) -> Vec<(String, PathBuf)>
         .collect()
 }
 
-fn create_preinstall_backup(installed_binary_paths: &[(String, PathBuf)]) -> Result<()> {
+fn create_preinstall_backup(
+    installed_binary_paths: &[(String, PathBuf)],
+) -> Result<std::path::PathBuf> {
     let timestamp = crate::backup::backup_timestamp();
     let stipe_version = env!("CARGO_PKG_VERSION");
-    let _backup_path =
-        crate::backup::create_backup(&timestamp, stipe_version, installed_binary_paths, &[])
-            .context("could not create pre-install backup")?;
-    Ok(())
+    crate::backup::create_backup(&timestamp, stipe_version, installed_binary_paths, &[])
+        .context("could not create pre-install backup")
 }
 
 fn install_from_source_phase(opts: &InstallOptions, tools: &[String], failures: &mut Vec<String>) {
@@ -709,6 +717,7 @@ fn finalize_install(
     failures: &[String],
     profile: Option<InstallProfile>,
     has_manual_follow_up: bool,
+    backup_path: &std::path::Path,
 ) -> Result<()> {
     if failures.is_empty() {
         let persisted_profile = selected_profile_for_persistence(failures, profile);
@@ -722,9 +731,10 @@ fn finalize_install(
         Ok(())
     } else {
         Err(anyhow::anyhow!(
-            "installation failed for {} tool(s): {}",
+            "installation failed for {} tool(s): {}\n  Pre-install backup saved to: {}",
             failures.len(),
-            failures.join("; ")
+            failures.join("; "),
+            backup_path.display(),
         ))
     }
 }

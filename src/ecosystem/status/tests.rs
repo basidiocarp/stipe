@@ -71,3 +71,18 @@ fn test_discover_codex_version_does_not_panic() {
 fn test_claude_is_available_does_not_panic() {
     let _result = claude_is_available();
 }
+
+#[test]
+fn test_rhizome_proxy_when_socket_running() {
+    let servers = build_ecosystem_servers_with_socket_check(false, true, true);
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].name, "rhizome");
+    assert_eq!(servers[0].args, vec!["proxy"]);
+}
+
+#[test]
+fn test_rhizome_serve_expanded_when_no_socket() {
+    let servers = build_ecosystem_servers_with_socket_check(false, true, false);
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].args, vec!["serve", "--expanded"]);
+}

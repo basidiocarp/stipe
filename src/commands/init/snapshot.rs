@@ -14,7 +14,7 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
     if let Some(target) = client {
         if McpClient::from_flag(target).is_none() {
             return Err(anyhow!(
-                "Unknown client '{target}'. Known: claude-code, cursor, windsurf, cline, continue, claude-desktop, codex, gemini, copilot"
+                "Unknown client '{target}'. Known: claude-code, cursor, windsurf, continue, claude-desktop, codex, gemini, copilot"
             ));
         }
         if let Some(mode) = host_policy::host_mode_from_client_flag(target)
@@ -58,9 +58,11 @@ pub(super) fn build_snapshot(client: Option<&str>, scope: HostConfigScope) -> Re
     let annulus_probe = tool_registry::find("annulus").map(tool_registry::probe);
     let annulus_installed = matches!(annulus_probe, Some(ToolProbe::Installed(_)));
     let annulus_broken = matches!(annulus_probe, Some(ToolProbe::Broken));
-    let hyphae_db_exists = dirs::data_dir()
-        .map(|dir| dir.join("hyphae").join("hyphae.db"))
-        .is_some_and(|db_path| db_path.exists());
+    // Match the priority order doctor uses: canonical path first, legacy path second.
+    let hyphae_db_exists = dirs::data_dir().is_some_and(|base| {
+        base.join("basidiocarp").join("hyphae").join("hyphae.db").exists()
+            || base.join("hyphae").join("hyphae.db").exists()
+    });
 
     Ok(InitSnapshot {
         target_client,

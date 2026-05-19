@@ -1,6 +1,6 @@
 //! Multi-client MCP detection and registration.
 //!
-//! Detects installed MCP clients (Cursor, Windsurf, Cline, Continue, Claude Desktop)
+//! Detects installed MCP clients (Cursor, Windsurf, Continue, Claude Desktop)
 //! and registers hyphae/rhizome MCP servers in each client's config.
 //!
 //! Boundary note: `spore` owns editor primitives such as detection, config paths,
@@ -26,7 +26,6 @@ pub enum McpClient {
     ClaudeCode,
     Cursor,
     Windsurf,
-    Cline,
     Continue,
     ClaudeDesktop,
     CodexCli,
@@ -45,11 +44,10 @@ pub(super) const SHARED_EDITOR_CLIENTS: &[(McpClient, Editor)] = &[
 ];
 
 /// All known clients in detection order.
-pub(super) const ALL_CLIENTS: [McpClient; 9] = [
+pub(super) const ALL_CLIENTS: [McpClient; 8] = [
     McpClient::ClaudeCode,
     McpClient::Cursor,
     McpClient::Windsurf,
-    McpClient::Cline,
     McpClient::Continue,
     McpClient::ClaudeDesktop,
     McpClient::CodexCli,
@@ -64,7 +62,6 @@ impl McpClient {
             Self::ClaudeCode => "Claude Code",
             Self::Cursor => "Cursor",
             Self::Windsurf => "Windsurf",
-            Self::Cline => "Cline",
             Self::Continue => "Continue",
             Self::ClaudeDesktop => "Claude Desktop",
             Self::CodexCli => "Codex CLI",
@@ -80,7 +77,6 @@ impl McpClient {
             Self::ClaudeCode => "claude-code",
             Self::Cursor => "cursor",
             Self::Windsurf => "windsurf",
-            Self::Cline => "cline",
             Self::Continue => "continue",
             Self::ClaudeDesktop => "claude-desktop",
             Self::CodexCli => "codex",
@@ -95,7 +91,6 @@ impl McpClient {
             "claude-code" | "claude" => Some(Self::ClaudeCode),
             "cursor" => Some(Self::Cursor),
             "windsurf" => Some(Self::Windsurf),
-            "cline" => Some(Self::Cline),
             "continue" => Some(Self::Continue),
             "claude-desktop" => Some(Self::ClaudeDesktop),
             "codex" | "codex-cli" => Some(Self::CodexCli),
@@ -116,7 +111,6 @@ impl McpClient {
 
         let home = dirs::home_dir()?;
         match self {
-            Self::Cline => vscode_cline_settings_path(),
             Self::Continue => Some(home.join(".continue").join("config.json")),
             Self::ClaudeCode
             | Self::Cursor
@@ -169,35 +163,3 @@ pub fn print_generic_config(servers: &[ServerConfig]) {
     registration::print_generic_config(servers);
 }
 
-/// Get the VS Code settings path where Cline stores MCP config.
-pub(crate) fn vscode_cline_settings_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir()?;
-        Some(
-            home.join("Library")
-                .join("Application Support")
-                .join("Code")
-                .join("User")
-                .join("settings.json"),
-        )
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let home = dirs::home_dir()?;
-        Some(
-            home.join(".config")
-                .join("Code")
-                .join("User")
-                .join("settings.json"),
-        )
-    }
-    #[cfg(target_os = "windows")]
-    {
-        dirs::config_dir().map(|dir| dir.join("Code").join("User").join("settings.json"))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        None
-    }
-}

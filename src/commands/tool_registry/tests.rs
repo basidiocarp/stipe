@@ -12,13 +12,19 @@ fn test_profile_tools_cover_expected_sets() {
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(standard, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
+    assert_eq!(
+        standard,
+        vec!["mycelium", "hyphae", "rhizome", "cortina", "annulus"]
+    );
 
     let claude = specs_for_profile(InstallProfile::ClaudeCode)
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(claude, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
+    assert_eq!(
+        claude,
+        vec!["mycelium", "hyphae", "rhizome", "cortina", "annulus"]
+    );
 
     let full_stack = specs_for_profile(InstallProfile::FullStack)
         .into_iter()
@@ -68,7 +74,15 @@ fn test_doctor_specs_include_optional_canopy_and_volva() {
     assert_eq!(
         names,
         vec![
-            "mycelium", "hyphae", "rhizome", "canopy", "volva", "annulus", "hymenium", "lamella"
+            "mycelium",
+            "hyphae",
+            "rhizome",
+            "canopy",
+            "cortina",
+            "volva",
+            "annulus",
+            "hymenium",
+            "lamella",
         ]
     );
 }

@@ -1,5 +1,5 @@
 use crate::ecosystem;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use spore::logging::{SpanContext, workflow_span};
 
 use super::host_policy::HostConfigScope;
@@ -171,22 +171,19 @@ fn prompt_and_write_volva_mode() -> Result<()> {
 
 /// Write `mode = "<mode>"` to `~/.config/volva/config.toml`, creating the directory if needed.
 fn write_volva_mode_config(mode: &str) -> Result<()> {
-    use std::io::Write;
-
     let config_dir = dirs::config_dir()
         .ok_or_else(|| anyhow::anyhow!("cannot determine config directory"))?
         .join("volva");
 
     std::fs::create_dir_all(&config_dir)?;
 
-    let config_path = config_dir.join("config.toml");
-    let mut file = std::fs::File::create(&config_path)?;
-    writeln!(file, "# Volva global configuration")?;
-    writeln!(
-        file,
-        "# Managed by stipe. Edit manually or re-run stipe init to change."
-    )?;
-    writeln!(file, "mode = \"{mode}\"")?;
+    let content = format!(
+        "# Volva global configuration\n\
+         # Managed by stipe. Edit manually or re-run stipe init to change.\n\
+         mode = \"{mode}\"\n"
+    );
 
-    Ok(())
+    let config_path = config_dir.join("config.toml");
+    spore::atomic_write_bytes(&config_path, content.as_bytes())
+        .with_context(|| format!("writing {}", config_path.display()))
 }

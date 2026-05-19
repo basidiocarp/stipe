@@ -347,14 +347,15 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
         };
     }
 
-    // Find the hyphae binary
-    let hyphae_binary = if let Ok(path) = which::which("hyphae") {
-        Some(path)
-    } else {
+    // Find the hyphae binary via spore-based resolution (PATH-independent) so
+    // this works when ~/.local/bin is absent from the process environment.
+    let hyphae_binary = crate::commands::tool_registry::find("hyphae")
+        .and_then(crate::commands::tool_registry::resolve_binary_path)
+        .or_else(|| which::which("hyphae").ok());
+    if hyphae_binary.is_none() {
         warn!("Could not locate hyphae binary for pre-upgrade backup");
         missing.push("hyphae binary".to_string());
-        None
-    };
+    }
 
     // Resolve the hyphae database path. The canonical location moved from
     // `~/.local/share/hyphae/` to `~/.local/share/basidiocarp/hyphae/` after the

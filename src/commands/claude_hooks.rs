@@ -3,15 +3,11 @@ use serde::Serialize;
 use serde_json::json;
 use spore::atomic_write_bytes;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 use super::host_policy::{self, HostConfigScope, HostMode};
-use crate::commands::install::release::run_command_with_timeout;
-
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+use crate::commands::tool_registry::{self, ToolProbe};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HookEntrySnapshot {
@@ -99,49 +95,13 @@ const DEFAULT_ANNULUS_CONFIG: &str = "\
 ";
 
 pub fn cortina_installed() -> bool {
-    let mut cmd = Command::new("cortina");
-    cmd.arg("--version");
-    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
-        Ok(output) => {
-            if output.status.success() {
-                true
-            } else {
-                tracing::debug!("cortina --version returned non-zero exit code");
-                false
-            }
-        }
-        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-            tracing::debug!("cortina --version timed out");
-            false
-        }
-        Err(_) => {
-            tracing::debug!("cortina --version failed to run");
-            false
-        }
-    }
+    tool_registry::find("cortina")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
 }
 
 fn annulus_available() -> bool {
-    let mut cmd = Command::new("annulus");
-    cmd.arg("--version");
-    match run_command_with_timeout(&mut cmd, PROBE_TIMEOUT) {
-        Ok(output) => {
-            if output.status.success() {
-                true
-            } else {
-                tracing::debug!("annulus --version returned non-zero exit code");
-                false
-            }
-        }
-        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
-            tracing::debug!("annulus --version timed out");
-            false
-        }
-        Err(_) => {
-            tracing::debug!("annulus --version failed to run");
-            false
-        }
-    }
+    tool_registry::find("annulus")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
 }
 
 fn configured_paths() -> Vec<PathBuf> {
@@ -151,19 +111,23 @@ fn configured_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Resolve a binary name to its absolute path if available on PATH, with a
-/// fallback to the bare name. Emits a warning when the binary is not found so
-/// the operator knows the hook may not fire from GUI apps that lack ~/.local/bin.
+/// Resolve a binary name to its absolute path via spore discovery (PATH-independent),
+/// falling back to the bare name with a warning. Using spore discovery ensures the
+/// written hook command works when Claude Code is launched from a GUI app that lacks
+/// ~/.local/bin on PATH.
 fn resolve_binary_path(binary_name: &str) -> String {
-    if let Ok(path) = which::which(binary_name) {
-        path.to_string_lossy().into_owned()
-    } else {
-        eprintln!(
-            "  warning: {binary_name} not found on PATH — hook registered with bare name; \
-             add ~/.local/bin to PATH to ensure hooks fire from GUI apps"
-        );
-        binary_name.to_string()
-    }
+    tool_registry::find(binary_name)
+        .and_then(tool_registry::resolve_binary_path)
+        .map_or_else(
+            || {
+                eprintln!(
+                    "  warning: {binary_name} not found — hook registered with bare name; \
+                     install via stipe to ensure hooks fire from GUI apps"
+                );
+                binary_name.to_string()
+            },
+            |p| p.to_string_lossy().into_owned(),
+        )
 }
 
 fn hook_command(spec: HookSpec) -> String {
@@ -758,14 +722,10 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
         None
     });
 
-    // If no script found in standard locations, check $PATH for 'lamella-validate-hooks'
-    let validator_script = validator_script.or_else(|| {
-        if which::which("lamella-validate-hooks").is_ok() {
-            Some(PathBuf::from("lamella-validate-hooks"))
-        } else {
-            None
-        }
-    });
+    // If no script found in standard locations, check $PATH for 'lamella-validate-hooks'.
+    // Use the resolved absolute path from which::which so the home-directory guard below
+    // checks the actual location rather than a bare filename canonicalized against cwd.
+    let validator_script = validator_script.or_else(|| which::which("lamella-validate-hooks").ok());
 
     // Run the validator if found
     if let Some(validator_path) = validator_script {

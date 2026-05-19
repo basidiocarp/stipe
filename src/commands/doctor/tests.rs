@@ -1,5 +1,4 @@
 use super::*;
-use crate::commands::codex_notify;
 use crate::commands::developer_tools::DeveloperToolTier;
 use crate::commands::host_policy::HostMode;
 use crate::commands::repair::{RepairAction, RepairTier};
@@ -13,7 +12,7 @@ use super::config_checks::{codex_notify_adapter_configured_at_path, config_menti
 use super::council_checks::check_task_linked_council;
 use super::model::{ConfigFormat, McpHealth, PluginInventory};
 use super::tool_checks::check_hyphae_db_at_path;
-use super::{host_policy, tool_registry};
+use super::tool_registry;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn unique_test_dir(label: &str) -> std::path::PathBuf {

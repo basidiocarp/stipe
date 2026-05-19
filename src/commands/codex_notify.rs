@@ -5,21 +5,22 @@ use std::path::{Path, PathBuf};
 
 use super::host_policy::{self, HostConfigScope};
 use super::repair::{RepairAction, RepairTier};
+use crate::commands::tool_registry::{self, ToolProbe};
 
 fn required_notify_values() -> Vec<String> {
     let mut values = Vec::new();
 
-    // Hyphae: use absolute path if available, fall back to bare name.
-    // (macOS GUI apps may not have ~/.local/bin on PATH, so absolute path is preferred)
-    let hyphae_value = which::which("hyphae")
-        .ok()
-        .and_then(|p| p.to_str().map(std::string::ToString::to_string))
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                "hyphae not found on PATH — codex notify entry may fail in GUI launches"
-            );
-            "hyphae".to_string()
-        });
+    // Resolve via spore discovery (PATH-independent) so GUI launchers that lack
+    // ~/.local/bin on PATH still find the binary at MCP startup.
+    let hyphae_value = tool_registry::find("hyphae")
+        .and_then(tool_registry::resolve_binary_path)
+        .map_or_else(
+            || {
+                tracing::warn!("hyphae not found — codex notify entry may fail in GUI launches");
+                "hyphae".to_string()
+            },
+            |p| p.to_string_lossy().into_owned(),
+        );
     values.push(hyphae_value);
 
     // codex-notify is a codex built-in subcommand, not a separate binary on PATH.
@@ -30,22 +31,16 @@ fn required_notify_values() -> Vec<String> {
 }
 
 fn optional_cortina_adapter() -> Option<String> {
-    // Add cortina adapter if cortina is installed (use absolute path — macOS GUI PATH may not include ~/.local/bin)
-    which::which("cortina")
-        .ok()
-        .map(|cortina_path| format!("{} adapter codex turn-complete", cortina_path.display()))
+    // Resolve via spore discovery so the absolute path is used even when
+    // ~/.local/bin is absent from the GUI launcher's PATH.
+    let cortina_path = tool_registry::find("cortina")
+        .and_then(tool_registry::resolve_binary_path)?;
+    Some(format!("{} adapter codex turn-complete", cortina_path.display()))
 }
 
 fn hyphae_installed() -> bool {
-    which::which("hyphae")
-        .ok()
-        .and_then(|path| {
-            std::process::Command::new(path)
-                .arg("--version")
-                .output()
-                .ok()
-        })
-        .is_some_and(|o| o.status.success())
+    tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)))
 }
 
 fn configured_paths() -> Vec<PathBuf> {
@@ -172,7 +167,7 @@ pub fn install_codex_notify(scope: HostConfigScope, verbose: u8) -> Result<bool>
         }
     }
 
-    Ok(true)
+    Ok(changed)
 }
 
 pub fn codex_notify_detail(_configured: bool) -> String {

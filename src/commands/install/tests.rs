@@ -22,13 +22,19 @@ fn test_profile_tools_cover_expected_sets() {
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(standard, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
+    assert_eq!(
+        standard,
+        vec!["mycelium", "hyphae", "rhizome", "cortina", "annulus"]
+    );
 
     let claude = tool_registry::specs_for_profile(InstallProfile::ClaudeCode)
         .into_iter()
         .map(|spec| spec.name)
         .collect::<Vec<_>>();
-    assert_eq!(claude, vec!["mycelium", "hyphae", "rhizome", "cortina"]);
+    assert_eq!(
+        claude,
+        vec!["mycelium", "hyphae", "rhizome", "cortina", "annulus"]
+    );
 
     let codex = tool_registry::specs_for_profile(InstallProfile::Codex)
         .into_iter()

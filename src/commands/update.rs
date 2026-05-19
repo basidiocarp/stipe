@@ -15,7 +15,12 @@ use crate::commands::github::GitHubClient;
 mod tests;
 
 fn get_installed_version(tool: &str) -> Result<String> {
-    let resolved = which::which(tool).with_context(|| format!("{tool} not found on PATH"))?;
+    // Prefer spore-based resolution (PATH-independent) for registry-known tools,
+    // fall back to which::which for tools installed outside the managed set.
+    let resolved = tool_registry::find(tool)
+        .and_then(tool_registry::resolve_binary_path)
+        .or_else(|| which::which(tool).ok())
+        .with_context(|| format!("{tool} not found"))?;
     let output = install::release::run_command_with_timeout(
         Command::new(resolved).arg("--version"),
         Duration::from_secs(5),
@@ -335,7 +340,9 @@ pub fn run(
         let prefix = install::install_bin_dir()?;
         for tool in &tools_to_check {
             let tool_path = prefix.join(tool);
-            binary_paths.push((tool.clone(), tool_path));
+            if tool_path.exists() {
+                binary_paths.push((tool.clone(), tool_path));
+            }
         }
         let timestamp = crate::backup::backup_timestamp();
         let stipe_version = env!("CARGO_PKG_VERSION");

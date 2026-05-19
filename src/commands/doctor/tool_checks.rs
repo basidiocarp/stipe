@@ -284,16 +284,8 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
             name: spec.name.to_string(),
             passed: true,
-            message: match spec.name {
-                "volva" => "Optional backend operations CLI not installed".to_string(),
-                "annulus" => "Optional operator utilities CLI not installed".to_string(),
-                _ => "Optional coordination runtime not installed".to_string(),
-            },
-            repair_actions: if matches!(spec.name, "volva" | "annulus") {
-                missing_tool_actions(spec)
-            } else {
-                Vec::new()
-            },
+            message: format!("{} not installed (optional)", spec.description),
+            repair_actions: missing_tool_actions(spec),
         },
         (_, ToolProbe::Broken) => HealthCheck {
             name: spec.name.to_string(),
@@ -477,7 +469,58 @@ pub(super) fn check_profile_tools(profile: InstallProfile, deep: bool) -> Vec<He
         .collect()
 }
 
+pub(super) fn check_codex_notify() -> Option<HealthCheck> {
+    if !codex_cli_installed() {
+        return None;
+    }
+
+    let hyphae_installed = tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)));
+
+    if !hyphae_installed {
+        return Some(HealthCheck {
+            name: "codex notify adapter".to_string(),
+            passed: false,
+            message: "Hyphae is not installed — Codex notify adapter cannot be registered"
+                .to_string(),
+            repair_actions: vec![RepairAction::stipe(
+                "install-hyphae",
+                "Install Hyphae",
+                "Install the Hyphae memory server.",
+                &["install", "hyphae"],
+                RepairTier::Primary,
+            )],
+        });
+    }
+
+    let configured = crate::commands::codex_notify::codex_notify_configured();
+    let detail = crate::commands::codex_notify::codex_notify_detail(configured);
+    Some(HealthCheck {
+        name: "codex notify adapter".to_string(),
+        passed: configured,
+        message: detail,
+        repair_actions: if configured {
+            Vec::new()
+        } else {
+            vec![crate::commands::codex_notify::codex_notify_repair_action()]
+        },
+    })
+}
+
 pub(super) fn check_hyphae_db() -> HealthCheck {
+    // Skip the DB check when hyphae itself is not installed — the tool check already
+    // surfaces the missing binary, and a "database not found" message would be misleading.
+    let hyphae_installed = tool_registry::find("hyphae")
+        .is_some_and(|spec| matches!(tool_registry::probe(spec), ToolProbe::Installed(_)));
+    if !hyphae_installed {
+        return HealthCheck {
+            name: "hyphae database".to_string(),
+            passed: true,
+            message: "Hyphae not installed (database check skipped)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    }
+
     let Some(data_dir) = dirs::data_dir() else {
         return HealthCheck {
             name: "hyphae database".to_string(),
@@ -664,9 +707,21 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
 }
 
 pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
-    // Check if rhizome is available
-    let rhizome_available = crate::commands::install::release::run_command_with_timeout(
-        std::process::Command::new("rhizome").arg("--version"),
+    // Resolve via tool registry (spore-based, PATH-independent) so this check
+    // works when rhizome is installed at ~/.local/bin but not on PATH.
+    let Some(rhizome_bin) = tool_registry::find("rhizome")
+        .and_then(tool_registry::resolve_binary_path)
+    else {
+        return HealthCheck {
+            name: "rhizome compiled environment".to_string(),
+            passed: true,
+            message: "Rhizome not installed (skipped)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    };
+
+    let rhizome_available = run_command_with_timeout(
+        Command::new(&rhizome_bin).arg("--version"),
         Duration::from_secs(5),
     )
     .is_ok_and(|o| o.status.success());
@@ -681,8 +736,19 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
     }
 
     // Check if a compiled-env memoir exists in hyphae
-    let artifact_exists = crate::commands::install::release::run_command_with_timeout(
-        std::process::Command::new("hyphae").args(["memoir", "show", "--name", "compiled-env:*"]),
+    let Some(hyphae_bin) = tool_registry::find("hyphae")
+        .and_then(tool_registry::resolve_binary_path)
+    else {
+        return HealthCheck {
+            name: "rhizome compiled environment".to_string(),
+            passed: true,
+            message: "Hyphae not installed (skipped)".to_string(),
+            repair_actions: Vec::new(),
+        };
+    };
+
+    let artifact_exists = run_command_with_timeout(
+        Command::new(&hyphae_bin).args(["memoir", "show", "--name", "compiled-env:*"]),
         Duration::from_secs(5),
     )
     .is_ok_and(|o| o.status.success());
@@ -794,14 +860,26 @@ fn check_hook_runtime_path(cmd: &str) -> Option<(bool, String)> {
 
         Some((true, format!("hook binary found: {binary_token}")))
     } else {
-        // Bare name: check PATH.
-        match which::which(binary_token) {
-            Ok(_) => Some((true, format!("{binary_token} found on PATH"))),
-            Err(_) => Some((
+        // Bare name: check via tool_registry first (spore-based, PATH-independent),
+        // then fall back to PATH. A bare-name hook passes here but will fail when
+        // Claude Code fires it from a GUI launcher without ~/.local/bin on PATH.
+        // Flag it as a concern even when the binary is findable.
+        let resolved = tool_registry::find(binary_token)
+            .and_then(tool_registry::resolve_binary_path)
+            .or_else(|| which::which(binary_token).ok());
+        match resolved {
+            Some(_) => Some((
                 false,
                 format!(
-                    "{binary_token} not found on PATH — \
-                     hooks may not fire from GUI apps; add ~/.local/bin to PATH"
+                    "{binary_token} is registered as a bare name — re-run \
+                     'stipe host setup claude-code' to upgrade to an absolute path"
+                ),
+            )),
+            None => Some((
+                false,
+                format!(
+                    "{binary_token} not found — hooks will not fire; \
+                     install {binary_token} and run 'stipe host setup claude-code'"
                 ),
             )),
         }

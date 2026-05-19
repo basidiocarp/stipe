@@ -116,7 +116,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         include_in_status: true,
         include_in_ecosystem: true,
         include_in_install_all: true,
-        doctor_coverage: DoctorCoverage::Ignore,
+        doctor_coverage: DoctorCoverage::Optional,
         install_profiles: &[
             InstallProfile::Standard,
             InstallProfile::ClaudeCode,
@@ -161,7 +161,11 @@ const TOOL_SPECS: &[ToolSpec] = &[
         include_in_ecosystem: true,
         include_in_install_all: true,
         doctor_coverage: DoctorCoverage::Optional,
-        install_profiles: &[InstallProfile::FullStack],
+        install_profiles: &[
+            InstallProfile::Standard,
+            InstallProfile::ClaudeCode,
+            InstallProfile::FullStack,
+        ],
         missing_hint: Some("stipe install annulus"),
         smoke_test_args: Some(&["--version"]),
         smoke_test_expect: None,

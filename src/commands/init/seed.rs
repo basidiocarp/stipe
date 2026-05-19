@@ -141,7 +141,8 @@ fn read_input() -> Result<String> {
 
 /// Seed initial project context into hyphae if no memories exist yet.
 pub fn seed_first_run(project: &str, dry_run: bool) -> Result<()> {
-    seed_first_run_internal(project, dry_run, "hyphae")
+    let hyphae_cmd = resolve_hyphae_cmd();
+    seed_first_run_internal(project, dry_run, &hyphae_cmd)
 }
 
 fn seed_first_run_internal(project: &str, dry_run: bool, hyphae_cmd: &str) -> Result<()> {
@@ -187,7 +188,14 @@ fn seed_first_run_internal(project: &str, dry_run: bool, hyphae_cmd: &str) -> Re
 
 /// Seed with interactive prompts for additional context.
 pub fn seed_first_run_interactive(project: &str, dry_run: bool) -> Result<()> {
-    seed_first_run_interactive_internal(project, dry_run, "hyphae")
+    let hyphae_cmd = resolve_hyphae_cmd();
+    seed_first_run_interactive_internal(project, dry_run, &hyphae_cmd)
+}
+
+fn resolve_hyphae_cmd() -> String {
+    crate::commands::tool_registry::find("hyphae")
+        .and_then(crate::commands::tool_registry::resolve_binary_path)
+        .map_or_else(|| "hyphae".to_string(), |p| p.to_string_lossy().into_owned())
 }
 
 fn seed_first_run_interactive_internal(
