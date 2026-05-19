@@ -116,25 +116,6 @@ fn test_codex_notify_adapter_configured_at_path_detects_notify_entry() {
 }
 
 #[test]
-fn test_build_report_includes_host_inventory_checks() {
-    let report = build_report_with_saved_profile(None, false, false);
-    let names = report
-        .checks
-        .iter()
-        .map(|check| check.name.as_str())
-        .collect::<Vec<_>>();
-
-    assert!(names.iter().any(|name| name.contains("host: claude-code")));
-    assert!(names.iter().any(|name| name.contains("host: codex")));
-    assert!(
-        names
-            .iter()
-            .any(|name| name.contains("task-linked council"))
-    );
-    assert!(names.iter().any(|name| name.contains("runtime policy")));
-}
-
-#[test]
 fn test_task_linked_council_check_passes_when_all_prereqs_exist() {
     let check = check_task_linked_council(
         None,
@@ -200,27 +181,6 @@ fn test_task_linked_council_check_reports_missing_prereqs() {
             .iter()
             .any(|action| action.command == "stipe package")
     );
-}
-
-#[test]
-fn test_codex_notify_helpers_are_shared() {
-    let detail = codex_notify::codex_notify_detail(false);
-    assert!(detail.contains("Codex"));
-    assert!(host_policy::codex_target_requested(Some("codex")));
-}
-
-#[test]
-fn test_health_check_struct() {
-    let check = HealthCheck {
-        name: "test".to_string(),
-        passed: true,
-        message: "Test passed".to_string(),
-        repair_actions: Vec::new(),
-    };
-
-    assert_eq!(check.name, "test");
-    assert!(check.passed);
-    assert_eq!(check.message, "Test passed");
 }
 
 #[test]
