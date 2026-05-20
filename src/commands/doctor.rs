@@ -17,6 +17,7 @@ use crate::verify;
 
 mod config_checks;
 mod council_checks;
+mod hook_checks;
 mod instruction_checks;
 mod lamella_hooks_checks;
 pub(crate) mod model;
@@ -30,6 +31,7 @@ pub(crate) mod version_pins;
 
 use config_checks::{ConfigDriftState, check_mcp_config_drift};
 use council_checks::check_task_linked_council;
+use hook_checks::{check_claude_hook_commands, check_codex_notify_entries};
 use instruction_checks::check_instruction_files;
 use lamella_hooks_checks::check_lamella_hooks;
 use model::{
@@ -1664,6 +1666,25 @@ fn add_hook_checks(checks: &mut Vec<HealthCheck>, hook_paths: &[claude_hooks::Ho
     // Verify that cortina/annulus hook commands reference runnable binaries.
     if let Some(runnability_check) = check_hook_command_runnability() {
         checks.push(runnability_check);
+    }
+
+    // Check user-registered hook commands across all scopes.
+    for scope in [
+        host_policy::HostConfigScope::User,
+        host_policy::HostConfigScope::Project,
+        host_policy::HostConfigScope::Local,
+    ] {
+        let user_hook_checks = check_claude_hook_commands(scope);
+        checks.extend(user_hook_checks);
+    }
+
+    // Check codex notify entries across supported scopes.
+    for scope in [
+        host_policy::HostConfigScope::User,
+        host_policy::HostConfigScope::Project,
+    ] {
+        let codex_checks = check_codex_notify_entries(scope);
+        checks.extend(codex_checks);
     }
 }
 
