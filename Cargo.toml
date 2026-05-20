@@ -32,7 +32,7 @@ tempfile = "3"
 wait-timeout = "0.2"
 which = "7"
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
-indicatif = "0.17"
+indicatif = "0.18"
 tracing = "0.1"
 
 [profile.release]
