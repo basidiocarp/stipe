@@ -22,10 +22,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
 
     let Some(settings_path) = host_policy::claude_hook_settings_path(scope) else {
         return vec![HealthCheck {
-            name: format!(
-                "claude hook commands ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
             passed: true,
             message: "No settings.json path configured for this scope.".to_string(),
             repair_actions: Vec::new(),
@@ -35,12 +32,12 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
     // If settings file doesn't exist, no hooks to validate — pass.
     if !settings_path.exists() {
         return vec![HealthCheck {
-            name: format!(
-                "claude hook commands ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
             passed: true,
-            message: format!("No hooks configured (settings file not found at {})", settings_path.display()),
+            message: format!(
+                "No hooks configured (settings file not found at {})",
+                settings_path.display()
+            ),
             repair_actions: Vec::new(),
         }];
     }
@@ -50,10 +47,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
         Ok(e) => e,
         Err(e) => {
             return vec![HealthCheck {
-                name: format!(
-                    "claude hook commands ({})",
-                    host_policy::scope_name(scope)
-                ),
+                name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
                 passed: false,
                 message: format!("Could not read hooks from {}: {e}", settings_path.display()),
                 repair_actions: Vec::new(),
@@ -63,10 +57,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
 
     if entries.is_empty() {
         return vec![HealthCheck {
-            name: format!(
-                "claude hook commands ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
             passed: true,
             message: "No hooks registered.".to_string(),
             repair_actions: Vec::new(),
@@ -76,16 +67,16 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
     let entry_count = entries.len();
     for entry in entries {
         if let Some(error_msg) = check_hook_binary(&entry.command) {
-            failures.push(format!("  {} ({}): {error_msg}", entry.event, entry.hook_type));
+            failures.push(format!(
+                "  {} ({}): {error_msg}",
+                entry.event, entry.hook_type
+            ));
         }
     }
 
     if failures.is_empty() {
         vec![HealthCheck {
-            name: format!(
-                "claude hook commands ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
             passed: true,
             message: format!(
                 "All {} hook command(s) resolve to valid binaries.",
@@ -95,10 +86,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
         }]
     } else {
         vec![HealthCheck {
-            name: format!(
-                "claude hook commands ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("claude hook commands ({})", host_policy::scope_name(scope)),
             passed: false,
             message: format!(
                 "{} hook command(s) reference missing or non-executable binaries:\n{}",
@@ -121,10 +109,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
 
     let Some(config_path) = host_policy::codex_notify_config_path(scope) else {
         return vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: true,
             message: "No config.toml path configured for this scope.".to_string(),
             repair_actions: Vec::new(),
@@ -134,12 +119,12 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
     // If config file doesn't exist, no notify entries to validate — pass.
     if !config_path.exists() {
         return vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: true,
-            message: format!("No notify config (file not found at {})", config_path.display()),
+            message: format!(
+                "No notify config (file not found at {})",
+                config_path.display()
+            ),
             repair_actions: Vec::new(),
         }];
     }
@@ -149,10 +134,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
         Ok(c) => c,
         Err(e) => {
             return vec![HealthCheck {
-                name: format!(
-                    "codex notify entries ({})",
-                    host_policy::scope_name(scope)
-                ),
+                name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
                 passed: false,
                 message: format!("Could not read {}: {e}", config_path.display()),
                 repair_actions: Vec::new(),
@@ -162,25 +144,16 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
 
     let Ok(root) = content.parse::<toml::Table>() else {
         return vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: false,
-            message: format!(
-                "Could not parse TOML at {}",
-                config_path.display()
-            ),
+            message: format!("Could not parse TOML at {}", config_path.display()),
             repair_actions: Vec::new(),
         }];
     };
 
     let Some(notify_array) = root.get("notify").and_then(|v| v.as_array()) else {
         return vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: true,
             message: "No notify entries configured.".to_string(),
             repair_actions: Vec::new(),
@@ -189,10 +162,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
 
     if notify_array.is_empty() {
         return vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: true,
             message: "Notify array is empty.".to_string(),
             repair_actions: Vec::new(),
@@ -213,10 +183,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
 
     if failures.is_empty() {
         vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: true,
             message: format!(
                 "All {} notify entry(ies) resolve to valid binaries.",
@@ -226,10 +193,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
         }]
     } else {
         vec![HealthCheck {
-            name: format!(
-                "codex notify entries ({})",
-                host_policy::scope_name(scope)
-            ),
+            name: format!("codex notify entries ({})", host_policy::scope_name(scope)),
             passed: false,
             message: format!(
                 "{} notify entry(ies) are unresolvable:\n{}",
@@ -294,10 +258,7 @@ mod tests {
     #[test]
     fn check_hook_binary_bare_name_missing() {
         let result = check_hook_binary("nonexistent_binary_xyz12345 arg1");
-        assert!(
-            result.is_some(),
-            "Should fail for bare name not in PATH"
-        );
+        assert!(result.is_some(), "Should fail for bare name not in PATH");
     }
 
     #[test]
@@ -311,7 +272,10 @@ mod tests {
         // Mock the path retrieval by directly testing the logic.
         let checks = check_codex_notify_entries_with_path(&config_path);
         assert!(!checks.is_empty());
-        assert!(!checks[0].passed, "Should fail for unresolvable notify entry");
+        assert!(
+            !checks[0].passed,
+            "Should fail for unresolvable notify entry"
+        );
         assert!(checks[0].message.contains("nonexistent_binary_xyz"));
     }
 
