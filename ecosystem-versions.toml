@@ -1,0 +1,118 @@
+# Ecosystem Dependency Versions
+#
+# Single source of truth for shared dependency versions across all Rust projects.
+# This file is informational — not mechanically enforced — but agents and
+# developers should check it before upgrading any shared dependency.
+#
+# To check for drift:
+#   grep -r 'spore.*tag' */Cargo.toml
+#   grep -r 'rusqlite' */Cargo.toml
+
+[spore]
+version = "0.6.1"
+rev = "960f5aeb1d479149b3cdbeb2f850912c52521214"
+git = "https://github.com/basidiocarp/spore"
+consumers = ["mycelium", "hyphae", "rhizome", "stipe", "cortina", "canopy", "volva", "annulus", "hymenium"]
+pending = []
+note = "All consumers must pin using rev= (immutable) not tag= (mutable)."
+
+[datetime]
+crate = "chrono"
+version = "0.4"
+rationale = "Canonical datetime crate for the ecosystem: already used by spore and hyphae, and lowest-risk to standardize across cross-project timestamps."
+
+[shared-deps]
+anyhow = "1"
+clap = "4"
+clap_complete = "4"      # aligned: mycelium on 4
+chrono = "0.4"       # canonical datetime crate
+regex = "1"
+rusqlite = "0.39"       # aligned: all consumers (mycelium, hyphae, canopy, cortina, stipe, annulus, hymenium)
+serde = "1"
+serde_json = "1"
+thiserror = "2"
+toml = "1"              # aligned: all consumers on 1
+tracing = "0.1"
+ulid = "1"
+which = "7"
+
+[tools]
+# Tool versions: ecosystem-versions.toml is the single authority.
+# Stipe doctor pins must match these values.
+# Update this file when a tool is released, then update Stipe pins to match.
+mycelium = "0.11.1"
+hyphae = "0.15.2"       # 5-crate workspace; cli tracks tag, core/store/mcp/ingest at 0.13.2
+rhizome = "0.11.3"      # 5-crate workspace, version per crate
+canopy = "0.9.2"
+cortina = "0.7.1"
+stipe = "0.8.11"
+volva = "0.3.2"
+hymenium = "0.9.1"
+annulus = "0.7.2"
+cap = "0.14.0"
+lamella = "0.7.1"
+spore = "0.6.1"
+
+[contracts]
+# Active Septa contract generations mirrored from `septa/`.
+# These are coordination versions for the contract families, not necessarily the
+# literal `schema_version` field encoded in each JSON payload.
+degradation-tier = "1.0"
+code-graph = "1.0"
+command-output = "1.0"
+cortina-lifecycle-event = "1.0"
+evidence-ref = "1.0"
+handoff-context = "1.0"
+hook-execution = "1.0"
+resolved-status-customization = "1.0"
+session-event = "1.0"
+usage-event = "1.0"
+volva-hook-event = "1.0"
+workflow-participant-runtime-identity = "1.0"
+canopy-notification = "1.0"
+canopy-snapshot = "1.0"
+canopy-task-detail = "1.0"
+hyphae-activity = "1.0"
+hyphae-analytics = "1.0"
+hyphae-context = "1.0"
+hyphae-health = "1.0"
+hyphae-lessons = "1.0"
+hyphae-memory-lookup = "1.0"
+hyphae-memoir-inspect = "1.0"
+hyphae-memoir-list = "1.0"
+hyphae-memoir-search = "1.0"
+hyphae-memoir-search-all = "1.0"
+hyphae-memoir-show = "1.0"
+hyphae-search = "1.0"
+hyphae-session-list = "1.0"
+hyphae-session-timeline = "1.0"
+hyphae-sources = "1.0"
+hyphae-stats = "1.0"
+hyphae-topic-memories = "1.0"
+hyphae-topics = "1.0"
+mycelium-gain = "1.0"
+stipe-doctor = "1.0"
+stipe-init-plan = "1.0"
+workflow-template = "1.1"
+dispatch-request = "1.0"
+workflow-status = "1.0"
+annulus-statusline = "1.0"
+hyphae-archive = "1.0"
+mycelium-summary = "1.0"
+tool-relevance-rules = "1.0"
+tool-usage-event = "1.0"
+context-envelope = "1.0"
+cortina-audit-handoff = "1.0"
+credential = "1.0"
+dependency-types = "1.0"
+host-identifier = "1.0"
+task-output = "1.0"
+task-packet = "1.0"
+workflow-outcome = "1.0"
+capability-registry = "1.0"
+capability-runtime-lease = "1.0"
+agent-heartbeat = "1.0"
+handoff-graph = "1.0"
+provider-model-cost = "1.0"
+session-envelope = "1.0"
+hymenium-workflow = "1.0"

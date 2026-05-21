@@ -6,9 +6,19 @@ const SKIP: &[&str] = &["spore"];
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let toml_path = manifest_dir.join("../ecosystem-versions.toml");
+
+    // Prefer a repo-local copy (used in CI and standalone builds) over the
+    // monorepo sibling path (used in local development). Both are watched so
+    // whichever is present triggers a rebuild when changed.
+    let local = manifest_dir.join("ecosystem-versions.toml");
+    let sibling = manifest_dir.join("../ecosystem-versions.toml");
+    let toml_path = if local.exists() { local } else { sibling };
 
     println!("cargo:rerun-if-changed={}", toml_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("ecosystem-versions.toml").display()
+    );
 
     let content = fs::read_to_string(&toml_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", toml_path.display()));
