@@ -1227,8 +1227,10 @@ mod tests {
             msg_override.is_some(),
             "newer version should have override message"
         );
-        assert!(msg_override
-            .as_deref()
-            .is_some_and(|msg| msg.contains("ahead of pin")));
+        assert!(
+            msg_override
+                .as_deref()
+                .is_some_and(|msg| msg.contains("ahead of pin"))
+        );
     }
 }
