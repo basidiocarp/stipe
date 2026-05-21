@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::bin_paths;
+use super::claude_hooks;
 use super::host_policy;
 use super::tool_registry;
 use crate::verify;
@@ -110,8 +111,7 @@ fn print_preview(targets: &[UninstallTarget], all: bool) {
 /// Remove stipe-owned hook entries from a Claude Code settings.json so that
 /// cortina / annulus commands are not invoked after the binaries are gone.
 ///
-/// Entries are identified by well-known subcommand patterns; absolute-path
-/// forms are handled by the `contains` checks on the command string.
+/// Uses the `_tag: "stipe-managed"` marker to identify stipe-owned entries.
 fn remove_stipe_hooks_from_settings(settings_path: &Path) -> Result<()> {
     if !settings_path.exists() {
         return Ok(());
@@ -127,66 +127,15 @@ fn remove_stipe_hooks_from_settings(settings_path: &Path) -> Result<()> {
     let mut root: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| anyhow!("parsing {}: {e}", settings_path.display()))?;
 
-    let stipe_subcommands = [
-        "adapter claude-code pre-tool-use",
-        "adapter claude-code post-tool-use",
-        "adapter claude-code stop",
-        "adapter claude-code pre-compact",
-        "adapter claude-code user-prompt-submit",
-    ];
+    // Check if any changes will be made before we do them
+    let hooks_before = root.get("hooks").cloned();
+    let statusline_before = root.get("statusLine").cloned();
 
-    let stipe_statusline_markers = ["cortina statusline", "annulus statusline"];
-
-    let mut changed = false;
-
-    // Remove hook entries whose command contains a stipe-owned subcommand.
-    if let Some(hooks) = root
-        .get_mut("hooks")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        for event_entries in hooks.values_mut() {
-            let Some(entries) = event_entries.as_array_mut() else {
-                continue;
-            };
-
-            for entry in entries.iter_mut() {
-                let Some(inner_hooks) = entry
-                    .get_mut("hooks")
-                    .and_then(serde_json::Value::as_array_mut)
-                else {
-                    continue;
-                };
-
-                let before = inner_hooks.len();
-                inner_hooks.retain(|hook| {
-                    let cmd = hook
-                        .get("command")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("");
-                    !stipe_subcommands
-                        .iter()
-                        .any(|pattern| cmd.contains(pattern))
-                });
-                if inner_hooks.len() != before {
-                    changed = true;
-                }
-            }
-
-            // Drop event entries whose inner hook list is now empty.
-            let before = entries.len();
-            entries.retain(|entry| {
-                entry
-                    .get("hooks")
-                    .and_then(serde_json::Value::as_array)
-                    .is_none_or(|h| !h.is_empty())
-            });
-            if entries.len() != before {
-                changed = true;
-            }
-        }
-    }
+    // Remove stipe-managed hook entries
+    claude_hooks::remove_stipe_managed_hooks(&mut root);
 
     // Remove the statusLine field if it references cortina or annulus.
+    let stipe_statusline_markers = ["cortina statusline", "annulus statusline"];
     if let Some(status_line) = root.get("statusLine") {
         let cmd = status_line
             .get("command")
@@ -199,9 +148,12 @@ fn remove_stipe_hooks_from_settings(settings_path: &Path) -> Result<()> {
             root.as_object_mut()
                 .expect("root must be an object")
                 .remove("statusLine");
-            changed = true;
         }
     }
+
+    // Check if anything actually changed
+    let changed = hooks_before != root.get("hooks").cloned()
+        || statusline_before != root.get("statusLine").cloned();
 
     if changed {
         let serialized =

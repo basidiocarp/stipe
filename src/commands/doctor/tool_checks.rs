@@ -23,17 +23,56 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 // Version drift detection
 // ---------------------------------------------------------------------------
 
+/// Parse a semantic version string into (major, minor, patch).
+/// Handles leading 'v', pre-release suffixes (e.g., "1.2.3-alpha"), and missing patch.
+/// Returns None if the string cannot be parsed.
+fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
+    let s = s.trim().trim_start_matches('v');
+    // Strip pre-release suffix (everything after the first dash)
+    let s = s.split('-').next().unwrap_or(s);
+    let mut parts = s.splitn(3, '.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    Some((major, minor, patch))
+}
+
 /// Check if an installed version is behind the pinned version.
-/// Returns (`is_behind`, `pinned_version`) or (false, None) if tool not in pins.
-fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String>) {
+/// Returns (`is_behind`, `pinned_version`, `message_override`) where:
+/// - `is_behind` = true only when installed < pinned (semver comparison)
+/// - `pinned_version` = the pinned version string or None if tool not in pins
+/// - `message_override` = Some(msg) if the version is ahead of pin (newer install),
+///   otherwise None (use default message)
+fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String>, Option<String>) {
     let pins = version_pins::pinned_ecosystem_versions();
     match pins.get(tool_name) {
         Some(&pinned) => {
+            // Try semver comparison first.
+            if let (Some(inst_semver), Some(pin_semver)) =
+                (parse_semver(installed), parse_semver(pinned))
+            {
+                let is_behind = inst_semver < pin_semver;
+                let message_override = if inst_semver > pin_semver {
+                    Some(format!(
+                        "v{} installed (ahead of pin v{}; no action needed)",
+                        installed, pinned
+                    ))
+                } else {
+                    None
+                };
+                return (is_behind, Some(pinned.to_string()), message_override);
+            }
+
+            // Fall back to string comparison if semver parsing fails.
             let installed_norm = normalize_version(installed);
             let pinned_norm = normalize_version(pinned);
-            (installed_norm != pinned_norm, Some(pinned.to_string()))
+            (
+                installed_norm != pinned_norm,
+                Some(pinned.to_string()),
+                None,
+            )
         }
-        None => (false, None),
+        None => (false, None, None),
     }
 }
 
@@ -249,8 +288,11 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
             }
 
             // Check for version drift.
-            let (is_behind, pinned) = check_version_drift(spec.name, &version);
-            let (message, repair_actions) = if is_behind {
+            let (is_behind, pinned, msg_override) = check_version_drift(spec.name, &version);
+            let (message, repair_actions) = if let Some(msg) = msg_override {
+                // Version is ahead of pin.
+                (msg, Vec::new())
+            } else if is_behind {
                 let pinned_str = pinned.as_deref().unwrap_or("unknown");
                 let update_action = RepairAction::manual(
                     format!("update_{}", spec.name),
@@ -322,8 +364,11 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
             }
 
             // Check for version drift.
-            let (is_behind, pinned) = check_version_drift(spec.name, &version);
-            let (message, repair_actions) = if is_behind {
+            let (is_behind, pinned, msg_override) = check_version_drift(spec.name, &version);
+            let (message, repair_actions) = if let Some(msg) = msg_override {
+                // Version is ahead of pin.
+                (msg, Vec::new())
+            } else if is_behind {
                 let pinned_str = pinned.as_deref().unwrap_or("unknown");
                 let update_action = RepairAction::manual(
                     format!("update_{}", spec.name),
@@ -537,6 +582,8 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
     };
 
     // New canonical path under the shared basidiocarp root.
+    // MUST stay in sync with hyphae's actual DB path. If hyphae changes its default,
+    // update the paths here and in check_shared_storage_root.
     let new_path = data_dir
         .join("basidiocarp")
         .join("hyphae")
@@ -583,7 +630,17 @@ pub(super) fn check_shared_storage_root() -> HealthCheck {
     let parts: Vec<String> = tools
         .iter()
         .map(|(name, db_file)| {
-            let status = if root.join(name).join(db_file).exists() {
+            // For hyphae, check both the new canonical path and the legacy path.
+            // During migration, the DB may exist in either location.
+            let status = if *name == "hyphae" {
+                let new_path = root.join(name).join(db_file);
+                let legacy_path = data_dir.join("hyphae").join("hyphae.db");
+                if new_path.exists() || legacy_path.exists() {
+                    "✓"
+                } else {
+                    "—"
+                }
+            } else if root.join(name).join(db_file).exists() {
                 "✓"
             } else {
                 "—"
@@ -1105,7 +1162,7 @@ mod tests {
 
     #[test]
     fn check_version_drift_detects_stale_binary() {
-        let (is_behind, pinned) = check_version_drift("hyphae", "0.11.0");
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.11.0");
         assert!(
             is_behind,
             "older version should be reported as behind the pin"
@@ -1115,21 +1172,29 @@ mod tests {
             Some("0.15.2"),
             "pinned version should be returned"
         );
+        assert!(
+            msg_override.is_none(),
+            "should not have message override for behind"
+        );
     }
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned) = check_version_drift("hyphae", "0.15.2");
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.15.2");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
         assert_eq!(pinned.as_deref(), Some("0.15.2"));
+        assert!(
+            msg_override.is_none(),
+            "should not have message override for matching"
+        );
     }
 
     #[test]
     fn check_version_drift_unknown_tool_never_reports_behind() {
-        let (is_behind, pinned) = check_version_drift("not-a-real-tool", "9.9.9");
+        let (is_behind, pinned, msg_override) = check_version_drift("not-a-real-tool", "9.9.9");
         assert!(
             !is_behind,
             "unknown tool should never be reported as behind"
@@ -1138,14 +1203,35 @@ mod tests {
             pinned.is_none(),
             "unknown tool should return no pinned version"
         );
+        assert!(
+            msg_override.is_none(),
+            "unknown tool should not have override"
+        );
     }
 
     #[test]
     fn check_version_drift_covers_hymenium_and_canopy() {
         // Verify the two tools most relevant to dogfood freshness are in the pin table.
-        let (_, hymenium_pin) = check_version_drift("hymenium", "0.0.0");
-        let (_, canopy_pin) = check_version_drift("canopy", "0.0.0");
+        let (_, hymenium_pin, _) = check_version_drift("hymenium", "0.0.0");
+        let (_, canopy_pin, _) = check_version_drift("canopy", "0.0.0");
         assert!(hymenium_pin.is_some(), "hymenium must have a version pin");
         assert!(canopy_pin.is_some(), "canopy must have a version pin");
+    }
+
+    #[test]
+    fn check_version_drift_detects_newer_binary() {
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.16.0");
+        assert!(!is_behind, "newer version should not be reported as behind");
+        assert_eq!(pinned.as_deref(), Some("0.15.2"));
+        assert!(
+            msg_override.is_some(),
+            "newer version should have override message"
+        );
+        assert!(
+            msg_override
+                .as_deref()
+                .map(|msg| msg.contains("ahead of pin"))
+                .unwrap_or(false)
+        );
     }
 }

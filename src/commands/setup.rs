@@ -37,7 +37,18 @@ pub fn run(opts: &SetupOptions) -> Result<()> {
         repair: false,
         interactive: opts.interactive,
     };
-    init::run(&init_opts)?;
+    if let Err(init_err) = init::run(&init_opts) {
+        eprintln!(
+            "  {} Install succeeded but host initialization failed: {init_err}",
+            "!".red()
+        );
+        eprintln!(
+            "  {} Binaries are installed. Re-run {} to complete host wiring.",
+            "→".yellow(),
+            "`stipe init`".bold()
+        );
+        return Err(init_err);
+    }
 
     if !opts.dry_run {
         println!();

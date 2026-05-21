@@ -219,54 +219,6 @@ fn hook_entry_present(root: &serde_json::Value, spec: HookSpec, command: &str) -
     })
 }
 
-fn upgrade_hook_entry_if_bare(root: &mut serde_json::Value, spec: HookSpec, command: &str) -> bool {
-    let Some(entries) = root
-        .get_mut("hooks")
-        .and_then(|hooks| hooks.get_mut(spec.event))
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return false;
-    };
-
-    for entry in entries.iter_mut() {
-        let matcher_matches = spec.matcher.is_none_or(|matcher| {
-            entry.get("matcher").and_then(serde_json::Value::as_str) == Some(matcher)
-        });
-        if !matcher_matches {
-            continue;
-        }
-
-        if let Some(hooks) = entry
-            .get_mut("hooks")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for hook in hooks.iter_mut() {
-                let existing = hook
-                    .get("command")
-                    .and_then(serde_json::Value::as_str)
-                    .map(std::string::ToString::to_string);
-
-                if let Some(existing_cmd) = existing {
-                    if command_matches(&existing_cmd, command) && existing_cmd != command {
-                        // Upgrade: existing command matches semantically but differs textually.
-                        // This typically means it's a bare name (e.g., "cortina adapter...")
-                        // while the new command is absolute path form. Replace it.
-                        if let Some(cmd_obj) = hook.as_object_mut() {
-                            cmd_obj.insert(
-                                "command".to_string(),
-                                serde_json::Value::String(command.to_owned()),
-                            );
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    false
-}
-
 fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str) -> Result<()> {
     let root_obj = if let Some(obj) = root.as_object_mut() {
         obj
@@ -297,6 +249,10 @@ fn insert_hook_entry(root: &mut serde_json::Value, spec: HookSpec, command: &str
         })?;
 
     let mut entry = serde_json::Map::new();
+    entry.insert(
+        "_tag".to_string(),
+        serde_json::Value::String("stipe-managed".to_string()),
+    );
     if let Some(matcher) = spec.matcher {
         entry.insert(
             "matcher".to_string(),
@@ -338,6 +294,60 @@ fn annulus_statusline_configured(root: &serde_json::Value) -> bool {
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|existing| command_matches(existing, ANNULUS_STATUSLINE_COMMAND))
     })
+}
+
+/// Remove all hook entries tagged with `_tag: "stipe-managed"` from a settings JSON root.
+/// Also removes legacy stipe-owned entries that lack the tag (for backward compatibility).
+/// Operator-written hooks without the tag are preserved.
+pub(crate) fn remove_stipe_managed_hooks(root: &mut serde_json::Value) {
+    // Stipe-owned subcommands that identify legacy entries for removal
+    let stipe_subcommands = [
+        "adapter claude-code pre-tool-use",
+        "adapter claude-code post-tool-use",
+        "adapter claude-code stop",
+        "adapter claude-code session-end",
+        "adapter claude-code pre-compact",
+        "adapter claude-code user-prompt-submit",
+    ];
+
+    let Some(hooks) = root.pointer_mut("/hooks") else {
+        return;
+    };
+    let Some(hooks_obj) = hooks.as_object_mut() else {
+        return;
+    };
+
+    for event_arr in hooks_obj.values_mut() {
+        if let Some(arr) = event_arr.as_array_mut() {
+            arr.retain(|entry| {
+                // Remove if tagged as stipe-managed
+                if entry.get("_tag").and_then(|v| v.as_str()) == Some("stipe-managed") {
+                    return false;
+                }
+
+                // Remove if it's a legacy stipe entry (no tag, but contains stipe subcommand)
+                if let Some(inner_hooks) = entry.get("hooks").and_then(serde_json::Value::as_array)
+                {
+                    if inner_hooks.iter().any(|hook| {
+                        let cmd = hook
+                            .get("command")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        stipe_subcommands
+                            .iter()
+                            .any(|pattern| cmd.contains(pattern))
+                    }) {
+                        return false;
+                    }
+                }
+
+                true
+            });
+        }
+    }
+
+    // Remove empty event arrays
+    hooks_obj.retain(|_, v| v.as_array().is_some_and(|a| !a.is_empty()));
 }
 
 fn install_statusline(root: &mut serde_json::Value, command: &str) -> Result<()> {
@@ -385,20 +395,20 @@ fn write_settings(settings_path: &Path, root: &serde_json::Value) -> Result<()> 
 
 fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
     let mut root = load_or_create_settings(settings_path)?;
-    let mut changed = false;
 
+    // Snapshot hooks before modification to accurately detect real changes.
+    let hooks_before = root.get("hooks").cloned();
+
+    // Strip all stipe-managed hooks, then re-insert fresh. This is idempotent:
+    // a hooks section that already contains the correct tagged entries will
+    // be stripped and re-written identically, resulting in changed = false.
+    remove_stipe_managed_hooks(&mut root);
     for spec in CLAUDE_HOOK_SPECS {
         let command = hook_command(spec);
-
-        // First, check if we need to upgrade a bare-name entry to absolute path form.
-        if upgrade_hook_entry_if_bare(&mut root, spec, &command) {
-            changed = true;
-        } else if !hook_entry_present(&root, spec, &command) {
-            // Entry not present and upgrade not needed; insert it.
-            insert_hook_entry(&mut root, spec, &command)?;
-            changed = true;
-        }
+        insert_hook_entry(&mut root, spec, &command)?;
     }
+
+    let mut changed = hooks_before != root.get("hooks").cloned();
 
     let mut wrote_annulus = false;
     if !statusline_configured(&root) {
@@ -889,15 +899,15 @@ mod tests {
     }
 
     #[test]
-    fn test_upgrade_bare_hook_entry_to_absolute_path() {
+    fn test_bare_hook_entry_stripped_and_reinserted_as_absolute_path() {
         // Only testable when cortina is installed at an absolute path; without it
-        // resolve_binary_path returns the bare name and no upgrade can occur.
+        // resolve_binary_path returns the bare name.
         if which::which("cortina").is_err() {
             return;
         }
 
         let settings_path = test_settings_path("hooks-upgrade");
-        // Create a settings file with a bare-name hook entry (legacy format).
+        // Create a settings file with a bare-name hook entry (legacy format, no _tag).
         fs::write(
             &settings_path,
             json!({
@@ -917,7 +927,7 @@ mod tests {
         )
         .unwrap();
 
-        // Run install which should detect the bare entry and upgrade it to absolute path.
+        // Install strips the legacy bare-name entry and re-inserts with absolute path + _tag.
         install_claude_hooks_at_path(&settings_path).unwrap();
 
         // Verify the entry was upgraded to absolute path (not duplicated).
