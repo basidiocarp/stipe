@@ -209,6 +209,13 @@ enum Commands {
         interactive: bool,
     },
 
+    /// Apply project-local stipe.toml to .claude/settings.json
+    Sync {
+        /// Write a commented stipe.toml template to the project root
+        #[arg(long)]
+        scaffold: bool,
+    },
+
     /// Show ecosystem status
     Status,
 
@@ -327,6 +334,7 @@ fn main() -> Result<()> {
             };
             commands::setup::run(&opts)
         }
+        Commands::Sync { scaffold } => commands::sync::run(scaffold),
         Commands::Status => commands::status::run(),
         Commands::Rollback { args } => commands::rollback::run(&args),
         Commands::Backup { command } => match command {
@@ -360,6 +368,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Uninstall { .. } => "uninstall",
         Commands::Provider { .. } => "provider",
         Commands::Setup { .. } => "setup",
+        Commands::Sync { .. } => "sync",
         Commands::Status => "status",
         Commands::Rollback { .. } => "rollback",
         Commands::Backup { .. } => "backup",

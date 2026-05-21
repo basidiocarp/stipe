@@ -20,6 +20,7 @@ pub mod runtime_policy;
 pub mod self_update;
 pub mod setup;
 pub mod status;
+pub mod sync;
 pub mod tool_registry;
 pub mod uninstall;
 pub mod update;

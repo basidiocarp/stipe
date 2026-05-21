@@ -1006,6 +1006,28 @@ pub(super) fn check_hook_command_runnability() -> Option<HealthCheck> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// stipe.toml sync check
+// ---------------------------------------------------------------------------
+
+/// Check whether `stipe.toml` and the installed `.claude/settings.json` are in
+/// sync. Returns `None` when no `stipe.toml` exists (nothing to check).
+pub(super) fn check_stipe_toml_sync() -> Option<HealthCheck> {
+    let warning = crate::commands::sync::check_sync_state()?;
+    Some(HealthCheck {
+        name: "stipe.toml sync".to_string(),
+        passed: false,
+        message: warning,
+        repair_actions: vec![RepairAction::stipe(
+            "sync-toml",
+            "Sync stipe.toml",
+            "Apply stipe.toml to .claude/settings.json.",
+            &["sync"],
+            RepairTier::Primary,
+        )],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

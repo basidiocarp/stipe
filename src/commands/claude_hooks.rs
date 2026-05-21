@@ -370,7 +370,7 @@ fn install_statusline(root: &mut serde_json::Value, command: &str) -> Result<()>
     Ok(())
 }
 
-fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
+pub(crate) fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
     if settings_path.exists() {
         let content = fs::read_to_string(settings_path)
             .with_context(|| format!("reading {}", settings_path.display()))?;
@@ -385,7 +385,7 @@ fn load_or_create_settings(settings_path: &Path) -> Result<serde_json::Value> {
     }
 }
 
-fn write_settings(settings_path: &Path, root: &serde_json::Value) -> Result<()> {
+pub(crate) fn write_settings(settings_path: &Path, root: &serde_json::Value) -> Result<()> {
     let content = serde_json::to_string_pretty(root).context("serializing hook settings")?;
     // atomic_write_bytes creates parent directories and renames into place,
     // preventing corruption if the process is interrupted mid-write.
@@ -814,6 +814,151 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
     }
 
     snapshots
+}
+
+// ---------------------------------------------------------------------------
+// TOML-driven sync helpers (used by `stipe sync`)
+// ---------------------------------------------------------------------------
+
+/// A hook entry sourced from `stipe.toml` — the caller converts TOML fields
+/// to this struct before calling `sync_toml_hooks` or `toml_sync_diverged`.
+pub(crate) struct TomlHookEntry {
+    pub event: String,
+    pub matcher: Option<String>,
+    pub command: String,
+    /// Timeout in seconds; derived from stipe.toml's `timeout_ms / 1000`.
+    pub timeout_secs: u64,
+}
+
+/// Write a single raw hook entry tagged `"stipe-managed"` into the settings JSON root.
+fn insert_raw_hook_entry(
+    root: &mut serde_json::Value,
+    event: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout_secs: u64,
+) -> Result<()> {
+    let root_obj = root
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("settings root is not a JSON object"))?;
+
+    let hooks = root_obj
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("settings.hooks is not a JSON object"))?;
+
+    let event_hooks = hooks
+        .entry(event)
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("settings.hooks.{event} is not a JSON array"))?;
+
+    let mut entry = serde_json::Map::new();
+    entry.insert(
+        "_tag".to_string(),
+        serde_json::Value::String("stipe-managed".to_string()),
+    );
+    if let Some(m) = matcher {
+        entry.insert(
+            "matcher".to_string(),
+            serde_json::Value::String(m.to_string()),
+        );
+    }
+    entry.insert(
+        "hooks".to_string(),
+        json!([{
+            "type": "command",
+            "command": command,
+            "timeout": timeout_secs,
+            "statusMessage": "",
+        }]),
+    );
+
+    event_hooks.push(serde_json::Value::Object(entry));
+    Ok(())
+}
+
+/// Strip stipe-managed hooks, re-insert from `hooks`, write permissions/network.
+/// Returns `true` if settings were changed and written.
+pub(crate) fn sync_toml_hooks(
+    settings_path: &Path,
+    hooks: &[TomlHookEntry],
+    allow_tools: &[String],
+    denied_domains: &[String],
+) -> Result<bool> {
+    let mut root = load_or_create_settings(settings_path)?;
+    let before = root.clone();
+
+    remove_stipe_managed_hooks(&mut root);
+    for entry in hooks {
+        insert_raw_hook_entry(
+            &mut root,
+            &entry.event,
+            entry.matcher.as_deref(),
+            &entry.command,
+            entry.timeout_secs,
+        )?;
+    }
+
+    apply_toml_permissions_network(&mut root, allow_tools, denied_domains)?;
+
+    if root == before {
+        return Ok(false);
+    }
+    write_settings(settings_path, &root)?;
+    Ok(true)
+}
+
+/// Write or clear `permissions.allow` and `network.denyDomains` based on stipe.toml state.
+///
+/// When non-empty: sets the key. When empty: removes the key so that a previously-written
+/// value does not linger after the user removes it from stipe.toml.
+fn apply_toml_permissions_network(
+    root: &mut serde_json::Value,
+    allow_tools: &[String],
+    denied_domains: &[String],
+) -> Result<()> {
+    if !allow_tools.is_empty() {
+        root["permissions"]["allow"] =
+            serde_json::to_value(allow_tools).context("serializing allow_tools")?;
+    } else if let Some(perms) = root.get_mut("permissions").and_then(|p| p.as_object_mut()) {
+        perms.remove("allow");
+    }
+
+    if !denied_domains.is_empty() {
+        root["network"]["denyDomains"] =
+            serde_json::to_value(denied_domains).context("serializing denied_domains")?;
+    } else if let Some(net) = root.get_mut("network").and_then(|n| n.as_object_mut()) {
+        net.remove("denyDomains");
+    }
+
+    Ok(())
+}
+
+/// Returns `true` if the full sync state in `settings_path` differs from what
+/// `sync_toml_hooks` would produce from the given inputs.
+/// Returns `false` (in sync) when the file does not exist yet.
+pub(crate) fn toml_sync_diverged(
+    settings_path: &Path,
+    hooks: &[TomlHookEntry],
+    allow_tools: &[String],
+    denied_domains: &[String],
+) -> Result<bool> {
+    let current = load_or_create_settings(settings_path)?;
+    let mut expected = current.clone();
+    remove_stipe_managed_hooks(&mut expected);
+    for entry in hooks {
+        insert_raw_hook_entry(
+            &mut expected,
+            &entry.event,
+            entry.matcher.as_deref(),
+            &entry.command,
+            entry.timeout_secs,
+        )?;
+    }
+    apply_toml_permissions_network(&mut expected, allow_tools, denied_domains)?;
+    Ok(current != expected)
 }
 
 #[cfg(test)]
