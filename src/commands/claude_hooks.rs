@@ -8,6 +8,7 @@ use std::process::Command;
 
 use super::host_policy::{self, HostConfigScope, HostMode};
 use crate::commands::tool_registry::{self, ToolProbe};
+use dirs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HookEntrySnapshot {
@@ -118,6 +119,14 @@ fn configured_paths() -> Vec<PathBuf> {
 fn resolve_binary_path(binary_name: &str) -> String {
     tool_registry::find(binary_name)
         .and_then(tool_registry::resolve_binary_path)
+        .or_else(|| {
+            // Explicit fallback for the canonical stipe install location.
+            // which::which misses this when ~/.local/bin is absent from PATH
+            // (GUI launches, subprocess invocations).
+            dirs::home_dir()
+                .map(|home| home.join(".local/bin").join(binary_name))
+                .filter(|p| p.exists())
+        })
         .map_or_else(
             || {
                 eprintln!(

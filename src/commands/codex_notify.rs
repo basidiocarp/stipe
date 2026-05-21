@@ -136,8 +136,17 @@ pub fn install_codex_notify(scope: HostConfigScope, verbose: u8) -> Result<bool>
         Some(_) | None => Vec::new(),
     };
 
-    let required = required_notify_values();
     let mut changed = false;
+
+    // Prune legacy phantom "codex-notify" entries written by older stipe versions.
+    // This bare name was never a real binary and causes doctor failures.
+    let before_len = notify.len();
+    notify.retain(|entry| entry.as_str() != Some("codex-notify"));
+    if notify.len() != before_len {
+        changed = true;
+    }
+
+    let required = required_notify_values();
     for value in required {
         if !notify_value_present(&notify, &value) {
             notify.push(toml::Value::String(value));
