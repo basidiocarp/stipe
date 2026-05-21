@@ -234,8 +234,8 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    #[cfg(unix)]
     fn check_hook_binary_absolute_path_exists() {
-        // Use /usr/bin/env which exists on Unix systems.
         let result = check_hook_binary("/usr/bin/env echo hello");
         assert_eq!(result, None, "Should pass for existing absolute path");
     }
@@ -280,6 +280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn check_codex_notify_entries_good_absolute_path() {
         let tmpdir = TempDir::new().unwrap();
         let config_path = tmpdir.path().join("config.toml");
