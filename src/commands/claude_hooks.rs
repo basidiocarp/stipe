@@ -748,15 +748,42 @@ pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
 
     // Run the validator if found
     if let Some(validator_path) = validator_script {
-        // Validate the script path is within home directory before execution
-        let Some(safe_prefix) = dirs::home_dir() else {
+        // Tighter prefix: prefer lamella content root over broad home dir
+        let safe_prefix = std::env::var("LAMELLA_CONTENT_ROOT")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| std::env::var("LAMELLA_HOME").ok().map(PathBuf::from))
+            .or_else(|| {
+                // Try known install locations
+                let candidates = [
+                    "~/.lamella",
+                    "~/.local/share/lamella",
+                    "~/.config/lamella",
+                ];
+                for candidate in &candidates {
+                    let path = if let Some(stripped) = candidate.strip_prefix("~/") {
+                        dirs::home_dir()?.join(stripped)
+                    } else {
+                        PathBuf::from(candidate)
+                    };
+                    if path.exists() {
+                        return Some(path);
+                    }
+                }
+                None
+            })
+; // if no tighter prefix resolves, refuse to run the validator
+
+        let Some(safe_prefix) = safe_prefix else {
             return snapshots;
         };
 
-        // Try to canonicalize; if that fails, compare the path components directly
+        // Canonicalize both sides so symlinks don't bypass the prefix guard.
+        let canonical_prefix =
+            std::fs::canonicalize(&safe_prefix).unwrap_or(safe_prefix);
         let canonical =
             std::fs::canonicalize(&validator_path).unwrap_or_else(|_| validator_path.clone());
-        if !canonical.starts_with(&safe_prefix) {
+        if !canonical.starts_with(&canonical_prefix) {
             return snapshots;
         }
 
