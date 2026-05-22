@@ -3,6 +3,7 @@ use colored::Colorize;
 use serde::Deserialize;
 use spore::atomic_write_bytes;
 use std::path::Path;
+use tracing::warn;
 
 use super::claude_hooks::{self, TomlHookEntry};
 use super::host_policy::{self, HostConfigScope};
@@ -127,14 +128,56 @@ fn validate(config: &StipeToml) -> Result<()> {
     Ok(())
 }
 
+/// Validates a hook command string for shell injection risks.
+///
+/// Claude Code executes hook commands via a shell (`/bin/sh -c <command>` on
+/// Unix), so shell metacharacters in the command string are a real injection
+/// surface. This function rejects commands containing characters that enable
+/// command chaining, subshell execution, or directory traversal.
+///
+/// Returns `true` if the command is safe to install, `false` if it should be skipped.
+fn validate_hook_command(event: &str, command: &str) -> bool {
+    let dangerous_patterns = [";", "&&", "||", "|", "`", "$", "\n", "\r"];
+
+    for pattern in &dangerous_patterns {
+        if command.contains(pattern) {
+            eprintln!("warning: skipping hook for '{}': command rejected — contains shell injection characters: {}", event, command);
+            warn!(
+                "hook for event {}: rejected command containing dangerous pattern {:?}: {}",
+                event, pattern, command
+            );
+            return false;
+        }
+    }
+
+    // Reject relative paths: commands starting with ./ or ../
+    let trimmed = command.trim();
+    if trimmed.starts_with("./") || trimmed.starts_with("../") {
+        eprintln!("warning: skipping hook for '{}': command rejected — relative paths not allowed: {}", event, command);
+        warn!(
+            "hook for event {}: rejected command with relative path: {}",
+            event, command
+        );
+        return false;
+    }
+
+    true
+}
+
 fn to_hook_entries(hooks: &[HookEntry]) -> Vec<TomlHookEntry> {
     hooks
         .iter()
-        .map(|h| TomlHookEntry {
-            event: h.event.clone(),
-            matcher: h.matcher.clone(),
-            command: h.command.clone(),
-            timeout_secs: h.timeout_ms.unwrap_or(5000) / 1000,
+        .filter_map(|h| {
+            if validate_hook_command(&h.event, &h.command) {
+                Some(TomlHookEntry {
+                    event: h.event.clone(),
+                    matcher: h.matcher.clone(),
+                    command: h.command.clone(),
+                    timeout_secs: h.timeout_ms.unwrap_or(5000) / 1000,
+                })
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -397,5 +440,100 @@ timeout_ms = 3000
         host_policy::with_project_root_override(std::env::temp_dir(), || {
             assert!(check_sync_state().is_none());
         });
+    }
+
+    #[test]
+    fn test_validate_hook_command_accepts_absolute_paths() {
+        assert!(validate_hook_command("PreToolUse", "/usr/bin/true"));
+        assert!(validate_hook_command("PreToolUse", "/usr/local/bin/cortina"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_semicolon() {
+        assert!(!validate_hook_command("PreToolUse", "echo hello; rm -rf /"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_and() {
+        assert!(!validate_hook_command("PreToolUse", "cmd1 && cmd2"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_or() {
+        assert!(!validate_hook_command("PreToolUse", "cmd1 || cmd2"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_pipe() {
+        assert!(!validate_hook_command("PreToolUse", "cmd1 | cmd2"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_backtick() {
+        assert!(!validate_hook_command("PreToolUse", "`echo hello`"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_dollar_var() {
+        assert!(!validate_hook_command("PreToolUse", "$HOME/.local/bin"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_dollar_paren() {
+        assert!(!validate_hook_command("PreToolUse", "$(rm -rf /)"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_dollar_brace() {
+        assert!(!validate_hook_command("PreToolUse", "${HOME}/.local/bin"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_newline() {
+        assert!(!validate_hook_command("PreToolUse", "echo hello\nrm -rf /"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_carriage_return() {
+        assert!(!validate_hook_command("PreToolUse", "echo hello\rrm -rf /"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_relative_path_dot_slash() {
+        assert!(!validate_hook_command("PreToolUse", "./cortina"));
+    }
+
+    #[test]
+    fn test_validate_hook_command_rejects_relative_path_dot_dot_slash() {
+        assert!(!validate_hook_command("PreToolUse", "../bin/cortina"));
+    }
+
+    #[test]
+    fn test_to_hook_entries_filters_invalid_commands() {
+        let hooks = vec![
+            HookEntry {
+                event: "PreToolUse".to_string(),
+                matcher: Some("Bash".to_string()),
+                command: "/usr/bin/true".to_string(),
+                timeout_ms: Some(3000),
+            },
+            HookEntry {
+                event: "PostToolUse".to_string(),
+                matcher: None,
+                command: "evil; rm -rf /".to_string(),
+                timeout_ms: None,
+            },
+            HookEntry {
+                event: "Stop".to_string(),
+                matcher: None,
+                command: "/bin/false".to_string(),
+                timeout_ms: Some(5000),
+            },
+        ];
+
+        let entries = to_hook_entries(&hooks);
+        assert_eq!(entries.len(), 2, "should filter out the malicious command");
+        assert_eq!(entries[0].command, "/usr/bin/true");
+        assert_eq!(entries[1].command, "/bin/false");
     }
 }
