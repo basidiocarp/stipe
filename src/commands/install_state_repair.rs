@@ -1,5 +1,8 @@
 use anyhow::Result;
+use std::path::PathBuf;
 
+use crate::commands::github;
+use crate::commands::install;
 use crate::install_state;
 use crate::install_state::{ItemStatus, check_item_status};
 
@@ -60,13 +63,7 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
                     );
                     preview_count += 1;
                 } else {
-                    // Re-install logic is not yet implemented; report honestly rather
-                    // than claiming work was done when nothing happened.
-                    println!(
-                        "MISSING `{}`: repair not yet implemented (use --dry-run to preview)",
-                        item.id
-                    );
-                    unhandled_count += 1;
+                    repair_missing_item(item, &mut unhandled_count);
                 }
             }
             ItemStatus::Drift => {
@@ -75,12 +72,7 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
                         println!("Would repair [DRIFT] {} (with --force)", item.id);
                         preview_count += 1;
                     } else {
-                        // Repair logic is not yet implemented; report honestly.
-                        println!(
-                            "DRIFT `{}`: repair not yet implemented (use --dry-run to preview)",
-                            item.id
-                        );
-                        unhandled_count += 1;
+                        repair_drift_item(item, &mut unhandled_count);
                     }
                 } else {
                     println!("Skipping [DRIFT] {} (use --force to repair)", item.id);
@@ -109,6 +101,88 @@ pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Repair a missing installed item.
+/// For binaries, attempts to reinstall. For other kinds, provides guidance.
+fn repair_missing_item(item: &install_state::InstalledItem, unhandled_count: &mut i32) {
+    if item.kind.as_str() == "binary" {
+        // For binaries, attempt to reinstall by downloading and deploying the binary.
+        if let Some(path) = &item.path {
+            let install_path = PathBuf::from(path);
+            if let Some(bin_dir) = install_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let client = github::github_client();
+                match install::install_tool(&item.id, bin_dir, true, &client) {
+                    Ok(()) => {
+                        println!("Repaired [MISSING] {}", item.id);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to repair {}: {e}", item.id);
+                        *unhandled_count += 1;
+                    }
+                }
+            } else {
+                eprintln!(
+                    "Cannot repair {}: no parent directory in path {}",
+                    item.id,
+                    path
+                );
+                *unhandled_count += 1;
+            }
+        } else {
+            eprintln!("Cannot repair {}: no path recorded", item.id);
+            *unhandled_count += 1;
+        }
+    } else {
+        // For hooks, skills, config: no automated repair available.
+        // Point users to the right command.
+        println!(
+            "UNREPAIRED [MISSING] `{}` (kind={}): run `stipe sync` to re-apply hooks/skills, or `stipe init` for config",
+            item.id, item.kind
+        );
+        *unhandled_count += 1;
+    }
+}
+
+/// Repair a drifted (modified) installed item.
+/// Uses the same logic as `repair_missing_item` since we re-install to restore the known good state.
+fn repair_drift_item(item: &install_state::InstalledItem, unhandled_count: &mut i32) {
+    if item.kind.as_str() == "binary" {
+        // For binaries, reinstall to restore to the known good version.
+        if let Some(path) = &item.path {
+            let install_path = PathBuf::from(path);
+            if let Some(bin_dir) = install_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let client = github::github_client();
+                match install::install_tool(&item.id, bin_dir, true, &client) {
+                    Ok(()) => {
+                        println!("Repaired [DRIFT] {}", item.id);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to repair {}: {e}", item.id);
+                        *unhandled_count += 1;
+                    }
+                }
+            } else {
+                eprintln!(
+                    "Cannot repair {}: no parent directory in path {}",
+                    item.id,
+                    path
+                );
+                *unhandled_count += 1;
+            }
+        } else {
+            eprintln!("Cannot repair {}: no path recorded", item.id);
+            *unhandled_count += 1;
+        }
+    } else {
+        // For hooks, skills, config: no automated repair available.
+        // Point users to the right command.
+        println!(
+            "UNREPAIRED [DRIFT] `{}` (kind={}): run `stipe sync` to re-apply hooks/skills, or `stipe init` for config",
+            item.id, item.kind
+        );
+        *unhandled_count += 1;
+    }
 }
 
 #[cfg(test)]
