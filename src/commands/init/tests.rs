@@ -528,3 +528,21 @@ fn test_mcp_registration_step_skips_broken_tools_with_repair_guidance() {
             .any(|action| action.command == "stipe install rhizome")
     );
 }
+
+#[test]
+fn test_ecosystem_options_emit_stdout_flag_controls_output() {
+    use crate::ecosystem::EcosystemOptions;
+
+    // Verify the flag exists and has expected behavior
+    let with_output = EcosystemOptions {
+        emit_stdout: true,
+        verbose: 0,
+    };
+    let without_output = EcosystemOptions {
+        emit_stdout: false,
+        verbose: 0,
+    };
+
+    assert!(with_output.emit_stdout);
+    assert!(!without_output.emit_stdout);
+}

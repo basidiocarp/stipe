@@ -76,7 +76,7 @@ pub(super) fn execute(
     }
     if options.emit_stdout {
         print_repair_hints(context);
-        println!();
+        eprintln!();
     }
 
     if failures.is_empty() {
@@ -110,7 +110,7 @@ fn verify_registered_mcp_servers(context: &EcosystemContext, emit_stdout: bool) 
         match verify_mcp_handshake(&binary_path, spec) {
             Ok(()) => {
                 if emit_stdout {
-                    println!("  {} {} MCP handshake verified", "✓".green(), tool_name);
+                    eprintln!("  {} {} MCP handshake verified", "✓".green(), tool_name);
                 }
             }
             Err(error) => {
@@ -145,12 +145,12 @@ fn configure_claude_code(
 
     if !super::status::claude_is_available() {
         if options.emit_stdout {
-            println!(
+            eprintln!(
                 "  {} {} not found in PATH — skipping Claude Code configuration.",
                 "!".yellow(),
                 "claude".bold()
             );
-            println!(
+            eprintln!(
                 "    Install Claude Code first, then re-run: {}",
                 if targeted {
                     "stipe host setup claude-code"
@@ -163,8 +163,8 @@ fn configure_claude_code(
     }
 
     if options.emit_stdout {
-        println!("{}", "Configuring Claude Code...".bold());
-        println!();
+        eprintln!("{}", "Configuring Claude Code...".bold());
+        eprintln!();
     }
 
     let mut configured = Vec::new();
@@ -213,10 +213,10 @@ fn configure_claude_code(
     }
 
     if options.emit_stdout && !configured.is_empty() {
-        println!();
-        println!("  {} Configured:", "✓".green());
+        eprintln!();
+        eprintln!("  {} Configured:", "✓".green());
         for item in &configured {
-            println!("    - {item}");
+            eprintln!("    - {item}");
         }
     }
 
@@ -224,10 +224,14 @@ fn configure_claude_code(
         match claude_hooks::install_claude_hooks(scope, options.verbose) {
             Ok(true) => {
                 if options.emit_stdout {
-                    println!("    - Cortina Claude hooks");
+                    eprintln!("    - Cortina Claude hooks");
                 }
             }
-            Ok(false) => eprintln!("  {} Claude hook installation skipped", "!".yellow()),
+            Ok(false) => {
+                if options.emit_stdout {
+                    eprintln!("  {} Claude hook installation skipped", "!".yellow());
+                }
+            }
             Err(err) => failures.push(format!("Cortina hook registration failed: {err}")),
         }
     } else if matches!(context.cortina_probe, ToolProbe::Broken) {
@@ -235,7 +239,7 @@ fn configure_claude_code(
             "cortina is installed but broken — repair it before retrying Claude hook registration. Run: stipe install cortina"
                 .to_string(),
         );
-    } else {
+    } else if options.emit_stdout {
         eprintln!(
             "  {} {} not found in PATH — skipping Claude hook registration.",
             "!".yellow(),
@@ -248,7 +252,7 @@ fn configure_claude_code(
         match claude_hooks::install_annulus_statusline(scope, options.verbose) {
             Ok(true) => {
                 if options.emit_stdout {
-                    println!("    - Annulus statusline");
+                    eprintln!("    - Annulus statusline");
                 }
             }
             Ok(false) => { /* already configured */ }
@@ -284,12 +288,12 @@ fn configure_codex_host(
             options,
         )?;
     } else if options.emit_stdout {
-        println!(
+        eprintln!(
             "  {} {} not found in PATH — skipping Codex host mode configuration.",
             "!".yellow(),
             "codex".bold()
         );
-        println!("    Install Codex first, then re-run: stipe host setup codex");
+        eprintln!("    Install Codex first, then re-run: stipe host setup codex");
     }
 
     Ok(())
@@ -360,13 +364,13 @@ fn print_repair_hints(context: &EcosystemContext) {
     }
 
     if !missing.is_empty() {
-        println!();
-        println!("{}", "Missing tools:".bold());
+        eprintln!();
+        eprintln!("{}", "Missing tools:".bold());
         for (name, cmd) in &missing {
-            println!("  {:<10}{} {}", name, "→".dimmed(), cmd.dimmed());
+            eprintln!("  {:<10}{} {}", name, "→".dimmed(), cmd.dimmed());
         }
-        println!();
-        println!(
+        eprintln!();
+        eprintln!(
             "Or install all: {}",
             "curl -sSfL https://raw.githubusercontent.com/basidiocarp/.github/main/install.sh | sh"
                 .dimmed()
@@ -374,10 +378,10 @@ fn print_repair_hints(context: &EcosystemContext) {
     }
 
     if !broken.is_empty() {
-        println!();
-        println!("{}", "Broken tools:".bold());
+        eprintln!();
+        eprintln!("{}", "Broken tools:".bold());
         for (name, cmd) in &broken {
-            println!("  {:<10}{} {}", name, "→".dimmed(), cmd.dimmed());
+            eprintln!("  {:<10}{} {}", name, "→".dimmed(), cmd.dimmed());
         }
     }
 }

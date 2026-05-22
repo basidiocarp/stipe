@@ -557,12 +557,12 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
 
 /// Attempt to install the ecosystem lamella plugin set after a successful tool install.
 ///
-/// Only runs for profiles that include lamella content (ClaudeCode, FullStack, and
+/// Only runs for profiles that include lamella content (`ClaudeCode`, `FullStack`, and
 /// unspecified/all).  Best-effort: prints a hint on failure but never fails the install.
 fn try_install_lamella_plugins(profile: Option<InstallProfile>) {
     let should_run = matches!(
         profile,
-        None | Some(InstallProfile::ClaudeCode) | Some(InstallProfile::FullStack)
+        None | Some(InstallProfile::ClaudeCode | InstallProfile::FullStack)
     );
     if !should_run {
         return;

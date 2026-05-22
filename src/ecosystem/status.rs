@@ -130,7 +130,7 @@ pub(super) fn render_status_report(context: &EcosystemContext, colorize: bool) -
 
 pub(super) fn print_status_report(context: &EcosystemContext) {
     for line in render_status_report(context, true) {
-        println!("{line}");
+        eprintln!("{line}");
     }
 }
 

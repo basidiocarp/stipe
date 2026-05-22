@@ -29,13 +29,12 @@ fn installed_plugin_count() -> usize {
         .map(|home| home.join(".claude/plugins/lamella"))
         .filter(|dir| dir.exists())
         .and_then(|dir| std::fs::read_dir(&dir).ok())
-        .map(|entries| {
+        .map_or(0, |entries| {
             entries
-                .filter_map(|entry| entry.ok())
+                .filter_map(Result::ok)
                 .filter(|entry| entry.path().is_dir())
                 .count()
         })
-        .unwrap_or(0)
 }
 
 fn ecosystem_installed() -> bool {

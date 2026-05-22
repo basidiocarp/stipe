@@ -697,54 +697,42 @@ pub fn install_annulus_statusline(scope: HostConfigScope, verbose: u8) -> Result
     Ok(true)
 }
 
+/// Locate the lamella validator script, trying `LAMELLA_HOME`, known install
+/// locations, and finally $PATH (in that order).
+fn find_lamella_validator() -> Option<PathBuf> {
+    if let Ok(lamella_home) = std::env::var("LAMELLA_HOME") {
+        let path = PathBuf::from(&lamella_home).join("scripts/validate-hooks.js");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    let candidates = [
+        "~/.lamella/scripts/validate-hooks.js",
+        "~/.local/share/lamella/scripts/validate-hooks.js",
+        "~/.config/lamella/scripts/validate-hooks.js",
+    ];
+    for candidate in &candidates {
+        let path = if let Some(stripped) = candidate.strip_prefix("~/") {
+            if let Some(home) = dirs::home_dir() { home.join(stripped) } else { continue }
+        } else {
+            PathBuf::from(candidate)
+        };
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Use the resolved absolute path from which::which so the home-directory guard
+    // checks the actual location rather than a bare filename canonicalized against cwd.
+    which::which("lamella-validate-hooks").ok()
+}
+
 /// Check lamella hook path staleness by running the lamella validator script
 pub(crate) fn lamella_hook_path_snapshots() -> Vec<HookPathSnapshot> {
     let mut snapshots = Vec::new();
 
-    // Try to find the lamella validator script in order of preference:
-    // 1. LAMELLA_HOME env var (if set)
-    // 2. Common install locations
-    // 3. $PATH search for 'lamella-validate-hooks' wrapper (future-proofing)
-
-    let validator_script = if let Ok(lamella_home) = std::env::var("LAMELLA_HOME") {
-        // Check LAMELLA_HOME/scripts/validate-hooks.js
-        let path = PathBuf::from(&lamella_home).join("scripts/validate-hooks.js");
-        if path.exists() { Some(path) } else { None }
-    } else {
-        None
-    };
-
-    let validator_script = validator_script.or_else(|| {
-        // Try common install locations
-        let candidates = [
-            "~/.lamella/scripts/validate-hooks.js",
-            "~/.local/share/lamella/scripts/validate-hooks.js",
-            "~/.config/lamella/scripts/validate-hooks.js",
-        ];
-
-        for candidate in &candidates {
-            let path = if let Some(stripped) = candidate.strip_prefix("~/") {
-                if let Some(home) = dirs::home_dir() {
-                    home.join(stripped)
-                } else {
-                    continue;
-                }
-            } else {
-                PathBuf::from(candidate)
-            };
-
-            if path.exists() {
-                return Some(path);
-            }
-        }
-
-        None
-    });
-
-    // If no script found in standard locations, check $PATH for 'lamella-validate-hooks'.
-    // Use the resolved absolute path from which::which so the home-directory guard below
-    // checks the actual location rather than a bare filename canonicalized against cwd.
-    let validator_script = validator_script.or_else(|| which::which("lamella-validate-hooks").ok());
+    let validator_script = find_lamella_validator();
 
     // Run the validator if found
     if let Some(validator_path) = validator_script {

@@ -56,7 +56,10 @@ pub fn run(command: PluginsCommand) -> Result<()> {
         }
         PluginsCommand::Enable { name } => state::enable(&name),
         PluginsCommand::Disable { name } => state::disable(&name),
-        PluginsCommand::Status => list::status(),
+        PluginsCommand::Status => {
+            list::status();
+            Ok(())
+        }
     }
 }
 

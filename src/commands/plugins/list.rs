@@ -12,12 +12,9 @@ fn plugins_dir() -> Option<std::path::PathBuf> {
 
 /// List installed plugins with their enabled/disabled status.
 pub fn run() -> Result<()> {
-    let dir = match plugins_dir() {
-        Some(dir) => dir,
-        None => {
-            println!("Could not determine home directory.");
-            return Ok(());
-        }
+    let Some(dir) = plugins_dir() else {
+        println!("Could not determine home directory.");
+        return Ok(());
     };
 
     let disabled = load_disabled();
@@ -32,7 +29,7 @@ pub fn run() -> Result<()> {
     }
 
     let mut plugins: Vec<String> = fs::read_dir(&dir)?
-        .filter_map(|entry| entry.ok())
+        .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
         .filter_map(|entry| entry.file_name().into_string().ok())
         .collect();
@@ -61,26 +58,22 @@ pub fn run() -> Result<()> {
 }
 
 /// Print a short health summary: counts of installed, enabled, disabled plugins.
-pub fn status() -> Result<()> {
-    let dir = match plugins_dir() {
-        Some(dir) => dir,
-        None => {
-            println!("Could not determine home directory.");
-            return Ok(());
-        }
+pub fn status() {
+    let Some(dir) = plugins_dir() else {
+        println!("Could not determine home directory.");
+        return;
     };
 
     let disabled = load_disabled();
 
     let installed_count = if dir.exists() {
         fs::read_dir(&dir)
-            .map(|entries| {
+            .map_or(0, |entries| {
                 entries
-                    .filter_map(|entry| entry.ok())
+                    .filter_map(Result::ok)
                     .filter(|entry| entry.path().is_dir())
                     .count()
             })
-            .unwrap_or(0)
     } else {
         0
     };
@@ -99,6 +92,4 @@ pub fn status() -> Result<()> {
             "  ecosystem plugin: not installed (run 'stipe plugins install --ecosystem')"
         );
     }
-
-    Ok(())
 }

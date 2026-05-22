@@ -31,21 +31,21 @@ fn configure_mcp_client(
     }
 
     if options.emit_stdout {
-        println!();
-        println!("{}", format!("Configuring {label}...").bold());
-        println!();
+        eprintln!();
+        eprintln!("{}", format!("Configuring {label}...").bold());
+        eprintln!();
     }
 
     match clients::register_servers(client, &servers, scope, options.verbose) {
         Ok(()) => {
             if options.emit_stdout {
-                println!();
-                println!(
+                eprintln!();
+                eprintln!(
                     "  {} MCP servers registered for {success_label}:",
                     "\u{2713}".green()
                 );
                 for server in &servers {
-                    println!("    - {}", server.name);
+                    eprintln!("    - {}", server.name);
                 }
             }
             Ok(())
@@ -86,10 +86,14 @@ pub(super) fn configure_codex_cli(
         match codex_notify::install_codex_notify(scope, options.verbose) {
             Ok(true) => {
                 if options.emit_stdout {
-                    println!("    - Hyphae Codex notify adapter");
+                    eprintln!("    - Hyphae Codex notify adapter");
                 }
             }
-            Ok(false) => eprintln!("  {} Codex notify installation skipped", "!".yellow()),
+            Ok(false) => {
+                if options.emit_stdout {
+                    eprintln!("  {} Codex notify installation skipped", "!".yellow());
+                }
+            }
             Err(e) => return Err(e).context("Codex notify installation failed"),
         }
     }
@@ -97,7 +101,7 @@ pub(super) fn configure_codex_cli(
     match run_lamella_codex_install(options.verbose) {
         Ok(true) => {
             if options.emit_stdout {
-                println!("    - Lamella codex skill profiles");
+                eprintln!("    - Lamella codex skill profiles");
             }
         }
         Ok(false) => {
@@ -201,7 +205,7 @@ pub(super) fn initialize_hyphae_db_if_needed(
         match run_command_with_timeout(&mut hyphae_cmd, HYPHAE_STATS_TIMEOUT) {
             Ok(output) if output.status.success() => {
                 if emit_stdout {
-                    println!("  {} Hyphae database initialized", "\u{2713}".green());
+                    eprintln!("  {} Hyphae database initialized", "\u{2713}".green());
                 }
             }
             Ok(output) => {
@@ -262,8 +266,8 @@ pub(super) fn configure_detected_clients(
     }
 
     if options.emit_stdout {
-        println!();
-        println!("{}", "Configuring additional MCP clients...".bold());
+        eprintln!();
+        eprintln!("{}", "Configuring additional MCP clients...".bold());
     }
 
     let mut client_configured = Vec::new();
@@ -283,10 +287,10 @@ pub(super) fn configure_detected_clients(
     }
 
     if options.emit_stdout && !client_configured.is_empty() {
-        println!();
-        println!("  {} MCP servers registered for:", "\u{2713}".green());
+        eprintln!();
+        eprintln!("  {} MCP servers registered for:", "\u{2713}".green());
         for name in &client_configured {
-            println!("    - {name}");
+            eprintln!("    - {name}");
         }
     }
 

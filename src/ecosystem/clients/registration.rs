@@ -39,10 +39,10 @@ pub(super) fn register_servers(
 }
 
 pub(super) fn print_generic_config(servers: &[ServerConfig]) {
-    println!("{}", "Generic MCP Configuration".bold());
-    println!("{}", "─".repeat(60));
-    println!();
-    println!("Add the following to your MCP client's config:\n");
+    eprintln!("{}", "Generic MCP Configuration".bold());
+    eprintln!("{}", "─".repeat(60));
+    eprintln!();
+    eprintln!("Add the following to your MCP client's config:\n");
 
     let mut mcp_servers = Map::new();
     for server in servers {
@@ -56,12 +56,12 @@ pub(super) fn print_generic_config(servers: &[ServerConfig]) {
     }
 
     let config = json!({ "mcpServers": mcp_servers });
-    println!(
+    eprintln!(
         "{}",
         serde_json::to_string_pretty(&config).unwrap_or_default()
     );
-    println!();
-    println!(
+    eprintln!();
+    eprintln!(
         "  {}",
         "Paste this into your MCP client's settings file.".dimmed()
     );
