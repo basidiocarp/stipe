@@ -548,7 +548,49 @@ pub(crate) fn run(opts: &InstallOptions, tools: &[String]) -> Result<()> {
     print_manual_follow_up(&manual_tools);
     println!();
 
+    if failures.is_empty() {
+        try_install_lamella_plugins(opts.profile);
+    }
+
     finalize_install(&failures, opts.profile, has_manual_follow_up, &backup_path)
+}
+
+/// Attempt to install the ecosystem lamella plugin set after a successful tool install.
+///
+/// Only runs for profiles that include lamella content (ClaudeCode, FullStack, and
+/// unspecified/all).  Best-effort: prints a hint on failure but never fails the install.
+fn try_install_lamella_plugins(profile: Option<InstallProfile>) {
+    let should_run = matches!(
+        profile,
+        None | Some(InstallProfile::ClaudeCode) | Some(InstallProfile::FullStack)
+    );
+    if !should_run {
+        return;
+    }
+
+    if crate::ecosystem::lamella::find_lamella().is_none() {
+        eprintln!(
+            "  {} lamella not found — skipping plugin install. Add lamella to PATH or set LAMELLA_CONTENT_ROOT, then run: stipe plugins install --ecosystem",
+            "!".yellow()
+        );
+        return;
+    }
+
+    println!();
+    println!("{}", "Installing ecosystem plugin set via lamella...".bold());
+    match crate::ecosystem::lamella::run_lamella(&["install", "ecosystem"]) {
+        Ok(()) => println!("  {} ecosystem plugin set installed", "✓".green()),
+        Err(error) => {
+            eprintln!(
+                "  {} lamella plugin install failed: {error}",
+                "!".yellow()
+            );
+            eprintln!(
+                "  {} Run 'stipe plugins install --ecosystem' to retry.",
+                "→".yellow()
+            );
+        }
+    }
 }
 
 fn print_install_banner() {

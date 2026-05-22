@@ -13,6 +13,7 @@ pub mod install_state_doctor;
 pub mod install_state_repair;
 pub mod output;
 pub mod package_repair;
+pub mod plugins;
 pub mod provider;
 pub mod repair;
 pub mod rollback;

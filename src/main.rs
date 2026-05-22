@@ -166,6 +166,12 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Manage lamella plugins (list, install, enable, disable, status)
+    Plugins {
+        #[command(subcommand)]
+        command: commands::plugins::PluginsCommand,
+    },
+
     /// Remove ecosystem tools and configuration
     Uninstall {
         /// Remove all tools and configuration
@@ -314,6 +320,7 @@ fn main() -> Result<()> {
             force,
         } => commands::install_state_repair::run(dry_run, scope.as_deref(), force),
         Commands::Package { profile, dry_run } => commands::package_repair::run(profile, dry_run),
+        Commands::Plugins { command } => commands::plugins::run(command),
         Commands::Uninstall {
             all,
             dry_run,
@@ -365,6 +372,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::InstallStateDoctor => "install-state-doctor",
         Commands::InstallStateRepair { .. } => "install-state-repair",
         Commands::Package { .. } => "package",
+        Commands::Plugins { .. } => "plugins",
         Commands::Uninstall { .. } => "uninstall",
         Commands::Provider { .. } => "provider",
         Commands::Setup { .. } => "setup",

@@ -20,6 +20,7 @@ mod council_checks;
 mod hook_checks;
 mod instruction_checks;
 mod lamella_hooks_checks;
+mod lamella_presence_checks;
 pub(crate) mod model;
 mod package_checks;
 mod plugin_inventory_checks;
@@ -34,6 +35,7 @@ use council_checks::check_task_linked_council;
 use hook_checks::{check_claude_hook_commands, check_codex_notify_entries};
 use instruction_checks::check_instruction_files;
 use lamella_hooks_checks::check_lamella_hooks;
+use lamella_presence_checks::check_lamella_presence;
 use model::{
     ApiKeyHealth, ApiKeyStatus, AuthFreshness, DoctorReport, DriftFinding, DriftReport,
     HealthCheck, InstallProfileSummary, McpServerHealth, McpServerStatus, PackageDrift,
@@ -1476,6 +1478,7 @@ fn build_report_with_saved_profile(
     checks.push(check_skills());
     add_hook_checks(&mut checks, &hook_paths);
     checks.push(check_lamella_hooks());
+    checks.push(check_lamella_presence());
 
     let healthy = checks.iter().all(|check| check.passed);
     let failing = checks.iter().filter(|check| !check.passed).count();
