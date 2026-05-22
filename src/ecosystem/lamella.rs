@@ -8,16 +8,9 @@ use anyhow::{Context, Result};
 
 /// Locate the lamella executable.
 ///
-/// Checks PATH first via `which`, then falls back to the canonical monorepo
-/// development path at `~/projects/personal/basidiocarp/lamella/lamella`.
+/// Checks PATH via `which`. Returns `None` if lamella is not found.
 pub fn find_lamella() -> Option<PathBuf> {
-    if let Ok(path) = which::which("lamella") {
-        return Some(path);
-    }
-    dirs::home_dir().and_then(|home| {
-        let candidate = home.join("projects/personal/basidiocarp/lamella/lamella");
-        candidate.exists().then_some(candidate)
-    })
+    which::which("lamella").ok()
 }
 
 /// Run `lamella <args>` as a subprocess, inheriting stdout/stderr.
@@ -28,8 +21,7 @@ pub fn find_lamella() -> Option<PathBuf> {
 pub fn run_lamella(args: &[&str]) -> Result<()> {
     let lamella = find_lamella().ok_or_else(|| {
         anyhow::anyhow!(
-            "lamella not found on PATH and not present at the default dev path — \
-             run `stipe install` to set up the ecosystem or add lamella to PATH"
+            "lamella not found on PATH. Install it or set LAMELLA_CONTENT_ROOT."
         )
     })?;
 
