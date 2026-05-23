@@ -29,6 +29,24 @@ pub(crate) struct ReleaseAsset {
     pub(crate) download_url: String,
 }
 
+/// Typed representation of the GitHub releases/latest API response.
+///
+/// Only the fields Stipe needs are declared here; extra fields GitHub may add
+/// over time are ignored by serde's default behavior. If required fields are
+/// absent (e.g., rate-limited response, API shape change), deserialization
+/// fails with a clear error naming the missing field.
+#[derive(Debug, serde::Deserialize)]
+struct GitHubReleaseApiResponse {
+    tag_name: String,
+    assets: Vec<GitHubAssetApiResponse>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubAssetApiResponse {
+    name: String,
+    browser_download_url: String,
+}
+
 const VERSION_VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 const FUNCTIONAL_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const MCP_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -84,34 +102,23 @@ pub(crate) fn fetch_latest_release(tool: &str, client: &GitHubClient) -> Result<
         &url,
         &format!("latest release for {repo}"),
     )?;
-
-    let version = data
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("GitHub release missing 'tag_name' field"))?
-        .to_string();
-
-    let assets: Vec<ReleaseAsset> = data
-        .get("assets")
-        .and_then(|a| a.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|asset| {
-                    let name = asset.get("name")?.as_str()?;
-                    let download_url = asset.get("browser_download_url")?.as_str()?;
-                    Some(ReleaseAsset {
-                        name: name.to_string(),
-                        download_url: download_url.to_string(),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
+    let response: GitHubReleaseApiResponse = serde_json::from_value(data).with_context(|| {
+        format!(
+            "GitHub API returned unexpected shape for {repo} \
+             — expected 'tag_name' string and 'assets' array"
+        )
+    })?;
     Ok(GitHubRelease {
         name: tool.to_string(),
-        version,
-        assets,
+        version: response.tag_name,
+        assets: response
+            .assets
+            .into_iter()
+            .map(|a| ReleaseAsset {
+                name: a.name,
+                download_url: a.browser_download_url,
+            })
+            .collect(),
     })
 }
 
