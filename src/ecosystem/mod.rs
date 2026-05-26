@@ -5,6 +5,7 @@ pub mod lamella;
 mod configure;
 mod context;
 mod mcp;
+pub(crate) mod paths;
 mod status;
 mod workflow;
 

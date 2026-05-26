@@ -11,6 +11,7 @@ use crate::commands::tool_registry;
 
 use super::EcosystemOptions;
 use super::clients::{self, McpClient};
+use super::paths;
 use super::status::build_ecosystem_servers;
 
 fn configure_mcp_client(
@@ -182,7 +183,7 @@ pub(super) fn initialize_hyphae_db_if_needed(
     };
     // Check both the canonical path and the legacy path. Doctor uses the same
     // priority order; keeping them aligned prevents spurious re-initialization.
-    let new_db = base.join("basidiocarp").join("hyphae").join("hyphae.db");
+    let new_db = paths::hyphae_db_path(&base);
     let legacy_db = base.join("hyphae").join("hyphae.db");
     if new_db.exists() || legacy_db.exists() {
         return Ok(());

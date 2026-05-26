@@ -582,12 +582,7 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
     };
 
     // New canonical path under the shared basidiocarp root.
-    // MUST stay in sync with hyphae's actual DB path. If hyphae changes its default,
-    // update the paths here and in check_shared_storage_root.
-    let new_path = data_dir
-        .join("basidiocarp")
-        .join("hyphae")
-        .join("hyphae.db");
+    let new_path = crate::ecosystem::paths::hyphae_db_path(&data_dir);
     if new_path.exists() {
         return check_hyphae_db_at_path(&new_path);
     }
