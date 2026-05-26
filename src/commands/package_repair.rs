@@ -449,7 +449,11 @@ fn backup_root_from(env_override: Option<&str>) -> PathBuf {
         return PathBuf::from(override_path);
     }
     dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(".local/share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("stipe")
         .join("backups")
 }
