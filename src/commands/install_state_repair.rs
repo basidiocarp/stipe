@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 use crate::commands::github;
@@ -26,6 +26,8 @@ impl RepairScope {
 }
 
 pub fn run(dry_run: bool, scope: Option<&str>, force: bool) -> Result<()> {
+    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
+
     let scope = match scope {
         Some("hooks") => RepairScope::Hooks,
         Some("skills") => RepairScope::Skills,
