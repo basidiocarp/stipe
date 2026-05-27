@@ -24,7 +24,7 @@ const CAPABILITY_ID: &str = "ecosystem.setup.v1";
 const PING_METHOD: &str = "PING";
 
 fn write_endpoint_descriptor(socket_path: &Path) -> Result<()> {
-    let config_dir = spore::paths::config_dir("stipe");
+    let config_dir = spore::paths::config_dir("stipe")?;
     std::fs::create_dir_all(&config_dir)?;
     let descriptor_path = config_dir.join("stipe.endpoint.json");
     let descriptor = json!({
@@ -208,7 +208,7 @@ fn handle_connection(stream: std::os::unix::net::UnixStream) {
 /// accepts connections indefinitely. Each connection is handled in a
 /// background thread.
 pub fn run_socket_server() -> Result<()> {
-    let socket_path: PathBuf = spore::paths::data_dir("basidiocarp")
+    let socket_path: PathBuf = spore::paths::data_dir("basidiocarp")?
         .join("stipe")
         .join("stipe.sock");
 
