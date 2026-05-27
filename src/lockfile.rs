@@ -26,10 +26,7 @@ pub fn lock_path() -> PathBuf {
     }
 
     dirs::data_local_dir()
-        .or_else(|| {
-            dirs::home_dir()
-                .map(|h| h.join(".local/share"))
-        })
+        .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("stipe")
         .join("install.lock")

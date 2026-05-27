@@ -1,4 +1,3 @@
-
 //! Lamella integration helpers: binary location and subprocess runner.
 
 use std::path::PathBuf;
@@ -25,9 +24,7 @@ pub fn find_lamella() -> Option<PathBuf> {
 /// a post-install step) should handle the error themselves.
 pub fn run_lamella(args: &[&str]) -> Result<()> {
     let lamella = find_lamella().ok_or_else(|| {
-        anyhow::anyhow!(
-            "lamella not found on PATH. Install it or set LAMELLA_CONTENT_ROOT."
-        )
+        anyhow::anyhow!("lamella not found on PATH. Install it or set LAMELLA_CONTENT_ROOT.")
     })?;
 
     let mut child = Command::new(&lamella)
@@ -41,7 +38,9 @@ pub fn run_lamella(args: &[&str]) -> Result<()> {
         } else {
             Err(anyhow::anyhow!(
                 "lamella exited with {}",
-                status.code().map_or_else(|| "signal".to_string(), |c| c.to_string())
+                status
+                    .code()
+                    .map_or_else(|| "signal".to_string(), |c| c.to_string())
             ))
         }
     } else {

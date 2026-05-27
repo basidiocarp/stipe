@@ -667,13 +667,12 @@ pub(crate) fn evaluate_drift_from_manifest(manifest: &InitBaselineManifest) -> D
         left_key.cmp(&right_key)
     });
 
-    let baseline_path =
-        baseline_path().unwrap_or_else(|| {
-            dirs::data_local_dir()
-                .map(|d| d.join("stipe/init-baseline.json"))
-                .or_else(|| Some(PathBuf::from("/tmp/stipe/init-baseline.json")))
-                .unwrap()
-        });
+    let baseline_path = baseline_path().unwrap_or_else(|| {
+        dirs::data_local_dir()
+            .map(|d| d.join("stipe/init-baseline.json"))
+            .or_else(|| Some(PathBuf::from("/tmp/stipe/init-baseline.json")))
+            .unwrap()
+    });
     DriftReport {
         baseline_path,
         generated_at_unix_nanos: now_unix_nanos(),

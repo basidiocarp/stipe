@@ -126,8 +126,7 @@ fn repair_missing_item(item: &install_state::InstalledItem, unhandled_count: &mu
             } else {
                 eprintln!(
                     "Cannot repair {}: no parent directory in path {}",
-                    item.id,
-                    path
+                    item.id, path
                 );
                 *unhandled_count += 1;
             }
@@ -167,8 +166,7 @@ fn repair_drift_item(item: &install_state::InstalledItem, unhandled_count: &mut 
             } else {
                 eprintln!(
                     "Cannot repair {}: no parent directory in path {}",
-                    item.id,
-                    path
+                    item.id, path
                 );
                 *unhandled_count += 1;
             }

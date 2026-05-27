@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::install;
-use super::install::release::{normalize_version, GITHUB_ORG};
+use super::install::release::{GITHUB_ORG, normalize_version};
 use super::tool_registry;
 use super::tool_registry::InstallProfile;
 use crate::commands::github::GitHubClient;

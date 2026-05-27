@@ -141,7 +141,10 @@ fn validate_hook_command(event: &str, command: &str) -> bool {
 
     for pattern in &dangerous_patterns {
         if command.contains(pattern) {
-            eprintln!("warning: skipping hook for '{}': command rejected — contains shell injection characters: {}", event, command);
+            eprintln!(
+                "warning: skipping hook for '{}': command rejected — contains shell injection characters: {}",
+                event, command
+            );
             warn!(
                 "hook for event {}: rejected command containing dangerous pattern {:?}: {}",
                 event, pattern, command
@@ -153,7 +156,10 @@ fn validate_hook_command(event: &str, command: &str) -> bool {
     // Reject relative paths: commands starting with ./ or ../
     let trimmed = command.trim();
     if trimmed.starts_with("./") || trimmed.starts_with("../") {
-        eprintln!("warning: skipping hook for '{}': command rejected — relative paths not allowed: {}", event, command);
+        eprintln!(
+            "warning: skipping hook for '{}': command rejected — relative paths not allowed: {}",
+            event, command
+        );
         warn!(
             "hook for event {}: rejected command with relative path: {}",
             event, command
@@ -445,7 +451,10 @@ timeout_ms = 3000
     #[test]
     fn test_validate_hook_command_accepts_absolute_paths() {
         assert!(validate_hook_command("PreToolUse", "/usr/bin/true"));
-        assert!(validate_hook_command("PreToolUse", "/usr/local/bin/cortina"));
+        assert!(validate_hook_command(
+            "PreToolUse",
+            "/usr/local/bin/cortina"
+        ));
     }
 
     #[test]

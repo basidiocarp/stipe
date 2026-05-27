@@ -1,9 +1,9 @@
 //! Ecosystem management: tool detection, MCP registration, database initialization.
 
 pub mod clients;
-pub mod lamella;
 mod configure;
 mod context;
+pub mod lamella;
 mod mcp;
 pub(crate) mod paths;
 mod status;

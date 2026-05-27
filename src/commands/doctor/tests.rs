@@ -871,11 +871,25 @@ fn test_doctor_report_serializes_required_schema_fields() {
         plugin_inventory: None,
     };
     let value = serde_json::to_value(&report).expect("DoctorReport must serialize");
-    let obj = value.as_object().expect("DoctorReport must serialize as a JSON object");
+    let obj = value
+        .as_object()
+        .expect("DoctorReport must serialize as a JSON object");
 
     // Required fields per septa/stipe-doctor-v1.schema.json
-    for key in ["schema_version", "healthy", "summary", "checks", "repair_actions"] {
-        assert!(obj.contains_key(key), "serialized DoctorReport missing required key: {key}");
+    for key in [
+        "schema_version",
+        "healthy",
+        "summary",
+        "checks",
+        "repair_actions",
+    ] {
+        assert!(
+            obj.contains_key(key),
+            "serialized DoctorReport missing required key: {key}"
+        );
     }
-    assert_eq!(obj["schema_version"], "1.0", "schema_version must be \"1.0\"");
+    assert_eq!(
+        obj["schema_version"], "1.0",
+        "schema_version must be \"1.0\""
+    );
 }

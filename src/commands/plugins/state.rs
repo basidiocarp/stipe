@@ -1,4 +1,3 @@
-
 //! Enable/disable state for lamella plugins.
 //!
 //! State is persisted at `~/.config/lamella/disabled-plugins.json` as a JSON

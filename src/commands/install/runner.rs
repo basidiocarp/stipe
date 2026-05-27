@@ -85,7 +85,12 @@ pub(crate) fn install_tool_with_source(
     let version = verify_binary(&extracted_path)?;
 
     verify_and_report_installation(tool, &install_path, &version, prefix)?;
-    record_install_state(tool, &install_path, &version, source.unwrap_or(INSTALL_SOURCE_LAMELLA));
+    record_install_state(
+        tool,
+        &install_path,
+        &version,
+        source.unwrap_or(INSTALL_SOURCE_LAMELLA),
+    );
 
     Ok(())
 }
@@ -600,14 +605,14 @@ fn try_install_lamella_plugins(profile: Option<InstallProfile>) {
     }
 
     println!();
-    println!("{}", "Installing ecosystem plugin set via lamella...".bold());
+    println!(
+        "{}",
+        "Installing ecosystem plugin set via lamella...".bold()
+    );
     match crate::ecosystem::lamella::run_lamella(&["install", "ecosystem"]) {
         Ok(()) => println!("  {} ecosystem plugin set installed", "✓".green()),
         Err(error) => {
-            eprintln!(
-                "  {} lamella plugin install failed: {error}",
-                "!".yellow()
-            );
+            eprintln!("  {} lamella plugin install failed: {error}", "!".yellow());
             eprintln!(
                 "  {} Run 'stipe plugins install --ecosystem' to retry.",
                 "→".yellow()

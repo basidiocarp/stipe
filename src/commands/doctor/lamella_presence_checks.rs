@@ -1,4 +1,3 @@
-
 //! Doctor checks for lamella binary presence, lamella-skills availability,
 //! installed plugin count, and ecosystem plugin status.
 

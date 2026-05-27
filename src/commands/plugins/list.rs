@@ -1,4 +1,3 @@
-
 //! `stipe plugins list` and `stipe plugins status` implementations.
 
 use anyhow::Result;
@@ -36,10 +35,7 @@ pub fn run() -> Result<()> {
     plugins.sort();
 
     if plugins.is_empty() {
-        println!(
-            "No plugins installed in {}.",
-            dir.display()
-        );
+        println!("No plugins installed in {}.", dir.display());
         println!("Run 'stipe plugins install --ecosystem' to install the ecosystem plugin set.");
         return Ok(());
     }
@@ -67,13 +63,12 @@ pub fn status() {
     let disabled = load_disabled();
 
     let installed_count = if dir.exists() {
-        fs::read_dir(&dir)
-            .map_or(0, |entries| {
-                entries
-                    .filter_map(Result::ok)
-                    .filter(|entry| entry.path().is_dir())
-                    .count()
-            })
+        fs::read_dir(&dir).map_or(0, |entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().is_dir())
+                .count()
+        })
     } else {
         0
     };
@@ -88,8 +83,6 @@ pub fn status() {
     if ecosystem_installed {
         println!("  ecosystem plugin: installed");
     } else {
-        println!(
-            "  ecosystem plugin: not installed (run 'stipe plugins install --ecosystem')"
-        );
+        println!("  ecosystem plugin: not installed (run 'stipe plugins install --ecosystem')");
     }
 }

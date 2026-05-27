@@ -1,4 +1,3 @@
-
 //! `stipe plugins` subcommand: list, install, enable, disable, status.
 
 use anyhow::{Result, anyhow};
@@ -51,9 +50,11 @@ pub enum PluginsCommand {
 pub fn run(command: PluginsCommand) -> Result<()> {
     match command {
         PluginsCommand::List => list::run(),
-        PluginsCommand::Install { ecosystem, all, name } => {
-            install_plugin(ecosystem, all, name.as_deref())
-        }
+        PluginsCommand::Install {
+            ecosystem,
+            all,
+            name,
+        } => install_plugin(ecosystem, all, name.as_deref()),
         PluginsCommand::Enable { name } => state::enable(&name),
         PluginsCommand::Disable { name } => state::disable(&name),
         PluginsCommand::Status => {

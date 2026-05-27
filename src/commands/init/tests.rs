@@ -556,13 +556,16 @@ fn test_ecosystem_options_emit_stdout_flag_controls_output() {
 fn test_init_json_output_is_valid_json() {
     let snapshot = snapshot(SnapshotFixture::default());
     let plan = build_plan(&snapshot, true);
-    let json_output = serde_json::to_string_pretty(&plan)
-        .expect("plan should serialize to JSON without error");
+    let json_output =
+        serde_json::to_string_pretty(&plan).expect("plan should serialize to JSON without error");
 
     // Must round-trip as a JSON object
     let parsed: serde_json::Value =
         serde_json::from_str(&json_output).expect("serialized plan must be valid JSON");
-    assert!(parsed.is_object(), "init --json output must be a JSON object");
+    assert!(
+        parsed.is_object(),
+        "init --json output must be a JSON object"
+    );
 
     // Required top-level fields must be present
     assert!(
