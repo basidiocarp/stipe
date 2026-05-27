@@ -546,3 +546,35 @@ fn test_ecosystem_options_emit_stdout_flag_controls_output() {
     assert!(with_output.emit_stdout);
     assert!(!without_output.emit_stdout);
 }
+
+/// Confirms that the JSON output of `stipe init --json` is valid JSON.
+///
+/// The init --json path writes `serde_json::to_string_pretty(&plan)` to stdout.
+/// This test verifies the plan serializes cleanly so consumers (e.g. Cap) receive
+/// only parseable JSON on stdout — no prose mixed in.
+#[test]
+fn test_init_json_output_is_valid_json() {
+    let snapshot = snapshot(SnapshotFixture::default());
+    let plan = build_plan(&snapshot, true);
+    let json_output = serde_json::to_string_pretty(&plan)
+        .expect("plan should serialize to JSON without error");
+
+    // Must round-trip as a JSON object
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json_output).expect("serialized plan must be valid JSON");
+    assert!(parsed.is_object(), "init --json output must be a JSON object");
+
+    // Required top-level fields must be present
+    assert!(
+        parsed.get("schema_version").is_some(),
+        "JSON output must contain schema_version"
+    );
+    assert!(
+        parsed.get("steps").is_some(),
+        "JSON output must contain steps"
+    );
+    assert!(
+        parsed.get("dry_run").is_some(),
+        "JSON output must contain dry_run"
+    );
+}
