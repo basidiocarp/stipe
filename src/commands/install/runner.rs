@@ -29,6 +29,9 @@ use crate::commands::tool_registry::{self, InstallProfile, ToolSpec};
 use crate::install_state;
 use crate::verify;
 
+const INSTALL_SOURCE_LAMELLA: &str = "lamella";
+const INSTALL_SOURCE_STIPE: &str = "stipe-source";
+
 /// Configuration options for the install flow.
 /// These bools represent distinct, related configuration options that are only meaningful together.
 #[allow(clippy::struct_excessive_bools)]
@@ -82,7 +85,7 @@ pub(crate) fn install_tool_with_source(
     let version = verify_binary(&extracted_path)?;
 
     verify_and_report_installation(tool, &install_path, &version, prefix)?;
-    record_install_state(tool, &install_path, &version, source.unwrap_or("lamella"));
+    record_install_state(tool, &install_path, &version, source.unwrap_or(INSTALL_SOURCE_LAMELLA));
 
     Ok(())
 }
@@ -244,6 +247,13 @@ fn deploy_to_staging(
             }
             Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
                 return Err(anyhow!("codesign timed out after 30 seconds"));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::warn!(
+                    "codesign not found; binary may not run on this system without Xcode CLI tools. \
+                     Install them with: xcode-select --install"
+                );
+                // Continue install — binary is deployed but unsigned.
             }
             Err(err) => {
                 return Err(anyhow!("codesign command failed: {err}"));
@@ -409,7 +419,17 @@ pub(crate) fn install_from_source(
         install_path.display()
     );
 
-    let mut cargo_cmd = Command::new("cargo");
+    let cargo_bin = std::env::var("CARGO")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| which::which("cargo").ok())
+        .ok_or_else(|| {
+            anyhow!(
+                "cargo not found. Install Rust via https://rustup.rs before building from source."
+            )
+        })?;
+
+    let mut cargo_cmd = Command::new(&cargo_bin);
     cargo_cmd.args(["install", "--path"]).arg(&install_path);
 
     let output = run_command_with_timeout(&mut cargo_cmd, CARGO_INSTALL_TIMEOUT)
@@ -487,7 +507,7 @@ pub(crate) fn install_from_source(
             "binary",
             Some(binary_str.as_ref()),
             Some(&version),
-            Some("stipe-source"),
+            Some(INSTALL_SOURCE_STIPE),
             checksum_ref,
         ) {
             eprintln!("  {} Could not record install state: {error}", "!".yellow());

@@ -1774,7 +1774,7 @@ pub fn run(json: bool, developer: bool, deep: bool) -> Result<()> {
         println!("{line}");
     }
 
-    if report.healthy {
+    if !json && report.healthy {
         crate::banner::print_banner();
     }
 

@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::install;
-use super::install::release::normalize_version;
+use super::install::release::{normalize_version, GITHUB_ORG};
 use super::tool_registry;
 use super::tool_registry::InstallProfile;
 use crate::commands::github::GitHubClient;
@@ -46,7 +46,7 @@ fn get_installed_version(tool: &str) -> Result<String> {
 
 fn fetch_latest_version(tool: &str, client: &GitHubClient) -> Result<String> {
     let repo = tool_registry::find(tool).map_or(tool, |spec| spec.release_repo);
-    let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
+    let url = format!("https://api.github.com/repos/{GITHUB_ORG}/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
         client,
         &url,

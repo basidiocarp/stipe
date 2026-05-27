@@ -104,6 +104,12 @@ pub(super) struct HealthCheck {
     pub(super) repair_actions: Vec<RepairAction>,
 }
 
+/// Versioned doctor report emitted by `stipe doctor --json` and consumed by Cap.
+///
+/// **Schema versioning policy**: the `schema_version` field must be bumped and the
+/// septa fixture at `../septa/stipe-doctor-v1.schema.json` updated whenever a
+/// serialized field is added, removed, or renamed.  Run `cd ../septa && bash
+/// validate-all.sh` after any schema change.  The current version is `"1.0"`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub(super) struct DoctorReport {
     pub(super) schema_version: String,

@@ -16,6 +16,8 @@ use crate::commands::github::GitHubClient;
 use crate::commands::tool_registry;
 use crate::commands::tool_registry::ToolSpec;
 
+pub(crate) const GITHUB_ORG: &str = "basidiocarp";
+
 #[derive(Debug)]
 pub(crate) struct GitHubRelease {
     pub(crate) name: String,
@@ -96,7 +98,7 @@ fn release_repo(tool: &str) -> &str {
 
 pub(crate) fn fetch_latest_release(tool: &str, client: &GitHubClient) -> Result<GitHubRelease> {
     let repo = release_repo(tool);
-    let url = format!("https://api.github.com/repos/basidiocarp/{repo}/releases/latest");
+    let url = format!("https://api.github.com/repos/{GITHUB_ORG}/{repo}/releases/latest");
     let data = crate::commands::github::get_github_json(
         client,
         &url,

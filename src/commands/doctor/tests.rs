@@ -844,3 +844,38 @@ fn test_build_report_includes_capability_registry_check() {
         "doctor report should include a capability registry health check"
     );
 }
+
+#[test]
+fn test_doctor_report_serializes_required_schema_fields() {
+    // Verify a DoctorReport contains all fields required by septa/stipe-doctor-v1.schema.json.
+    // Any field addition or removal must bump schema_version and update the septa fixture.
+    use model::DoctorReport;
+    let report = DoctorReport {
+        schema_version: "1.0".to_string(),
+        healthy: true,
+        summary: "all checks passed".to_string(),
+        install_profile: None,
+        checks: vec![],
+        hook_paths: vec![],
+        repair_actions: vec![],
+        drift: None,
+        developer_tools: None,
+        provider_health: vec![],
+        mcp_health: vec![],
+        runtime_policy: None,
+        package_inventory: None,
+        worktree_config: None,
+        package_drift: None,
+        mcp_server_health: vec![],
+        api_key_health: vec![],
+        plugin_inventory: None,
+    };
+    let value = serde_json::to_value(&report).expect("DoctorReport must serialize");
+    let obj = value.as_object().expect("DoctorReport must serialize as a JSON object");
+
+    // Required fields per septa/stipe-doctor-v1.schema.json
+    for key in ["schema_version", "healthy", "summary", "checks", "repair_actions"] {
+        assert!(obj.contains_key(key), "serialized DoctorReport missing required key: {key}");
+    }
+    assert_eq!(obj["schema_version"], "1.0", "schema_version must be \"1.0\"");
+}

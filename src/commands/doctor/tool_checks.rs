@@ -644,7 +644,7 @@ pub(super) fn check_shared_storage_root() -> HealthCheck {
         })
         .collect();
 
-    let message = format!("~/.local/share/basidiocarp/  {}", parts.join("  "));
+    let message = format!("{}/  {}", root.display(), parts.join("  "));
 
     HealthCheck {
         name: "shared storage root".to_string(),
