@@ -40,7 +40,7 @@ enum Commands {
         #[arg(long)]
         from_source: bool,
 
-        /// Path to local source directory (default: ~/projects/basidiocarp/{tool})
+        /// Path to local source directory (default: ~/projects/personal/basidiocarp/{tool})
         #[arg(long)]
         source_dir: Option<std::path::PathBuf>,
 

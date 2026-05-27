@@ -358,6 +358,9 @@ fn record_install_state(tool: &str, install_path: &Path, version: &str, source: 
 
 /// Default root directory for local source checkouts.
 fn default_monorepo_root() -> PathBuf {
+    if let Ok(root) = std::env::var("BASIDIOCARP_ROOT") {
+        return PathBuf::from(root);
+    }
     let home = dirs::home_dir().unwrap_or_else(|| {
         eprintln!(
             "  {} Could not determine home directory; defaulting to current directory",
@@ -365,7 +368,7 @@ fn default_monorepo_root() -> PathBuf {
         );
         PathBuf::from(".")
     });
-    home.join("projects").join("basidiocarp")
+    home.join("projects").join("personal").join("basidiocarp")
 }
 
 /// Resolve the cargo install path for a tool inside the monorepo.
@@ -708,6 +711,19 @@ fn install_from_source_phase(opts: &InstallOptions, tools: &[String], failures: 
         .source_dir
         .clone()
         .unwrap_or_else(default_monorepo_root);
+
+    if !monorepo_root.exists() {
+        eprintln!(
+            "  {} Monorepo root not found at {}. Set BASIDIOCARP_ROOT to override.",
+            "!".red(),
+            monorepo_root.display()
+        );
+        failures.push(format!(
+            "Monorepo root not found at {}",
+            monorepo_root.display()
+        ));
+        return;
+    }
 
     for tool in tools {
         let tool_source = monorepo_root.join(tool);
