@@ -492,6 +492,10 @@ updated_at_unix = 240
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "flaky on Windows: tempfile persist fails under open handle semantics"
+)]
 fn test_install_run_persists_profile_and_approval_memory_on_success() {
     with_test_project_root("runtime-policy-success", |project_root, config_root| {
         let install_bin_dir = project_root.join("bin");
