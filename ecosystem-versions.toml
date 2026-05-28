@@ -42,7 +42,7 @@ which = "7"
 # Update this file when a tool is released; stipe picks it up on next build.
 mycelium = "0.11.3"
 hyphae = "0.15.4"       # 5-crate workspace; cli tracks tag, core/store/mcp/ingest at 0.13.2
-rhizome = "0.11.4"      # 5-crate workspace, version per crate
+rhizome = "0.11.5"      # 5-crate workspace, version per crate
 canopy = "0.10.2"
 cortina = "0.7.3"
 stipe = "0.8.17"
