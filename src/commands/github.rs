@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use std::collections::HashMap;
 use ureq::RequestExt;
 use ureq::http;
 
@@ -94,6 +95,37 @@ pub(crate) fn get_github_json(
 
     serde_json::from_str(&body)
         .with_context(|| format!("failed to parse GitHub JSON for {resource}"))
+}
+
+/// Fetch the latest GitHub release tag for a single tool (e.g., "v0.11.3").
+pub(crate) fn fetch_release_tag(tool: &str, client: &GitHubClient) -> Result<String> {
+    use crate::commands::install::release::GITHUB_ORG;
+    use crate::commands::tool_registry;
+    let repo = tool_registry::find(tool).map_or(tool, |spec| spec.release_repo);
+    let url = format!("https://api.github.com/repos/{GITHUB_ORG}/{repo}/releases/latest");
+    let data = get_github_json(client, &url, &format!("latest release for {repo}"))?;
+    data.get("tag_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("Could not parse tag_name for {repo}"))
+        .map(str::to_string)
+}
+
+/// Fetch the latest released version for all given tools.
+/// Best-effort: failures for individual tools are skipped silently.
+/// Returns a map of tool name → normalized version string (e.g., "0.11.3").
+pub(crate) fn fetch_live_tool_versions(
+    tools: &[&str],
+    client: &GitHubClient,
+) -> HashMap<String, String> {
+    use crate::commands::install::release::normalize_version;
+    tools
+        .iter()
+        .filter_map(|tool| {
+            fetch_release_tag(tool, client)
+                .ok()
+                .map(|tag| ((*tool).to_string(), normalize_version(&tag).to_string()))
+        })
+        .collect()
 }
 
 fn github_token() -> Option<String> {

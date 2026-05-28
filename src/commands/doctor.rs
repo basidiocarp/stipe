@@ -53,6 +53,7 @@ use tool_checks::{
     check_canopy_wal_mode, check_capability_registry_health, check_codex_notify,
     check_hook_command_runnability, check_hyphae_db, check_mcp_startups, check_profile_tools,
     check_rhizome_compiled_env, check_shared_storage_root, check_stipe_toml_sync, check_tool,
+    init_live_versions,
 };
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -1518,10 +1519,34 @@ fn build_report_with_saved_profile(
     }
 }
 
+/// Attempt to fetch live GitHub versions for all doctor-checked tools.
+/// Times out after 5 seconds; silently returns empty on any failure.
+fn fetch_live_versions_for_doctor() -> std::collections::HashMap<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let tool_names: Vec<String> = tool_registry::doctor_specs()
+        .iter()
+        .map(|spec| spec.name.to_string())
+        .collect();
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let client = crate::commands::github::github_client();
+        let refs: Vec<&str> = tool_names.iter().map(String::as_str).collect();
+        let live = crate::commands::github::fetch_live_tool_versions(&refs, &client);
+        let _ = tx.send(live);
+    });
+
+    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
+}
+
 fn build_initial_tool_checks(
     saved_profile: Option<&install::SavedInstallProfile>,
     deep: bool,
 ) -> Vec<HealthCheck> {
+    init_live_versions(fetch_live_versions_for_doctor());
+
     if let Some(saved_profile) = saved_profile {
         check_profile_tools(saved_profile.profile, deep)
     } else {

@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::model::HealthCheck;
@@ -18,6 +20,16 @@ use crate::commands::repair::{RepairAction, RepairTier, cargo_install_action};
 use crate::ecosystem::clients::{self, McpClient};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+// Live versions fetched from GitHub at doctor startup. When set, these take
+// precedence over the compiled-in pins in `check_version_drift`.
+static LIVE_VERSIONS: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+/// Pre-load live GitHub versions before running doctor checks.
+/// Called once per doctor invocation; no-op if already initialized.
+pub(super) fn init_live_versions(live: HashMap<String, String>) {
+    let _ = LIVE_VERSIONS.set(live);
+}
 
 // ---------------------------------------------------------------------------
 // Version drift detection
@@ -37,40 +49,46 @@ fn parse_semver(s: &str) -> Option<(u32, u32, u32)> {
     Some((major, minor, patch))
 }
 
-/// Check if an installed version is behind the pinned version.
-/// Returns (`is_behind`, `pinned_version`, `message_override`) where:
-/// - `is_behind` = true only when installed < pinned (semver comparison)
-/// - `pinned_version` = the pinned version string or None if tool not in pins
-/// - `message_override` = Some(msg) if the version is ahead of pin (newer install),
+/// Check if an installed version is behind the latest known version.
+/// Prefers live GitHub versions (when pre-fetched) over compiled-in pins.
+/// Returns (`is_behind`, `latest_version`, `message_override`) where:
+/// - `is_behind` = true only when installed < latest (semver comparison)
+/// - `latest_version` = the latest version string or None if unknown
+/// - `message_override` = Some(msg) if the version is ahead of latest (newer install),
 ///   otherwise None (use default message)
 fn check_version_drift(tool_name: &str, installed: &str) -> (bool, Option<String>, Option<String>) {
-    let pins = version_pins::pinned_ecosystem_versions();
-    match pins.get(tool_name) {
-        Some(&pinned) => {
+    // Prefer live GitHub versions; fall back to compiled-in pins when unavailable.
+    let latest: Option<String> = LIVE_VERSIONS
+        .get()
+        .and_then(|live| live.get(tool_name).cloned())
+        .or_else(|| {
+            version_pins::pinned_ecosystem_versions()
+                .get(tool_name)
+                .map(ToString::to_string)
+        });
+
+    match latest {
+        Some(pinned) => {
             // Try semver comparison first.
             if let (Some(inst_semver), Some(pin_semver)) =
-                (parse_semver(installed), parse_semver(pinned))
+                (parse_semver(installed), parse_semver(&pinned))
             {
                 let is_behind = inst_semver < pin_semver;
                 let message_override = if inst_semver > pin_semver {
                     Some(format!(
-                        "v{} installed (ahead of pin v{}; no action needed)",
+                        "v{} installed (ahead of latest v{}; no action needed)",
                         installed, pinned
                     ))
                 } else {
                     None
                 };
-                return (is_behind, Some(pinned.to_string()), message_override);
+                return (is_behind, Some(pinned), message_override);
             }
 
             // Fall back to string comparison if semver parsing fails.
             let installed_norm = normalize_version(installed);
-            let pinned_norm = normalize_version(pinned);
-            (
-                installed_norm != pinned_norm,
-                Some(pinned.to_string()),
-                None,
-            )
+            let pinned_norm = normalize_version(&pinned);
+            (installed_norm != pinned_norm, Some(pinned), None)
         }
         None => (false, None, None),
     }
@@ -307,7 +325,7 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
                 );
                 (
                     format!(
-                        "v{version} installed (pinned: v{pinned_str} — run 'stipe update {name}' to update)",
+                        "v{version} installed (latest: v{pinned_str} — run 'stipe update {name}' to update)",
                         name = spec.name
                     ),
                     vec![update_action],
@@ -383,7 +401,7 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
                 );
                 (
                     format!(
-                        "v{version} installed (pinned: v{pinned_str} — expected by {})",
+                        "v{version} installed (latest: v{pinned_str} — expected by {})",
                         profile.mode_label()
                     ),
                     vec![update_action],
@@ -1186,8 +1204,8 @@ mod tests {
         );
         assert_eq!(
             pinned.as_deref(),
-            Some("0.15.2"),
-            "pinned version should be returned"
+            Some("0.15.4"),
+            "latest version should be returned"
         );
         assert!(
             msg_override.is_none(),
@@ -1197,12 +1215,12 @@ mod tests {
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.15.2");
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.15.4");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
-        assert_eq!(pinned.as_deref(), Some("0.15.2"));
+        assert_eq!(pinned.as_deref(), Some("0.15.4"));
         assert!(
             msg_override.is_none(),
             "should not have message override for matching"
@@ -1239,7 +1257,7 @@ mod tests {
     fn check_version_drift_detects_newer_binary() {
         let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.16.0");
         assert!(!is_behind, "newer version should not be reported as behind");
-        assert_eq!(pinned.as_deref(), Some("0.15.2"));
+        assert_eq!(pinned.as_deref(), Some("0.15.4"));
         assert!(
             msg_override.is_some(),
             "newer version should have override message"
@@ -1247,7 +1265,7 @@ mod tests {
         assert!(
             msg_override
                 .as_deref()
-                .is_some_and(|msg| msg.contains("ahead of pin"))
+                .is_some_and(|msg| msg.contains("ahead of latest"))
         );
     }
 }
