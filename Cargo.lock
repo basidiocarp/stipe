@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "stipe"
-version = "0.8.15"
+version = "0.8.16"
 dependencies = [
  "anyhow",
  "clap",
