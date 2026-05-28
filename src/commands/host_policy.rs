@@ -109,7 +109,7 @@ impl HostAdapterKind {
 }
 
 pub fn supported_host_modes() -> &'static [HostMode] {
-    &[HostMode::ClaudeCode, HostMode::Codex, HostMode::Cursor]
+    &[HostMode::ClaudeCode, HostMode::Codex]
 }
 
 pub fn host_config_label(mode: HostMode) -> &'static str {
@@ -385,7 +385,7 @@ mod tests {
             .map(|mode| mode.descriptor())
             .collect::<Vec<_>>();
 
-        assert_eq!(descriptors.len(), 3);
+        assert_eq!(descriptors.len(), 2);
         assert!(
             descriptors
                 .iter()
@@ -395,11 +395,6 @@ mod tests {
             descriptors
                 .iter()
                 .any(|descriptor| descriptor.client_flag == "codex")
-        );
-        assert!(
-            descriptors
-                .iter()
-                .any(|descriptor| descriptor.client_flag == "cursor")
         );
         assert!(
             descriptors
