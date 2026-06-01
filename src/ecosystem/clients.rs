@@ -10,6 +10,7 @@
 
 use anyhow::Result;
 use spore::editors::Editor;
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -144,6 +145,7 @@ pub struct ServerConfig {
     pub name: String,
     pub command: String,
     pub args: Vec<String>,
+    pub env: HashMap<String, String>,
 }
 
 pub fn detect_clients() -> Vec<McpClient> {

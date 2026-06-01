@@ -113,6 +113,7 @@ fn test_print_generic_config() {
         name: "hyphae".to_string(),
         command: "hyphae".to_string(),
         args: vec!["serve".to_string()],
+        env: std::collections::HashMap::new(),
     }];
     print_generic_config(&servers);
 }

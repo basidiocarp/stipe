@@ -187,6 +187,11 @@ pub(super) fn build_ecosystem_servers_with_socket_check(
             // ~/.local/bin on PATH, so bare names fail at MCP server startup.
             command: resolve_tool_binary("hyphae"),
             args: vec!["serve".to_string()],
+            // Extend the idle timeout to 24 hours so long sessions with infrequent
+            // hyphae calls don't hit the 10-minute default and close the MCP transport.
+            env: [("HYPHAE_IDLE_TIMEOUT_SECS".to_string(), "86400".to_string())]
+                .into_iter()
+                .collect(),
         });
     }
     if rhizome_installed {
@@ -199,6 +204,7 @@ pub(super) fn build_ecosystem_servers_with_socket_check(
             name: "rhizome".to_string(),
             command: resolve_tool_binary("rhizome"),
             args,
+            env: std::collections::HashMap::new(),
         });
     }
     servers

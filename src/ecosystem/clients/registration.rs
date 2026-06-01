@@ -81,9 +81,11 @@ fn register_claude_code(
         cmd.arg("mcp")
             .arg("add")
             .arg("--scope")
-            .arg(scope_name)
-            .arg(&server.name)
-            .arg("--");
+            .arg(scope_name);
+        for (key, val) in &server.env {
+            cmd.arg("--env").arg(format!("{}={}", key, val));
+        }
+        cmd.arg(&server.name).arg("--");
         cmd.arg(&server.command);
         for arg in &server.args {
             cmd.arg(arg);
@@ -216,6 +218,14 @@ fn register_codex_toml_at_path(
                     .collect(),
             ),
         );
+        if !server.env.is_empty() {
+            let env_table: toml::map::Map<String, toml::Value> = server
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), toml::Value::String(v.clone())))
+                .collect();
+            server_table.insert("env".to_string(), toml::Value::Table(env_table));
+        }
         server_map.insert(server.name.clone(), toml::Value::Table(server_table));
     }
 
