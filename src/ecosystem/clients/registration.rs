@@ -78,10 +78,7 @@ fn register_claude_code(
         let span_context = registration_span_context(&server.name);
         let _tool_span = tool_span("register_claude_code_server", &span_context).entered();
         let mut cmd = Command::new("claude");
-        cmd.arg("mcp")
-            .arg("add")
-            .arg("--scope")
-            .arg(scope_name);
+        cmd.arg("mcp").arg("add").arg("--scope").arg(scope_name);
         for (key, val) in &server.env {
             cmd.arg("--env").arg(format!("{}={}", key, val));
         }

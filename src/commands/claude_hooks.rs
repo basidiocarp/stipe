@@ -34,15 +34,18 @@ struct HookSpec {
     subcommand: &'static str,
     status_message: &'static str,
     timeout_secs: u64,
+    /// When set, used as the hook command verbatim instead of generating a cortina adapter command.
+    command_override: Option<&'static str>,
 }
 
-const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
+const CLAUDE_HOOK_SPECS: [HookSpec; 7] = [
     HookSpec {
         event: "PreToolUse",
         matcher: Some("Bash"),
         subcommand: "pre-tool-use",
         status_message: "Cortina rewriting bash commands",
         timeout_secs: 2,
+        command_override: None,
     },
     HookSpec {
         event: "PostToolUse",
@@ -50,6 +53,7 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
         subcommand: "post-tool-use",
         status_message: "Cortina capturing lifecycle signals",
         timeout_secs: 2,
+        command_override: None,
     },
     HookSpec {
         event: "Stop",
@@ -57,6 +61,7 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
         subcommand: "stop",
         status_message: "Cortina capturing session summary",
         timeout_secs: 2,
+        command_override: None,
     },
     HookSpec {
         event: "SessionEnd",
@@ -64,6 +69,7 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
         subcommand: "session-end",
         status_message: "Cortina capturing session end",
         timeout_secs: 10,
+        command_override: None,
     },
     // SessionStart: not yet registered — cortina has no SessionStart handler.
     // Track in cortina handoff: session-lifecycle-hooks follow-up.
@@ -73,6 +79,7 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
         subcommand: "pre-compact",
         status_message: "Cortina capturing compaction snapshots",
         timeout_secs: 10,
+        command_override: None,
     },
     HookSpec {
         event: "UserPromptSubmit",
@@ -80,6 +87,17 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 6] = [
         subcommand: "user-prompt-submit",
         status_message: "Cortina capturing submitted prompts",
         timeout_secs: 10,
+        command_override: None,
+    },
+    HookSpec {
+        event: "PreToolUse",
+        matcher: Some("Bash"),
+        subcommand: "",
+        status_message: "Checking for Rhizome code navigation opportunity",
+        timeout_secs: 2,
+        command_override: Some(
+            r#"jq -r '.tool_input.command // ""' 2>/dev/null | grep -qE '\b(grep|head|cat|rg|find|sed|awk)\b.+\.(rs|tsx?)' && echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"REMINDER: Use Rhizome MCP tools for code navigation on .rs/.ts files. Load via ToolSearch (select:mcp__rhizome__search_symbols,mcp__rhizome__get_structure,mcp__rhizome__get_symbol_body,mcp__rhizome__find_references) instead of Bash."}}' || true"#,
+        ),
     },
 ];
 
@@ -140,6 +158,9 @@ fn resolve_binary_path(binary_name: &str) -> String {
 }
 
 fn hook_command(spec: HookSpec) -> String {
+    if let Some(raw) = spec.command_override {
+        return raw.to_string();
+    }
     let cortina = resolve_binary_path("cortina");
     format!("{cortina} adapter claude-code {}", spec.subcommand)
 }
@@ -350,6 +371,38 @@ pub(crate) fn remove_stipe_managed_hooks(root: &mut serde_json::Value) {
     hooks_obj.retain(|_, v| v.as_array().is_some_and(|a| !a.is_empty()));
 }
 
+fn ensure_auto_compact_defaults(root: &mut serde_json::Value) -> bool {
+    let Some(obj) = root.as_object_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    if !obj.contains_key("autoCompactEnabled") {
+        obj.insert("autoCompactEnabled".to_string(), json!(true));
+        changed = true;
+    }
+    if !obj.contains_key("autoCompactWindow") {
+        // 160_000 ≈ 80% of the 200k Claude context window.
+        obj.insert("autoCompactWindow".to_string(), json!(160_000));
+        changed = true;
+    }
+    changed
+}
+
+fn ensure_subprocess_env_scrub(root: &mut serde_json::Value) -> bool {
+    let Some(obj) = root.as_object_mut() else {
+        return false;
+    };
+    let env = obj.entry("env").or_insert_with(|| json!({}));
+    let Some(env_obj) = env.as_object_mut() else {
+        return false;
+    };
+    if env_obj.contains_key("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB") {
+        return false;
+    }
+    env_obj.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".to_string(), json!("1"));
+    true
+}
+
 fn install_statusline(root: &mut serde_json::Value, command: &str) -> Result<()> {
     let root_obj = if let Some(obj) = root.as_object_mut() {
         obj
@@ -423,6 +476,14 @@ fn install_claude_hooks_at_path(settings_path: &Path) -> Result<bool> {
         let cmd = resolve_binary_path("annulus") + " statusline";
         install_statusline(&mut root, &cmd)?;
         wrote_annulus = true;
+        changed = true;
+    }
+
+    if ensure_auto_compact_defaults(&mut root) {
+        changed = true;
+    }
+
+    if ensure_subprocess_env_scrub(&mut root) {
         changed = true;
     }
 
@@ -1098,9 +1159,26 @@ mod tests {
             .and_then(serde_json::Value::as_array)
             .expect("PreToolUse hooks array");
 
-        // Should be exactly one entry with the absolute path command.
-        assert_eq!(entries.len(), 1);
-        let hook_list = entries[0]
+        // Two PreToolUse entries: cortina + Rhizome navigation reminder.
+        assert_eq!(entries.len(), 2);
+
+        // Find the cortina entry specifically and verify it was upgraded to absolute path.
+        let cortina_entry = entries
+            .iter()
+            .find(|e| {
+                e.get("hooks")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|h| {
+                        h.iter().any(|hook| {
+                            hook.get("command")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|cmd| cmd.contains("adapter claude-code pre-tool-use"))
+                        })
+                    })
+            })
+            .expect("cortina pre-tool-use entry");
+
+        let hook_list = cortina_entry
             .get("hooks")
             .and_then(serde_json::Value::as_array)
             .expect("hooks array");
@@ -1116,5 +1194,74 @@ mod tests {
         assert!(cmd.contains("cortina") && cmd.contains("adapter claude-code pre-tool-use"));
 
         let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_ensure_subprocess_env_scrub_empty_object() {
+        let mut root = json!({});
+        let changed = ensure_subprocess_env_scrub(&mut root);
+        assert!(changed);
+        assert_eq!(
+            root.get("env")
+                .and_then(|env| env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"))
+                .and_then(serde_json::Value::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn test_ensure_subprocess_env_scrub_idempotent() {
+        let mut root = json!({});
+        let first_change = ensure_subprocess_env_scrub(&mut root);
+        assert!(first_change);
+
+        let second_change = ensure_subprocess_env_scrub(&mut root);
+        assert!(!second_change);
+    }
+
+    #[test]
+    fn test_ensure_subprocess_env_scrub_preserves_existing_value() {
+        let mut root = json!({ "env": { "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "0" } });
+        let changed = ensure_subprocess_env_scrub(&mut root);
+        assert!(!changed);
+        assert_eq!(
+            root.get("env")
+                .and_then(|env| env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"))
+                .and_then(serde_json::Value::as_str),
+            Some("0")
+        );
+    }
+
+    #[test]
+    fn test_ensure_subprocess_env_scrub_preserves_other_env_keys() {
+        let mut root = json!({ "env": { "FOO": "bar" } });
+        let changed = ensure_subprocess_env_scrub(&mut root);
+        assert!(changed);
+        assert_eq!(
+            root.get("env")
+                .and_then(|env| env.get("FOO"))
+                .and_then(serde_json::Value::as_str),
+            Some("bar")
+        );
+        assert_eq!(
+            root.get("env")
+                .and_then(|env| env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"))
+                .and_then(serde_json::Value::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn test_ensure_subprocess_env_scrub_leaves_non_object_env_untouched() {
+        // A malformed (non-object) `env` value is occupied, so `entry().or_insert_with`
+        // never fires: the helper returns false and leaves the existing value intact
+        // rather than silently discarding it.
+        let mut root = json!({ "env": "not-an-object" });
+        let changed = ensure_subprocess_env_scrub(&mut root);
+        assert!(!changed);
+        assert_eq!(
+            root.get("env").and_then(serde_json::Value::as_str),
+            Some("not-an-object")
+        );
     }
 }
