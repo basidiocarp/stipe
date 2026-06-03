@@ -598,7 +598,10 @@ fn extract_hook_path(command: &str) -> Option<PathBuf> {
                 .and_then(|ext| ext.to_str())
                 .is_some_and(|ext| matches!(ext, "js" | "sh" | "py"))
             {
-                return Some(path);
+                match resolve_within_plugin_root(path, root) {
+                    Some(resolved) => return Some(resolved),
+                    None => continue,
+                }
             }
             continue;
         }
@@ -627,6 +630,24 @@ fn extract_hook_path(command: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Returns `path` only if it stays within `root` once both are canonicalized.
+/// If `path` does not yet exist on disk (canonicalize fails), it is returned
+/// unchanged so the caller's existing `path.exists()` check still reports it.
+/// If `path` resolves outside `root`, returns `None` (escape rejected).
+fn resolve_within_plugin_root(path: PathBuf, root: &Path) -> Option<PathBuf> {
+    let Ok(canonical_path) = std::fs::canonicalize(&path) else {
+        return Some(path); // not on disk yet — let path.exists() report it
+    };
+    let Ok(canonical_root) = std::fs::canonicalize(root) else {
+        return Some(path); // unresolvable root — don't reject
+    };
+    if canonical_path.starts_with(&canonical_root) {
+        Some(canonical_path)
+    } else {
+        None
+    }
 }
 
 pub(crate) fn hook_path_snapshots() -> Vec<HookPathSnapshot> {
@@ -1113,7 +1134,12 @@ mod tests {
         let plugin_root = lamella_plugin_root().expect("lamella_plugin_root returns Some");
         let command = r#"node "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-tool.js""#.to_string();
         let resolved = extract_hook_path(&command);
-        let expected = plugin_root.join("scripts/hooks/pre-tool.js");
+        // The plugin-root guard returns the canonicalized path when the file exists, and the
+        // constructed path unchanged when it does not (INV3). Canonicalize the expected value
+        // with the same fallback so the assertion holds regardless of symlinks in $HOME /
+        // LAMELLA_HOME (e.g. /tmp -> /private/tmp on macOS).
+        let joined = plugin_root.join("scripts/hooks/pre-tool.js");
+        let expected = std::fs::canonicalize(&joined).unwrap_or(joined);
         assert_eq!(resolved, Some(expected));
     }
 
@@ -1263,5 +1289,87 @@ mod tests {
             root.get("env").and_then(serde_json::Value::as_str),
             Some("not-an-object")
         );
+    }
+
+    #[test]
+    fn test_resolve_within_plugin_root_returns_unchanged_nonexistent_path() {
+        // INV3: a non-existent ${CLAUDE_PLUGIN_ROOT} path is returned unchanged.
+        let temp_root = std::env::temp_dir().join(format!(
+            "stipe-test-root-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_root).unwrap();
+
+        let nonexistent = temp_root.join("nonexistent-hook.js");
+        let result = resolve_within_plugin_root(nonexistent.clone(), &temp_root);
+
+        assert_eq!(
+            result,
+            Some(nonexistent),
+            "non-existent path should be returned unchanged"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn test_resolve_within_plugin_root_accepts_in_root_file() {
+        // INV1: a ${CLAUDE_PLUGIN_ROOT}-derived path that canonicalizes within the canonical
+        // plugin root is returned.
+        let temp_root = std::env::temp_dir().join(format!(
+            "stipe-test-root-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_root).unwrap();
+
+        // Create an actual file inside the root
+        let hook_file = temp_root.join("hook.js");
+        fs::write(&hook_file, "// hook content").unwrap();
+
+        let result = resolve_within_plugin_root(hook_file.clone(), &temp_root);
+
+        // Should return the canonicalized path
+        assert!(result.is_some(), "in-root file should be accepted");
+        let returned = result.unwrap();
+        // The returned path should be the canonical form
+        let expected = std::fs::canonicalize(&hook_file).unwrap();
+        assert_eq!(returned, expected);
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn test_resolve_within_plugin_root_rejects_escape() {
+        // INV2: a ${CLAUDE_PLUGIN_ROOT}/../... escape to an EXISTING out-of-root file is rejected.
+        let temp_base = std::env::temp_dir().join(format!(
+            "stipe-test-base-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_base).unwrap();
+
+        let root = temp_base.join("root");
+        fs::create_dir_all(&root).unwrap();
+
+        // Create a file outside the root
+        let outside_file = temp_base.join("outside.js");
+        fs::write(&outside_file, "// outside").unwrap();
+
+        // Construct a path that escapes the root via ..
+        let escape_path = root.join("../outside.js");
+
+        let result = resolve_within_plugin_root(escape_path, &root);
+
+        assert_eq!(result, None, "path escaping root should be rejected");
+
+        let _ = fs::remove_dir_all(&temp_base);
     }
 }
