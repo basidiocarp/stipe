@@ -51,9 +51,9 @@ use server_checks::collect_mcp_server_health;
 use skills_checks::check_skills;
 use tool_checks::{
     check_canopy_wal_mode, check_capability_registry_health, check_codex_notify,
-    check_hook_command_runnability, check_hyphae_db, check_mcp_startups, check_profile_tools,
-    check_rhizome_compiled_env, check_shared_storage_root, check_stipe_toml_sync, check_tool,
-    init_live_versions,
+    check_hook_command_runnability, check_hyphae_db, check_local_config_gitignore,
+    check_mcp_startups, check_profile_tools, check_rhizome_compiled_env,
+    check_shared_storage_root, check_stipe_toml_sync, check_tool, init_live_versions,
 };
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -1647,6 +1647,9 @@ fn add_core_checks(
         package_drift_check,
     ]);
     if let Some(check) = check_codex_notify() {
+        checks.push(check);
+    }
+    if let Some(check) = check_local_config_gitignore() {
         checks.push(check);
     }
 }

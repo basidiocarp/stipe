@@ -1041,6 +1041,83 @@ pub(super) fn check_stipe_toml_sync() -> Option<HealthCheck> {
     })
 }
 
+/// Check that sensitive local config files (if they exist) are covered by .gitignore.
+///
+/// Returns `None` when:
+/// - `project_root` is unavailable
+/// - no sensitive files are found on disk
+/// - all found files are safely ignored
+/// - git is unavailable or not a repo (exit code not 0 or 1)
+///
+/// Returns `Some` with `passed=false` when at least one sensitive file exists but is NOT ignored.
+pub(super) fn check_local_config_gitignore() -> Option<HealthCheck> {
+    let root = host_policy::project_root()?;
+
+    // Candidate sensitive local config filenames
+    let candidates = [
+        ".claude/settings.local.json",
+        ".mcp.json",
+        ".env",
+        ".envrc",
+    ];
+
+    // Collect existing files
+    let mut existing = Vec::new();
+    for name in &candidates {
+        let path = root.join(name);
+        if path.exists() {
+            existing.push(name.to_string());
+        }
+    }
+
+    // If no candidates exist, nothing to check
+    if existing.is_empty() {
+        return None;
+    }
+
+    // Check which ones are ignored by git
+    let mut unsafe_files = Vec::new();
+
+    for file_path in existing {
+        let status = Command::new("git")
+            .args(["check-ignore", "-q", &file_path])
+            .current_dir(&root)
+            .status();
+
+        // `git check-ignore -q` exits 1 when the path is NOT ignored (unsafe). Exit 0
+        // means ignored (safe); 128 means not a repo / fatal git error; a spawn Err
+        // means git is not on PATH. Treat ONLY exit code 1 as unsafe (INV2) — a blanket
+        // "non-zero ⇒ unsafe" rule would misclassify the 128 not-a-repo case. Every
+        // other outcome skips THIS file without aborting, so unsafe files already
+        // collected from earlier candidates are preserved (no evidence-discarding early
+        // return). If git is absent or this is not a repo, every candidate skips and
+        // `unsafe_files` stays empty, so the function returns None below (INV1).
+        if let Ok(exit_status) = status {
+            if exit_status.code() == Some(1) {
+                unsafe_files.push(file_path);
+            }
+        }
+    }
+
+    // If all files are safe, return None (no issue)
+    if unsafe_files.is_empty() {
+        return None;
+    }
+
+    // At least one file is unsafe
+    let n = unsafe_files.len();
+    let joined = unsafe_files.join(", ");
+    Some(HealthCheck {
+        name: "config gitignore".to_string(),
+        passed: false,
+        message: format!(
+            "{} local config file(s) not covered by .gitignore: {}",
+            n, joined
+        ),
+        repair_actions: vec![],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1267,5 +1344,139 @@ mod tests {
                 .as_deref()
                 .is_some_and(|msg| msg.contains("ahead of latest"))
         );
+    }
+
+    // -- local config gitignore check ----------------------------------------
+
+    #[test]
+    fn check_local_config_gitignore_safe_file_returns_none() {
+        let test_suffix = format!("local-config-safe-{}", std::process::id());
+        let temp_root = std::env::temp_dir().join(format!("stipe-gitignore-test-{}", test_suffix));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).unwrap();
+
+        // Initialize a git repo and add a .gitignore entry
+        let init = Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init should spawn");
+        assert!(
+            init.status.success(),
+            "git init failed; test would otherwise pass vacuously: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+
+        fs::write(temp_root.join(".gitignore"), ".env\n").unwrap();
+        fs::write(temp_root.join(".env"), "SECRET=value\n").unwrap();
+
+        // Test the check within the overridden project root
+        let result = crate::commands::host_policy::with_project_root_override(
+            temp_root.clone(),
+            check_local_config_gitignore,
+        );
+
+        assert!(
+            result.is_none(),
+            "check should return None when .env is safely ignored"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn check_local_config_gitignore_unsafe_file_returns_some() {
+        let test_suffix = format!("local-config-unsafe-{}", std::process::id());
+        let temp_root = std::env::temp_dir().join(format!("stipe-gitignore-test-{}", test_suffix));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).unwrap();
+
+        // Initialize a git repo but do NOT add .env to .gitignore
+        let init = Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init should spawn");
+        assert!(
+            init.status.success(),
+            "git init failed; test would otherwise pass vacuously: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+
+        fs::write(temp_root.join(".gitignore"), "# empty\n").unwrap();
+        fs::write(temp_root.join(".env"), "SECRET=value\n").unwrap();
+
+        let result = crate::commands::host_policy::with_project_root_override(
+            temp_root.clone(),
+            check_local_config_gitignore,
+        );
+
+        assert!(
+            result.is_some(),
+            "check should return Some when .env is not ignored"
+        );
+        let check = result.unwrap();
+        assert!(!check.passed, "check should fail when unsafe files exist");
+        assert!(
+            check.message.contains(".env"),
+            "message should name the unsafe file"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn check_local_config_gitignore_non_git_dir_returns_none() {
+        let test_suffix = format!("local-config-nongit-{}", std::process::id());
+        let temp_root = std::env::temp_dir().join(format!("stipe-gitignore-test-{}", test_suffix));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).unwrap();
+
+        // Do NOT initialize git; just create a .env file
+        fs::write(temp_root.join(".env"), "SECRET=value\n").unwrap();
+
+        let result = crate::commands::host_policy::with_project_root_override(
+            temp_root.clone(),
+            check_local_config_gitignore,
+        );
+
+        assert!(
+            result.is_none(),
+            "check should return None when git is not available or not a repo (INV1)"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn check_local_config_gitignore_no_candidates_returns_none() {
+        let test_suffix = format!("local-config-nocandidates-{}", std::process::id());
+        let temp_root = std::env::temp_dir().join(format!("stipe-gitignore-test-{}", test_suffix));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).unwrap();
+
+        // Initialize a git repo but create no sensitive files
+        let init = Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_root)
+            .output()
+            .expect("git init should spawn");
+        assert!(
+            init.status.success(),
+            "git init failed; test would otherwise pass vacuously: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+
+        let result = crate::commands::host_policy::with_project_root_override(
+            temp_root.clone(),
+            check_local_config_gitignore,
+        );
+
+        assert!(
+            result.is_none(),
+            "check should return None when no candidate files exist"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
     }
 }
