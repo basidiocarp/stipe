@@ -96,9 +96,33 @@ fn release_repo(tool: &str) -> &str {
     tool_registry::find(tool).map_or(tool, |spec| spec.release_repo)
 }
 
+/// Resolve the GitHub release API base from a raw env value. An absent, empty,
+/// or whitespace-only value falls back to the public API; otherwise the value is
+/// used verbatim with any trailing slashes trimmed so the joined path never
+/// produces `//repos`. Split out as a pure function so the override logic is
+/// tested without mutating process env (which races under parallel tests).
+fn resolve_api_base(raw: Option<String>) -> String {
+    match raw.filter(|value| !value.trim().is_empty()) {
+        // Trim ALL trailing slashes, not just one: stripping a single char would
+        // still leave `//repos` for inputs like `https://host//`.
+        Some(value) => value.trim_end_matches('/').to_string(),
+        None => "https://api.github.com".to_string(),
+    }
+}
+
+/// Base URL for GitHub release API calls. Honors `STIPE_GITHUB_API_BASE` so CI,
+/// test harnesses, and mirror deployments can redirect fetches without patching
+/// the binary. Mirrors the `github_token` env-var pattern in `github.rs`.
+fn release_api_base() -> String {
+    resolve_api_base(std::env::var("STIPE_GITHUB_API_BASE").ok())
+}
+
 pub(crate) fn fetch_latest_release(tool: &str, client: &GitHubClient) -> Result<GitHubRelease> {
     let repo = release_repo(tool);
-    let url = format!("https://api.github.com/repos/{GITHUB_ORG}/{repo}/releases/latest");
+    let url = format!(
+        "{base}/repos/{GITHUB_ORG}/{repo}/releases/latest",
+        base = release_api_base()
+    );
     let data = crate::commands::github::get_github_json(
         client,
         &url,
@@ -656,6 +680,47 @@ mod tests {
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn resolve_api_base_defaults_to_public_api_when_absent() {
+        // Default case must be byte-for-byte the previous hardcoded prefix.
+        assert_eq!(resolve_api_base(None), "https://api.github.com");
+    }
+
+    #[test]
+    fn resolve_api_base_treats_empty_or_whitespace_as_absent() {
+        assert_eq!(
+            resolve_api_base(Some(String::new())),
+            "https://api.github.com"
+        );
+        assert_eq!(
+            resolve_api_base(Some("   ".to_string())),
+            "https://api.github.com"
+        );
+    }
+
+    #[test]
+    fn resolve_api_base_uses_override_and_trims_trailing_slash() {
+        assert_eq!(
+            resolve_api_base(Some("https://ghe.example.com/api/v3".to_string())),
+            "https://ghe.example.com/api/v3"
+        );
+        assert_eq!(
+            resolve_api_base(Some("https://mirror.internal/".to_string())),
+            "https://mirror.internal"
+        );
+    }
+
+    #[test]
+    fn resolve_api_base_default_joins_to_the_original_url() {
+        // Lock the full default URL so a future refactor cannot silently change
+        // the request path for the no-override case.
+        let base = resolve_api_base(None);
+        assert_eq!(
+            format!("{base}/repos/{GITHUB_ORG}/mycelium/releases/latest"),
+            "https://api.github.com/repos/basidiocarp/mycelium/releases/latest"
+        );
+    }
 
     #[test]
     fn parse_initialize_response_requires_protocol_version() {
