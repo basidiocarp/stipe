@@ -80,3 +80,66 @@ fn unique_tools_appends_explicit_extras_without_duplicates() {
         ]
     );
 }
+
+#[test]
+fn restore_after_failed_update_restores_previous_binary() {
+    use crate::backup::{BackupManifest, BinaryRecord};
+    use std::fs;
+
+    // Build a backup snapshot + manifest by hand (no env var, no network) and
+    // verify the restore helper rewrites the clobbered binary with the pre-update
+    // bytes — invariant #1: a failed update restores the previous binary in place.
+    // load_manifest / restore_from_backup read only the manifest's recorded paths,
+    // not STIPE_BACKUP_DIR, so this is race-free against backup.rs's env tests.
+    let tmp = tempfile::TempDir::new().expect("create tempdir");
+    let root = tmp.path();
+
+    let installed = root.join("installed").join("faketool");
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+
+    let backup_dir = root.join("backup-1");
+    let backup_bin = backup_dir.join("bin");
+    fs::create_dir_all(&backup_bin).unwrap();
+    let backup_path = backup_bin.join("faketool");
+    fs::write(&backup_path, b"v1-good").unwrap();
+
+    let manifest = BackupManifest {
+        timestamp: "1".to_string(),
+        stipe_version: "test".to_string(),
+        binaries: vec![BinaryRecord {
+            tool_name: "faketool".to_string(),
+            original_path: installed.clone(),
+            backup_path,
+            version: None,
+        }],
+        config_files: Vec::new(),
+    };
+    fs::write(
+        backup_dir.join("manifest.json"),
+        serde_json::to_string(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // Simulate the post-deploy broken binary a failed smoke check would leave live.
+    fs::write(&installed, b"v2-broken").unwrap();
+
+    restore_after_failed_update(&backup_dir, "faketool");
+
+    assert_eq!(fs::read(&installed).unwrap(), b"v1-good");
+}
+
+#[test]
+fn pre_update_backup_name_does_not_collide_with_bulk_backup() {
+    // run()'s bulk pre-update backup uses a bare `backup_timestamp()`. The
+    // per-tool name must NOT equal that bare timestamp, or the single-tool
+    // manifest overwrites the bulk all-tools manifest and `stipe rollback`
+    // restores only one tool. Guard against a regression to the bare name.
+    let bare = crate::backup::backup_timestamp();
+    let per_tool = pre_update_backup_name("mycelium");
+
+    assert_ne!(per_tool, bare);
+    assert!(per_tool.ends_with("-mycelium-preupdate"));
+    // The bulk name is all digits; the per-tool name must not be (else a future
+    // refactor could let them collide again under string comparison).
+    assert!(!per_tool.chars().all(|c| c.is_ascii_digit()));
+}

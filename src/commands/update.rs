@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use colored::Colorize;
 use spore::logging::{SpanContext, workflow_span};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -116,7 +116,53 @@ fn update_tool(tool: &str, client: &GitHubClient) -> Result<()> {
 
     let prefix = install::install_bin_dir()?;
 
-    super::install::install_tool(tool, &prefix, true, client)?;
+    // Snapshot the current binary before replacing it, so a failed update can
+    // roll back to it. `install_tool` deploys the new binary (rename-into-place)
+    // *before* running its internal spec-driven smoke check (verify_functional),
+    // so a smoke-check failure surfaces as an Err with the broken binary already
+    // live — exactly the state this restore guards against. update_tool is only
+    // reached for registry-resolved tools (handle_update_result <- run()'s loop),
+    // so verify_and_report_installation's unknown-tool branch is unreachable here.
+    // The reachable post-deploy Errs (the `--version` binary verify and the
+    // spec-driven smoke check) all leave a live-but-broken binary that restore
+    // correctly replaces. Restoring on *any* install error is therefore safe:
+    // pre-deploy failures leave the original binary untouched, so the restore
+    // just rewrites identical bytes.
+    //
+    // The per-tool backup directory is named distinctly from run()'s bulk
+    // pre-update backup (which uses a bare `backup_timestamp()`). Sharing that
+    // name would land in the same `base.join(timestamp)` directory and overwrite
+    // the bulk all-tools manifest with this single-tool one, corrupting the full
+    // snapshot `stipe rollback` restores. A distinct name keeps both intact.
+    let tool_path = prefix.join(tool);
+    let backup_dir = if tool_path.exists() {
+        let timestamp = pre_update_backup_name(tool);
+        let stipe_version = env!("CARGO_PKG_VERSION");
+        let binary_paths = vec![(tool.to_string(), tool_path.clone())];
+        Some(
+            crate::backup::create_backup(&timestamp, stipe_version, &binary_paths, &[])
+                .context("could not create pre-update backup")?,
+        )
+    } else {
+        None
+    };
+
+    if let Err(error) = super::install::install_tool(tool, &prefix, true, client) {
+        if let Some(backup_dir) = &backup_dir {
+            restore_after_failed_update(backup_dir, tool);
+        }
+        return Err(error);
+    }
+
+    // Update succeeded: drop the per-tool pre-update snapshot. Its only purpose is
+    // the failure-path auto-restore above; leaving it behind would shadow run()'s
+    // bulk pre-update backup as the default `stipe rollback` target, since the
+    // distinct per-tool name sorts newer than the bulk bare-timestamp name.
+    // Rollback-to-previous for the whole run is already covered by the bulk
+    // snapshot. Best-effort: a stale snapshot is harmless beyond the shadowing.
+    if let Some(backup_dir) = &backup_dir {
+        let _ = std::fs::remove_dir_all(backup_dir);
+    }
 
     println!(
         "  {} {} updated to {}",
@@ -126,6 +172,39 @@ fn update_tool(tool: &str, client: &GitHubClient) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Backup-directory name for `update_tool`'s per-tool pre-update snapshot.
+///
+/// MUST stay distinct from `run()`'s bulk pre-update backup, which uses a bare
+/// `backup_timestamp()`. A bare name collides into the same `base.join(name)`
+/// directory and overwrites the bulk all-tools manifest with this single-tool
+/// one, so `stipe rollback` would restore only one tool instead of the full
+/// pre-update snapshot. The `-{tool}-preupdate` suffix guarantees no collision.
+fn pre_update_backup_name(tool: &str) -> String {
+    format!("{}-{tool}-preupdate", crate::backup::backup_timestamp())
+}
+
+/// Best-effort restore of a tool's pre-update binary from a backup snapshot
+/// created earlier in `update_tool`. Logs the outcome and never propagates a
+/// restore error: the caller is already returning the original update failure,
+/// and masking it with a restore error would hide the root cause.
+fn restore_after_failed_update(backup_dir: &Path, tool: &str) {
+    match crate::backup::load_manifest(backup_dir)
+        .and_then(|manifest| crate::backup::restore_from_backup(&manifest))
+    {
+        Ok(()) => println!(
+            "  {} Restored previous {} after failed update",
+            "↩".yellow(),
+            tool
+        ),
+        Err(restore_error) => eprintln!(
+            "  {} Failed to restore {} after failed update: {}",
+            "!".red(),
+            tool,
+            restore_error
+        ),
+    }
 }
 
 fn unique_tools(base: Vec<String>, extras: &[String]) -> Vec<String> {
