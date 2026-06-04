@@ -279,6 +279,53 @@ fn print_update_header() {
     println!();
 }
 
+/// Print a read-only preview of what an update would do — installed → latest per
+/// tool — without creating backups or installing anything. Backs `--dry-run`.
+///
+/// Classification reuses `check_tool_update` (the same probe + version logic the
+/// real update path uses), so the preview reports exactly what the update loop
+/// would do: up-to-date, would-update, would-reinstall (broken binary), or an
+/// inspection error. `check_tool_update` only reads — it spawns `--version` and
+/// fetches release metadata; nothing on disk is mutated.
+fn print_update_dry_run_preview(tools_to_check: &[String]) {
+    let client = crate::commands::github::github_client();
+    println!("  {} Dry run — no changes will be made.", "•".cyan());
+    println!();
+    for tool in tools_to_check {
+        match check_tool_update(tool, &client) {
+            Ok(info) if info.needs_reinstall => {
+                println!(
+                    "  {} {} is installed but broken → reinstall {} (would reinstall)",
+                    "!".yellow(),
+                    tool,
+                    info.latest
+                );
+            }
+            Ok(info) if info.update_available => {
+                println!(
+                    "  {} {} {} → {} (would update)",
+                    "↑".cyan(),
+                    tool,
+                    info.installed,
+                    info.latest
+                );
+            }
+            Ok(info) => {
+                println!(
+                    "  {} {} is up to date ({})",
+                    "✓".green(),
+                    tool,
+                    info.installed
+                );
+            }
+            Err(error) => {
+                println!("  {} {} could not be inspected: {}", "!".red(), tool, error);
+            }
+        }
+    }
+    println!();
+}
+
 fn print_update_usage(all: bool) {
     if all {
         println!("No installed tools found. Run 'stipe install --all' first.");
@@ -370,15 +417,17 @@ fn handle_update_result(
     None
 }
 
-#[allow(clippy::unnecessary_wraps)]
+// `check`, `force`, and `dry_run` mirror the distinct `stipe update` CLI flags
+// one-to-one; collapsing them into an enum would obscure that mapping.
+#[allow(clippy::unnecessary_wraps, clippy::fn_params_excessive_bools)]
 pub fn run(
     all: bool,
     profile: Option<InstallProfile>,
     check: bool,
     force: bool,
+    dry_run: bool,
     tools: &[String],
 ) -> Result<()> {
-    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
     let span_context = update_span_context();
     let _workflow_span = workflow_span("update", &span_context).entered();
     if profile == Some(InstallProfile::DeveloperTools) {
@@ -399,6 +448,23 @@ pub fn run(
         }
         return Ok(());
     };
+
+    // `--dry-run` is a pure preview: list each tool's installed → latest state
+    // and return before touching disk. It returns *before* the bulk pre-update
+    // backup block and the update loop (the loop also runs hyphae's per-tool
+    // pre-upgrade backup, which `--check` still triggers but `--dry-run` skips),
+    // so dry-run has no side effects beyond read-only version queries.
+    if dry_run {
+        print_update_dry_run_preview(&tools_to_check);
+        return Ok(());
+    }
+
+    // Acquire the install lock only once we know we will mutate disk. `--dry-run`
+    // (and the DeveloperTools no-op above) return before this point, so a
+    // read-only preview never writes a lock file and is never refused by a
+    // concurrent install — matching `uninstall::run`'s dry-run path, which also
+    // skips the lock.
+    let _lock = crate::lockfile::acquire_lock(force).context("could not acquire install lock")?;
 
     // Create a backup before proceeding with any updates (unless we're just checking).
     if !check {

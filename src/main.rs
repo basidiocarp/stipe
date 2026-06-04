@@ -72,6 +72,10 @@ enum Commands {
         #[arg(long)]
         check: bool,
 
+        /// Show which tools would be updated without making changes
+        #[arg(long)]
+        dry_run: bool,
+
         /// Override any existing install lock
         #[arg(long)]
         force: bool,
@@ -285,9 +289,10 @@ fn main() -> Result<()> {
             profile,
             all,
             check,
+            dry_run,
             force,
             tools,
-        } => commands::update::run(all, profile, check, force, &tools),
+        } => commands::update::run(all, profile, check, force, dry_run, &tools),
         Commands::SelfCmd { command } => commands::self_update::run(command),
         Commands::Init {
             client,
@@ -426,6 +431,22 @@ mod tests {
         match cli.command {
             Commands::Update { profile, .. } => {
                 assert_eq!(profile, Some(commands::install::InstallProfile::ClaudeCode));
+            }
+            _ => panic!("expected update command"),
+        }
+    }
+
+    #[test]
+    fn test_update_accepts_dry_run_flag() {
+        let cli = Cli::try_parse_from(["stipe", "update", "--dry-run"])
+            .expect("update should accept --dry-run");
+
+        match cli.command {
+            // `--dry-run` must be additive: it coexists with `--check` and does
+            // not alias it. With only `--dry-run` set, `check` stays false.
+            Commands::Update { dry_run, check, .. } => {
+                assert!(dry_run);
+                assert!(!check);
             }
             _ => panic!("expected update command"),
         }
