@@ -426,19 +426,25 @@ pub fn pre_upgrade_backup_hyphae(hyphae_version: &str, timestamp: &str) -> Backu
     }
 }
 
+/// Serializes all test mutation of the process-global `STIPE_BACKUP_DIR` env
+/// var. Defined at module level (not inside `mod tests`) and `pub(crate)` so
+/// sibling test modules — notably `commands::install::tests` — acquire the
+/// SAME lock. Per-module locks do not compose: two modules each holding their
+/// own mutex still race on the shared env var (that was the original bug).
 #[cfg(test)]
-#[allow(unsafe_code)] // set_var is unsafe in Rust 2024; serialized via ENV_LOCK
+pub(crate) static BACKUP_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+#[allow(unsafe_code)] // set_var is unsafe in Rust 2024; serialized via BACKUP_DIR_ENV_LOCK
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::TempDir;
-
-    // Serialize all tests that mutate STIPE_BACKUP_DIR to prevent env var races.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn create_and_load_manifest() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = BACKUP_DIR_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let tmp = TempDir::new().unwrap();
         let bin_path = tmp.path().join("mycelium");
         fs::write(&bin_path, b"fake binary").unwrap();
@@ -479,7 +485,9 @@ mod tests {
 
     #[test]
     fn list_backups_empty_when_no_dir() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = BACKUP_DIR_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let tmp = TempDir::new().unwrap();
         let nonexistent_dir = tmp.path().join("no-backups");
         // SAFETY: This is a test. We're setting the environment variable only for this test.
@@ -496,7 +504,9 @@ mod tests {
 
     #[test]
     fn test_backup_hyphae_path_includes_version_and_timestamp() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = BACKUP_DIR_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let tmp = TempDir::new().unwrap();
         let backup_dir_path = tmp.path().join("backups");
         // SAFETY: This is a test. We're setting the environment variable only for this test.
@@ -523,7 +533,9 @@ mod tests {
 
     #[test]
     fn test_backup_hyphae_warns_on_failure() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = BACKUP_DIR_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Set backup dir to a non-writable location to trigger a warning
         // SAFETY: This is a test. We're setting the environment variable only for this test.
         unsafe {

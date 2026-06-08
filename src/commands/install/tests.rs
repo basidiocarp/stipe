@@ -604,8 +604,13 @@ fn with_test_project_root(label: &str, test: impl FnOnce(PathBuf, PathBuf)) {
     let lock_path = project_root.join("install.lock");
 
     // Override STIPE_BACKUP_DIR so this test is not affected by env var leaks
-    // from concurrent tests (e.g. test_backup_hyphae_warns_on_failure).
-    // SAFETY: This is a test; the override is scoped to this closure via catch_unwind.
+    // from concurrent tests (e.g. test_backup_hyphae_warns_on_failure). Hold the
+    // single crate-wide lock across both the set and the restore below so this
+    // never races backup.rs's env tests — per-module locks don't compose.
+    let _backup_dir_env_guard = crate::backup::BACKUP_DIR_ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // SAFETY: This is a test; the override is scoped to this closure.
     let prev_backup_dir = std::env::var("STIPE_BACKUP_DIR").ok();
     unsafe {
         std::env::set_var("STIPE_BACKUP_DIR", &backup_root);
