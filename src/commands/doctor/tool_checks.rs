@@ -1041,6 +1041,36 @@ pub(super) fn check_stipe_toml_sync() -> Option<HealthCheck> {
     })
 }
 
+/// Warn when `stipe.toml` contains keys that are not part of its schema. Serde
+/// drops such keys silently on `stipe sync`, so a typo like `[permisions]` or
+/// `network.denyed_domains` discards the user's intent without any error. This
+/// is a warning, not a hard failure — `stipe sync` still applies the file.
+///
+/// Returns `None` when no `stipe.toml` exists or every key is recognized.
+pub(super) fn check_stipe_toml_unknown_keys() -> Option<HealthCheck> {
+    let unknown = crate::commands::sync::check_unknown_keys()?;
+    if unknown.is_empty() {
+        return None;
+    }
+
+    Some(HealthCheck {
+        name: "stipe.toml keys".to_string(),
+        passed: false,
+        message: format!(
+            "stipe.toml has {} unrecognized key(s) silently ignored by `stipe sync` (likely typos): {}",
+            unknown.len(),
+            unknown.join(", ")
+        ),
+        repair_actions: vec![RepairAction::stipe(
+            "fix-stipe-toml-keys",
+            "Fix unrecognized stipe.toml keys",
+            "Correct or remove the unrecognized keys in stipe.toml; run `stipe sync --scaffold` to see the documented schema.",
+            &["sync", "--scaffold"],
+            RepairTier::Primary,
+        )],
+    })
+}
+
 /// Check that sensitive local config files (if they exist) are covered by .gitignore.
 ///
 /// Returns `None` when:

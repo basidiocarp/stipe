@@ -53,7 +53,7 @@ use tool_checks::{
     check_canopy_wal_mode, check_capability_registry_health, check_codex_notify,
     check_hook_command_runnability, check_hyphae_db, check_local_config_gitignore,
     check_mcp_startups, check_profile_tools, check_rhizome_compiled_env, check_shared_storage_root,
-    check_stipe_toml_sync, check_tool, init_live_versions,
+    check_stipe_toml_sync, check_stipe_toml_unknown_keys, check_tool, init_live_versions,
 };
 
 const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
@@ -1702,6 +1702,11 @@ fn add_hook_checks(checks: &mut Vec<HealthCheck>, hook_paths: &[claude_hooks::Ho
     // Check stipe.toml sync state (only present when stipe.toml exists).
     if let Some(sync_check) = check_stipe_toml_sync() {
         checks.push(sync_check);
+    }
+
+    // Warn about unrecognized stipe.toml keys (typos serde would drop silently).
+    if let Some(unknown_keys_check) = check_stipe_toml_unknown_keys() {
+        checks.push(unknown_keys_check);
     }
 
     // Check user-registered hook commands across all scopes.

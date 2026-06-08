@@ -58,6 +58,18 @@ const KNOWN_EVENTS: &[&str] = &[
     "UserPromptSubmit",
 ];
 
+// Known keys of the `stipe.toml` schema (`StipeToml` and its sub-sections).
+// Used by `collect_unknown_keys` to flag typo'd sections/keys that serde would
+// otherwise drop silently — there is intentionally no `#[serde(deny_unknown_fields)]`
+// on `StipeToml`, so `stipe sync` stays permissive and only `stipe doctor` warns.
+// The known top-level tables (`project`, `hooks`, `permissions`, `network`) are
+// not a constant: each has an explicit match arm in `collect_unknown_keys`, so
+// any top-level key reaching the wildcard arm is by definition unrecognized.
+const PROJECT_KEYS: &[&str] = &["name", "version"];
+const HOOK_KEYS: &[&str] = &["event", "match", "command", "timeout_ms"];
+const PERMISSIONS_KEYS: &[&str] = &["allow_tools"];
+const NETWORK_KEYS: &[&str] = &["denied_domains"];
+
 const STIPE_TOML_TEMPLATE: &str = r#"# stipe.toml — project-local stipe configuration
 # Run `stipe sync` to apply this file to .claude/settings.json.
 # Run `stipe sync --scaffold` to regenerate this template.
@@ -290,6 +302,82 @@ pub(crate) fn check_sync_state() -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Walks a parsed `stipe.toml` value and returns the dotted paths of any keys
+/// that are not part of the `StipeToml` schema (e.g. a typo'd section
+/// `permisions` or key `network.denyed_domains`). Serde drops such keys
+/// silently on `stipe sync`; this surfaces them so `stipe doctor` can warn.
+///
+/// Pure and filesystem-free so it can be unit-tested directly. Paths use the
+/// forms `permisions`, `permissions.allow_toolz`, `hooks[0].comand`.
+fn collect_unknown_keys(value: &toml::Value) -> Vec<String> {
+    let mut unknown = Vec::new();
+    let Some(root) = value.as_table() else {
+        return unknown;
+    };
+
+    for (key, val) in root {
+        match key.as_str() {
+            "project" => collect_table_unknowns(val, "project", PROJECT_KEYS, &mut unknown),
+            "permissions" => {
+                collect_table_unknowns(val, "permissions", PERMISSIONS_KEYS, &mut unknown);
+            }
+            "network" => collect_table_unknowns(val, "network", NETWORK_KEYS, &mut unknown),
+            "hooks" => {
+                if let Some(entries) = val.as_array() {
+                    for (i, entry) in entries.iter().enumerate() {
+                        collect_table_unknowns(
+                            entry,
+                            &format!("hooks[{i}]"),
+                            HOOK_KEYS,
+                            &mut unknown,
+                        );
+                    }
+                }
+            }
+            // Every known top-level table has an explicit arm above, so any key
+            // landing here is an unrecognized top-level section (e.g. `permisions`).
+            _ => unknown.push(key.clone()),
+        }
+    }
+
+    unknown
+}
+
+/// Records the unknown keys of a single table under `prefix`. Non-table values
+/// are ignored here — schema/type mismatches are surfaced by `stipe sync`'s
+/// own deserialization, not by this unknown-key pass.
+fn collect_table_unknowns(
+    value: &toml::Value,
+    prefix: &str,
+    known: &[&str],
+    unknown: &mut Vec<String>,
+) {
+    let Some(table) = value.as_table() else {
+        return;
+    };
+    for key in table.keys() {
+        if !known.contains(&key.as_str()) {
+            unknown.push(format!("{prefix}.{key}"));
+        }
+    }
+}
+
+/// Returns the unrecognized `stipe.toml` keys when the file exists and parses,
+/// or `None` when there is no `stipe.toml` (nothing to check) or it cannot be
+/// parsed as TOML (parse errors are surfaced by `stipe sync`). An empty vec
+/// means the file exists and all keys are recognized.
+pub(crate) fn check_unknown_keys() -> Option<Vec<String>> {
+    let project_root = host_policy::project_root()?;
+    let toml_path = project_root.join("stipe.toml");
+    if !toml_path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&toml_path).ok()?;
+    let value: toml::Value = toml::from_str(&content).ok()?;
+    Some(collect_unknown_keys(&value))
 }
 
 #[cfg(test)]
@@ -544,5 +632,117 @@ timeout_ms = 3000
         assert_eq!(entries.len(), 2, "should filter out the malicious command");
         assert_eq!(entries[0].command, "/usr/bin/true");
         assert_eq!(entries[1].command, "/bin/false");
+    }
+
+    fn unknown_keys_of(content: &str) -> Vec<String> {
+        let value: toml::Value = toml::from_str(content).expect("valid TOML");
+        collect_unknown_keys(&value)
+    }
+
+    #[test]
+    fn test_single_table_hooks_is_rejected_by_sync_not_the_key_walker() {
+        // A user who writes `[hooks]` (single table) instead of `[[hooks]]`
+        // (array of tables) is NOT silently dropped: `#[serde(default)]` only
+        // fills a missing key, so a present-but-wrong-type `hooks` makes
+        // `StipeToml` deserialization fail and `stipe sync` errors loudly. The
+        // unknown-key walker therefore intentionally stays quiet for this shape
+        // — it targets the silent-discard class, and this case is not silent.
+        let single = "[hooks]\nevent = \"PreToolUse\"\ncommand = \"/bin/true\"\n";
+        assert!(
+            toml::from_str::<StipeToml>(single).is_err(),
+            "single-table [hooks] must be a hard sync parse error, not a silent drop"
+        );
+        // The walker treats the same input as valid TOML with no *unknown* keys
+        // (the silent-discard check has nothing to flag; sync surfaces the type error).
+        assert!(unknown_keys_of(single).is_empty());
+    }
+
+    #[test]
+    fn test_unknown_keys_empty_for_fully_specified_config() {
+        // Every documented section and key — must produce zero unknowns (INV2).
+        let content = r#"
+[project]
+name = "demo"
+version = "1.0"
+
+[[hooks]]
+event = "PreToolUse"
+match = "Bash"
+command = "/bin/true"
+timeout_ms = 5000
+
+[permissions]
+allow_tools = ["Bash", "Read"]
+
+[network]
+denied_domains = ["blocked.example"]
+"#;
+        assert!(unknown_keys_of(content).is_empty());
+    }
+
+    #[test]
+    fn test_template_has_no_unknown_keys() {
+        // The scaffolded template must validate clean (INV2 — pre-existing valid
+        // configs are unaffected and `stipe doctor` stays quiet for them).
+        assert!(unknown_keys_of(STIPE_TOML_TEMPLATE).is_empty());
+    }
+
+    #[test]
+    fn test_unknown_keys_flags_typoed_section() {
+        let content = r#"
+[permisions]
+allow_tools = ["Bash"]
+"#;
+        assert_eq!(unknown_keys_of(content), vec!["permisions".to_string()]);
+    }
+
+    #[test]
+    fn test_unknown_keys_flags_typoed_key_in_known_section() {
+        let content = r#"
+[network]
+denyed_domains = ["blocked.example"]
+"#;
+        assert_eq!(
+            unknown_keys_of(content),
+            vec!["network.denyed_domains".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_unknown_keys_flags_typoed_key_in_hook_entry() {
+        let content = r#"
+[[hooks]]
+event = "PreToolUse"
+command = "/bin/true"
+timout_ms = 5000
+"#;
+        assert_eq!(
+            unknown_keys_of(content),
+            vec!["hooks[0].timout_ms".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_unknown_keys_reports_per_hook_index() {
+        let content = r#"
+[[hooks]]
+event = "PreToolUse"
+command = "/bin/true"
+
+[[hooks]]
+event = "Stop"
+command = "/bin/true"
+bogus = true
+"#;
+        assert_eq!(unknown_keys_of(content), vec!["hooks[1].bogus".to_string()]);
+    }
+
+    #[test]
+    fn test_unknown_keys_flags_stray_top_level_scalar() {
+        // Broadest silent-discard case: a stray top-level key that parses clean
+        // and is dropped by serde. Locks the wildcard match arm (every known
+        // top-level table has an explicit arm, so anything else is unknown).
+        let content = "foo = 42\n";
+        assert_eq!(unknown_keys_of(content), vec!["foo".to_string()]);
     }
 }
