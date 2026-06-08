@@ -1054,12 +1054,7 @@ pub(super) fn check_local_config_gitignore() -> Option<HealthCheck> {
     let root = host_policy::project_root()?;
 
     // Candidate sensitive local config filenames
-    let candidates = [
-        ".claude/settings.local.json",
-        ".mcp.json",
-        ".env",
-        ".envrc",
-    ];
+    let candidates = [".claude/settings.local.json", ".mcp.json", ".env", ".envrc"];
 
     // Collect existing files
     let mut existing = Vec::new();
