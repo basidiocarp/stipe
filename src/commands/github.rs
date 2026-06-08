@@ -99,10 +99,13 @@ pub(crate) fn get_github_json(
 
 /// Fetch the latest GitHub release tag for a single tool (e.g., "v0.11.3").
 pub(crate) fn fetch_release_tag(tool: &str, client: &GitHubClient) -> Result<String> {
-    use crate::commands::install::release::GITHUB_ORG;
+    use crate::commands::install::release::{release_api_base, release_latest_url};
     use crate::commands::tool_registry;
     let repo = tool_registry::find(tool).map_or(tool, |spec| spec.release_repo);
-    let url = format!("https://api.github.com/repos/{GITHUB_ORG}/{repo}/releases/latest");
+    // Route through release_api_base() + release_latest_url() — the same single
+    // source of truth the install/self-update path uses — so STIPE_GITHUB_API_BASE
+    // redirects the update-check path too (it previously hardcoded api.github.com).
+    let url = release_latest_url(&release_api_base(), repo);
     let data = get_github_json(client, &url, &format!("latest release for {repo}"))?;
     data.get("tag_name")
         .and_then(|v| v.as_str())

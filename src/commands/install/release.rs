@@ -102,27 +102,44 @@ fn release_repo(tool: &str) -> &str {
 /// produces `//repos`. Split out as a pure function so the override logic is
 /// tested without mutating process env (which races under parallel tests).
 fn resolve_api_base(raw: Option<String>) -> String {
+    const DEFAULT_API_BASE: &str = "https://api.github.com";
     match raw.filter(|value| !value.trim().is_empty()) {
         // Trim ALL trailing slashes, not just one: stripping a single char would
-        // still leave `//repos` for inputs like `https://host//`.
-        Some(value) => value.trim_end_matches('/').to_string(),
-        None => "https://api.github.com".to_string(),
+        // still leave `//repos` for inputs like `https://host//`. A value that is
+        // only slashes ("/", "//") trims to empty and would otherwise produce a
+        // scheme/host-less URL like `/repos/...` — fall back to the default.
+        Some(value) => {
+            let trimmed = value.trim_end_matches('/');
+            if trimmed.is_empty() {
+                DEFAULT_API_BASE.to_string()
+            } else {
+                trimmed.to_string()
+            }
+        }
+        None => DEFAULT_API_BASE.to_string(),
     }
 }
 
 /// Base URL for GitHub release API calls. Honors `STIPE_GITHUB_API_BASE` so CI,
 /// test harnesses, and mirror deployments can redirect fetches without patching
 /// the binary. Mirrors the `github_token` env-var pattern in `github.rs`.
-fn release_api_base() -> String {
+pub(crate) fn release_api_base() -> String {
     resolve_api_base(std::env::var("STIPE_GITHUB_API_BASE").ok())
+}
+
+/// Compose the "latest release" GitHub API URL. The single source of truth for
+/// this URL shape: both the install/self-update path (`fetch_latest_release`)
+/// and the update-check path (`github::fetch_release_tag`) call it, so the two
+/// cannot silently drift. Pure (takes `base` as an argument) so the composition
+/// is tested without mutating process env — the crate has a known parallel
+/// env-race flake.
+pub(crate) fn release_latest_url(base: &str, repo: &str) -> String {
+    format!("{base}/repos/{GITHUB_ORG}/{repo}/releases/latest")
 }
 
 pub(crate) fn fetch_latest_release(tool: &str, client: &GitHubClient) -> Result<GitHubRelease> {
     let repo = release_repo(tool);
-    let url = format!(
-        "{base}/repos/{GITHUB_ORG}/{repo}/releases/latest",
-        base = release_api_base()
-    );
+    let url = release_latest_url(&release_api_base(), repo);
     let data = crate::commands::github::get_github_json(
         client,
         &url,
@@ -712,14 +729,37 @@ mod tests {
     }
 
     #[test]
-    fn resolve_api_base_default_joins_to_the_original_url() {
-        // Lock the full default URL so a future refactor cannot silently change
-        // the request path for the no-override case.
-        let base = resolve_api_base(None);
+    fn release_latest_url_default_joins_to_the_original_url() {
+        // Lock the full default URL through the production helper so a future
+        // refactor cannot silently change the request path for the no-override
+        // case. Both the install and update-check paths route through this fn.
         assert_eq!(
-            format!("{base}/repos/{GITHUB_ORG}/mycelium/releases/latest"),
+            release_latest_url(&resolve_api_base(None), "mycelium"),
             "https://api.github.com/repos/basidiocarp/mycelium/releases/latest"
         );
+    }
+
+    #[test]
+    fn release_latest_url_honors_override_base() {
+        // A mirror/GHE base flows straight into the composed URL — the override
+        // install already honored now reaches the update-check path too, since
+        // both call this single helper.
+        assert_eq!(
+            release_latest_url("https://ghe.example.com/api/v3", "rhizome"),
+            "https://ghe.example.com/api/v3/repos/basidiocarp/rhizome/releases/latest"
+        );
+    }
+
+    #[test]
+    fn resolve_api_base_all_slashes_falls_back_to_default() {
+        // "/", "//", "///" survive the non-empty filter but trim to empty; without
+        // the post-trim guard this would yield a scheme/host-less `/repos/...` URL.
+        for raw in ["/", "//", "///"] {
+            assert_eq!(
+                resolve_api_base(Some(raw.to_string())),
+                "https://api.github.com"
+            );
+        }
     }
 
     #[test]
