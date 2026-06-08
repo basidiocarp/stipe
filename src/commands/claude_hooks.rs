@@ -430,8 +430,18 @@ pub(crate) fn load_or_create_settings(settings_path: &Path) -> Result<serde_json
         if content.trim().is_empty() {
             Ok(json!({}))
         } else {
-            serde_json::from_str(&content)
-                .with_context(|| format!("parsing {}", settings_path.display()))
+            match jsonc_parser::parse_to_serde_value(
+                &content,
+                &jsonc_parser::ParseOptions::default(),
+            ) {
+                Ok(Some(value)) => Ok(value),
+                // Comment-only / value-less input parses to no value; treat as empty settings.
+                Ok(None) => Ok(json!({})),
+                // Preserve the typed ParseError as the chain cause (it carries line/column);
+                // genuinely malformed input still surfaces an Err with file-path context.
+                Err(e) => Err(anyhow::Error::from(e))
+                    .with_context(|| format!("parsing {}", settings_path.display())),
+            }
         }
     } else {
         Ok(json!({}))
@@ -1371,5 +1381,85 @@ mod tests {
         assert_eq!(result, None, "path escaping root should be rejected");
 
         let _ = fs::remove_dir_all(&temp_base);
+    }
+
+    #[test]
+    fn test_load_or_create_settings_tolerates_jsonc_comments() {
+        // JSONC with line comment and trailing comma must parse successfully.
+        let settings_path = test_settings_path("jsonc-comments");
+        let jsonc_content = r#"{
+  // managed by stipe
+  "model": "opus",
+}"#;
+        fs::write(&settings_path, jsonc_content).unwrap();
+
+        let result = load_or_create_settings(&settings_path).unwrap();
+
+        assert_eq!(
+            result.get("model").and_then(serde_json::Value::as_str),
+            Some("opus"),
+            "JSONC with comments and trailing comma should parse correctly"
+        );
+
+        let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_load_or_create_settings_strict_json_still_works() {
+        // Strictly-valid JSON must parse to the IDENTICAL Value the old serde_json path produced.
+        // Includes a numeric field so integer-vs-float representation is exercised, not just strings.
+        let settings_path = test_settings_path("strict-json");
+        let strict_json = r#"{"model":"opus","cleanupPeriodDays":30,"hooks":{"PreToolUse":[]}}"#;
+        fs::write(&settings_path, strict_json).unwrap();
+
+        let result = load_or_create_settings(&settings_path).unwrap();
+
+        // Full value identity against the strict serde_json parse — the JSONC parser is a
+        // superset and must not alter plain-JSON output (key set, nesting, number type).
+        let expected: serde_json::Value = serde_json::from_str(strict_json).unwrap();
+        assert_eq!(result, expected, "plain JSON must round-trip identically");
+        assert_eq!(result["cleanupPeriodDays"], serde_json::json!(30));
+
+        let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_load_or_create_settings_comment_only_is_empty() {
+        // A file containing only JSONC comments (no JSON value) parses to no value;
+        // documents the Ok(None) -> {} branch so a future change can't reroute it to Err.
+        let settings_path = test_settings_path("comment-only");
+        fs::write(&settings_path, "// just a comment\n").unwrap();
+
+        let result = load_or_create_settings(&settings_path).unwrap();
+
+        assert_eq!(
+            result,
+            json!({}),
+            "comment-only input should yield empty settings"
+        );
+
+        let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_load_or_create_settings_rejects_malformed_json() {
+        // Genuinely malformed input must still error with a message containing the file path.
+        let settings_path = test_settings_path("malformed-json");
+        let malformed = r#"{ "model": }"#;
+        fs::write(&settings_path, malformed).unwrap();
+
+        let result = load_or_create_settings(&settings_path);
+
+        assert!(
+            result.is_err(),
+            "malformed JSON should produce an error, not silent success"
+        );
+        let err_msg = format!("{:?}", result);
+        assert!(
+            err_msg.contains("parsing"),
+            "error should mention parsing context"
+        );
+
+        let _ = fs::remove_file(settings_path);
     }
 }
