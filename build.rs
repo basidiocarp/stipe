@@ -1,30 +1,59 @@
 use std::{collections::BTreeMap, env, fmt::Write, fs, path::PathBuf};
 
-// Tools tracked in ecosystem-versions.toml [tools] that stipe does not manage
-// as installable binaries. spore is a shared library, not a standalone binary.
-const SKIP: &[&str] = &["spore"];
+// Pure drift/extraction helpers live in src/version_drift.rs so they are unit-testable:
+// Cargo does not run tests defined inside a build script, but tests/version_drift.rs
+// includes the same module and exercises them under `cargo test`.
+#[path = "src/version_drift.rs"]
+mod version_drift;
+use version_drift::{SKIP, tools_diff};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
 
-    // Prefer a repo-local copy (used in CI and standalone builds) over the
-    // monorepo sibling path (used in local development). Both are watched so
-    // whichever is present triggers a rebuild when changed.
+    // Prefer the root SSOT sibling (used in monorepo development) when present.
+    // If absent (standalone CI/release checkout), fall back to the local copy.
+    // Both are watched so either file changing triggers a rebuild.
     let local = manifest_dir.join("ecosystem-versions.toml");
     let sibling = manifest_dir.join("../ecosystem-versions.toml");
-    let toml_path = if local.exists() { local } else { sibling };
+    let toml_path = if sibling.exists() {
+        sibling.clone()
+    } else {
+        local.clone()
+    };
 
     println!("cargo:rerun-if-changed={}", toml_path.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join("ecosystem-versions.toml").display()
-    );
+    println!("cargo:rerun-if-changed={}", local.display());
 
     let content = fs::read_to_string(&toml_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", toml_path.display()));
 
     let doc: toml::Value = toml::from_str(&content)
         .unwrap_or_else(|e| panic!("cannot parse ecosystem-versions.toml: {e}"));
+
+    // If both files exist, check for drift in the [tools] section.
+    // This catches silent misalignment in the monorepo.
+    if local.exists() && sibling.exists() {
+        let local_content = fs::read_to_string(&local)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", local.display()));
+        let local_doc: toml::Value = toml::from_str(&local_content)
+            .unwrap_or_else(|e| panic!("cannot parse {}: {e}", local.display()));
+
+        let diffs = tools_diff(&local_doc, &doc);
+        if !diffs.is_empty() {
+            let mut msg = format!(
+                "ecosystem-versions [tools] drift: {} disagrees with root {} on:\n",
+                local.display(),
+                sibling.display()
+            );
+            for (key, local_ver, root_ver) in diffs {
+                let local_str = local_ver.as_deref().unwrap_or("(absent)");
+                let root_str = root_ver.as_deref().unwrap_or("(absent)");
+                let _ = writeln!(msg, "  {key}: local {local_str} vs root {root_str}");
+            }
+            msg.push_str("The root file is the SSOT — sync the local copy.");
+            panic!("{}", msg);
+        }
+    }
 
     let tools = doc
         .get("tools")
