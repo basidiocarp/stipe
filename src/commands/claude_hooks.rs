@@ -38,7 +38,7 @@ struct HookSpec {
     command_override: Option<&'static str>,
 }
 
-const CLAUDE_HOOK_SPECS: [HookSpec; 7] = [
+const CLAUDE_HOOK_SPECS: [HookSpec; 8] = [
     HookSpec {
         event: "PreToolUse",
         matcher: Some("Bash"),
@@ -71,8 +71,6 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 7] = [
         timeout_secs: 10,
         command_override: None,
     },
-    // SessionStart: not yet registered — cortina has no SessionStart handler.
-    // Track in cortina handoff: session-lifecycle-hooks follow-up.
     HookSpec {
         event: "PreCompact",
         matcher: Some("*"),
@@ -88,6 +86,16 @@ const CLAUDE_HOOK_SPECS: [HookSpec; 7] = [
         status_message: "Cortina capturing submitted prompts",
         timeout_secs: 10,
         command_override: None,
+    },
+    HookSpec {
+        event: "SessionStart",
+        matcher: None,
+        subcommand: "",
+        status_message: "Emitting reloadSkills signal",
+        timeout_secs: 2,
+        command_override: Some(
+            r#"echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","reloadSkills":true}}' || true"#,
+        ),
     },
     HookSpec {
         event: "PreToolUse",
@@ -1458,6 +1466,60 @@ mod tests {
         assert!(
             err_msg.contains("parsing"),
             "error should mention parsing context"
+        );
+
+        let _ = fs::remove_file(settings_path);
+    }
+
+    #[test]
+    fn test_session_start_hook_spec_present_and_emits_reload_skills() {
+        // Verify that SessionStart is registered in CLAUDE_HOOK_SPECS.
+        let session_start_spec = CLAUDE_HOOK_SPECS
+            .iter()
+            .find(|spec| spec.event == "SessionStart")
+            .expect("SessionStart hook spec should be registered");
+
+        // Verify spec properties match the plan: no matcher, 2 second timeout.
+        assert_eq!(session_start_spec.event, "SessionStart");
+        assert_eq!(session_start_spec.matcher, None);
+        assert_eq!(session_start_spec.timeout_secs, 2);
+
+        // Verify the command_override emits the exact expected shell command.
+        // Exact-match (not substring) so a regression to snake_case `reload_skills`
+        // or a dropped `hookEventName` fails the test instead of slipping through.
+        let command = hook_command(*session_start_spec);
+        assert_eq!(
+            command,
+            r#"echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","reloadSkills":true}}' || true"#,
+            "SessionStart command_override must emit the exact reloadSkills payload"
+        );
+
+        // The echoed payload must be valid JSON with the precise field shape Claude
+        // Code keys on (invariant: the hook must produce valid JSON on stdout).
+        let json_payload = command
+            .strip_prefix("echo '")
+            .and_then(|s| s.strip_suffix("' || true"))
+            .expect("command should wrap a single-quoted JSON payload in `echo '...' || true`");
+        let parsed: serde_json::Value =
+            serde_json::from_str(json_payload).expect("echoed payload must be valid JSON");
+        assert_eq!(
+            parsed["hookSpecificOutput"]["hookEventName"],
+            serde_json::json!("SessionStart")
+        );
+        assert_eq!(
+            parsed["hookSpecificOutput"]["reloadSkills"],
+            serde_json::json!(true)
+        );
+
+        // Verify the hook is installed correctly.
+        let settings_path = test_settings_path("session-start-hook");
+        install_claude_hooks_at_path(&settings_path).unwrap();
+
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert!(
+            hook_entry_present(&root, *session_start_spec, &command),
+            "SessionStart hook should be installed in settings"
         );
 
         let _ = fs::remove_file(settings_path);

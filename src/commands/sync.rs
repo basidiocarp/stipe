@@ -56,6 +56,7 @@ const KNOWN_EVENTS: &[&str] = &[
     "SessionEnd",
     "PreCompact",
     "UserPromptSubmit",
+    "SessionStart",
 ];
 
 // Known keys of the `stipe.toml` schema (`StipeToml` and its sub-sections).
@@ -744,5 +745,25 @@ bogus = true
         // top-level table has an explicit arm, so anything else is unknown).
         let content = "foo = 42\n";
         assert_eq!(unknown_keys_of(content), vec!["foo".to_string()]);
+    }
+
+    #[test]
+    fn test_validate_accepts_session_start_event() {
+        // Verify that SessionStart is accepted as a known event in stipe.toml.
+        let config = StipeToml {
+            project: ProjectSection::default(),
+            hooks: vec![HookEntry {
+                event: "SessionStart".to_string(),
+                matcher: None,
+                command: "/bin/true".to_string(),
+                timeout_ms: None,
+            }],
+            permissions: PermissionsSection::default(),
+            network: NetworkSection::default(),
+        };
+        assert!(
+            validate(&config).is_ok(),
+            "SessionStart should be accepted as a valid event"
+        );
     }
 }
