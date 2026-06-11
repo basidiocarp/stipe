@@ -218,6 +218,21 @@ fn validated_target_path(target_path: &str) -> Result<PathBuf> {
     expand_home(target_path)
 }
 
+/// Get the path to the installed skills manifest file.
+/// This path is used for both reading and writing the manifest.
+fn installed_manifest_path() -> Result<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = test_manifest_path_override() {
+        return Ok(path);
+    }
+
+    let config_dir = dirs::config_dir()
+        .ok_or_else(|| anyhow!("Could not determine config directory"))?
+        .join("basidiocarp")
+        .join("skills");
+    Ok(config_dir.join(".installed-manifest.json"))
+}
+
 /// Install a skill pack from a directory or .tar.gz archive.
 pub fn install_skills(pack_path: &Path) -> Result<()> {
     // Keep _temp_dir alive for the full duration of this function.
@@ -304,21 +319,19 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
     }
 
     // Write the installed manifest
-    let config_dir = dirs::config_dir()
-        .ok_or_else(|| anyhow!("Could not determine config directory"))?
-        .join("basidiocarp")
-        .join("skills");
-    fs::create_dir_all(&config_dir)
-        .with_context(|| format!("create skills config directory: {}", config_dir.display()))?;
-
-    let installed_manifest_path = config_dir.join(".installed-manifest.json");
-    let json = serde_json::to_string_pretty(&manifest).context("serialize installed manifest")?;
-    atomic_write_bytes(&installed_manifest_path, json.as_bytes()).with_context(|| {
-        format!(
-            "write installed manifest: {}",
-            installed_manifest_path.display()
+    let manifest_path = installed_manifest_path()?;
+    let parent = manifest_path.parent().ok_or_else(|| {
+        anyhow!(
+            "installed manifest path has no parent directory: {}",
+            manifest_path.display()
         )
     })?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("create skills config directory: {}", parent.display()))?;
+
+    let json = serde_json::to_string_pretty(&manifest).context("serialize installed manifest")?;
+    atomic_write_bytes(&manifest_path, json.as_bytes())
+        .with_context(|| format!("write installed manifest: {}", manifest_path.display()))?;
 
     println!(
         "Successfully installed skill pack '{}' (version {})",
@@ -326,6 +339,87 @@ pub fn install_skills(pack_path: &Path) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Verify the integrity of installed skills against the persisted manifest.
+/// This is a read-only operation that performs no filesystem mutations.
+pub fn verify_installed_skills() -> Result<()> {
+    let manifest_path = installed_manifest_path()?;
+    if !manifest_path.exists() {
+        return Err(anyhow!(
+            "no installed skill manifest found at {}; nothing to verify",
+            manifest_path.display()
+        ));
+    }
+
+    let json = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("read installed manifest: {}", manifest_path.display()))?;
+    let manifest: SkillPackManifest =
+        serde_json::from_str(&json).context("parse installed manifest")?;
+
+    // Verify all installed files
+    let mut verify_failures: Vec<(String, String)> = Vec::new();
+    for entry in &manifest.skills {
+        match verify_skill(entry) {
+            Ok(SkillVerifyStatus::Ok) => {}
+            Ok(SkillVerifyStatus::Missing) => {
+                verify_failures.push((entry.name.clone(), "file not found".to_string()));
+            }
+            Ok(SkillVerifyStatus::ChecksumMismatch { actual }) => {
+                verify_failures.push((
+                    entry.name.clone(),
+                    format!(
+                        "checksum mismatch (expected {}, got {actual})",
+                        entry.sha256
+                    ),
+                ));
+            }
+            Err(e) => {
+                verify_failures.push((entry.name.clone(), format!("verification error: {e}")));
+            }
+        }
+    }
+
+    if !verify_failures.is_empty() {
+        let mut error_lines = vec!["Installed skill verification failed:".to_string()];
+        for (name, reason) in verify_failures {
+            error_lines.push(format!("  {name}: {reason}"));
+        }
+        return Err(anyhow!(error_lines.join("\n")));
+    }
+
+    println!(
+        "Verified {} installed skills (pack '{}' version {})",
+        manifest.skills.len(),
+        manifest.pack_name,
+        manifest.version
+    );
+
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_MANIFEST_PATH_OVERRIDE: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn test_manifest_path_override() -> Option<PathBuf> {
+    TEST_MANIFEST_PATH_OVERRIDE.with(|path| path.borrow().clone())
+}
+
+#[cfg(test)]
+pub(crate) fn with_manifest_path_override<T>(path: PathBuf, f: impl FnOnce() -> T) -> T {
+    TEST_MANIFEST_PATH_OVERRIDE.with(|override_path| {
+        let previous = override_path.replace(Some(path));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        override_path.replace(previous);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -434,5 +528,156 @@ mod tests {
     fn test_expand_absolute_path() {
         let expanded = expand_home("/absolute/path").unwrap();
         assert_eq!(expanded, PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn test_verify_installed_skills_with_intact_manifest() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let manifest_dir = temp.path().join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+
+        // Create a skill file with known content
+        let skill_file = temp.path().join("skill.sh");
+        fs::write(&skill_file, b"#!/bin/bash\necho hello").unwrap();
+        let skill_sha = file_sha256(&skill_file).unwrap();
+
+        // Create a manifest with that skill
+        let manifest = SkillPackManifest {
+            pack_name: "test-pack".to_string(),
+            version: "1.0.0".to_string(),
+            skills: vec![SkillEntry {
+                name: "test-skill".to_string(),
+                source_path: "skill.sh".to_string(),
+                target_path: skill_file.to_string_lossy().to_string(),
+                sha256: skill_sha,
+            }],
+        };
+
+        let manifest_path = manifest_dir.join(".installed-manifest.json");
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        fs::write(&manifest_path, json).unwrap();
+
+        // Snapshot the raw bytes of both the manifest and the skill file so the
+        // no-mutation invariant is proven byte-for-byte, not via a semantic proxy.
+        let manifest_before = fs::read(&manifest_path).unwrap();
+        let skill_before = fs::read(&skill_file).unwrap();
+
+        // Override the manifest path for this test
+        with_manifest_path_override(manifest_path.clone(), || {
+            let result = verify_installed_skills();
+            assert!(
+                result.is_ok(),
+                "verify_installed_skills should succeed with intact manifest"
+            );
+
+            // No-mutation invariant: neither the manifest nor the verified file changed.
+            assert_eq!(
+                fs::read(&manifest_path).unwrap(),
+                manifest_before,
+                "manifest file must not be modified by verify"
+            );
+            assert_eq!(
+                fs::read(&skill_file).unwrap(),
+                skill_before,
+                "verified skill file must not be modified by verify"
+            );
+        });
+    }
+
+    #[test]
+    fn test_verify_installed_skills_with_tampered_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let manifest_dir = temp.path().join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+
+        // Create a skill file with known content
+        let skill_file = temp.path().join("skill.sh");
+        fs::write(&skill_file, b"#!/bin/bash\necho hello").unwrap();
+        let skill_sha = file_sha256(&skill_file).unwrap();
+
+        // Create a manifest with that skill
+        let manifest = SkillPackManifest {
+            pack_name: "test-pack".to_string(),
+            version: "1.0.0".to_string(),
+            skills: vec![SkillEntry {
+                name: "test-skill".to_string(),
+                source_path: "skill.sh".to_string(),
+                target_path: skill_file.to_string_lossy().to_string(),
+                sha256: skill_sha,
+            }],
+        };
+
+        let manifest_path = manifest_dir.join(".installed-manifest.json");
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        fs::write(&manifest_path, json).unwrap();
+
+        // Tamper with the file after manifest is written
+        fs::write(&skill_file, b"#!/bin/bash\necho tampered").unwrap();
+
+        with_manifest_path_override(manifest_path, || {
+            let result = verify_installed_skills();
+            assert!(
+                result.is_err(),
+                "verify_installed_skills should fail when skill file is tampered"
+            );
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("checksum mismatch")
+            );
+        });
+    }
+
+    #[test]
+    fn test_verify_installed_skills_with_absent_manifest() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let manifest_path = temp.path().join(".installed-manifest.json");
+
+        with_manifest_path_override(manifest_path, || {
+            let result = verify_installed_skills();
+            assert!(
+                result.is_err(),
+                "verify_installed_skills should fail when manifest is absent"
+            );
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no installed skill manifest found")
+            );
+        });
+    }
+
+    #[test]
+    fn test_verify_installed_skills_with_missing_file() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let manifest_dir = temp.path().join("manifest");
+        fs::create_dir_all(&manifest_dir).unwrap();
+
+        // Create a manifest with a non-existent target file
+        let manifest = SkillPackManifest {
+            pack_name: "test-pack".to_string(),
+            version: "1.0.0".to_string(),
+            skills: vec![SkillEntry {
+                name: "missing-skill".to_string(),
+                source_path: "skill.sh".to_string(),
+                target_path: "/nonexistent/skill.sh".to_string(),
+                sha256: "abcd1234".to_string(),
+            }],
+        };
+
+        let manifest_path = manifest_dir.join(".installed-manifest.json");
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        fs::write(&manifest_path, json).unwrap();
+
+        with_manifest_path_override(manifest_path, || {
+            let result = verify_installed_skills();
+            assert!(
+                result.is_err(),
+                "verify_installed_skills should fail when a skill file is missing"
+            );
+            assert!(result.unwrap_err().to_string().contains("file not found"));
+        });
     }
 }

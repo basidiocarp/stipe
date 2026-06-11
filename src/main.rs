@@ -55,7 +55,12 @@ enum Commands {
     /// Install a skill pack (directory or .tar.gz archive)
     InstallSkills {
         /// Path to skill pack directory or .tar.gz archive
-        pack_path: std::path::PathBuf,
+        #[arg(value_name = "PACK")]
+        pack_path: Option<std::path::PathBuf>,
+
+        /// Verify integrity of installed skills without installing
+        #[arg(long)]
+        frozen: bool,
     },
 
     /// Update installed tools to latest versions
@@ -253,6 +258,9 @@ enum BackupCommand {
     Hyphae,
 }
 
+// `main` is a flat clap-subcommand dispatch; the match arms make it long by
+// nature, so the pedantic line-count lint is noise here.
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     spore::logging::init_with_config(
         LoggingConfig::for_app("stipe", Level::WARN)
@@ -284,7 +292,24 @@ fn main() -> Result<()> {
             };
             commands::install::run(&opts, &tools)
         }
-        Commands::InstallSkills { pack_path } => commands::install::install_skills(&pack_path),
+        Commands::InstallSkills { pack_path, frozen } => {
+            if frozen {
+                if pack_path.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "--frozen verifies already-installed skills and does not accept a pack path; \
+                         remove the path argument or remove --frozen"
+                    ));
+                }
+                commands::install::verify_installed_skills()
+            } else {
+                match pack_path {
+                    Some(path) => commands::install::install_skills(&path),
+                    None => Err(anyhow::anyhow!(
+                        "install-skills requires a pack path unless --frozen is used"
+                    )),
+                }
+            }
+        }
         Commands::Update {
             profile,
             all,
@@ -562,6 +587,37 @@ mod tests {
         match cli.command {
             Commands::Init { repair, .. } => assert!(repair),
             _ => panic!("expected init command"),
+        }
+    }
+
+    #[test]
+    fn test_install_skills_with_pack_path() {
+        let cli = Cli::try_parse_from(["stipe", "install-skills", "/path/to/pack.tar.gz"])
+            .expect("install-skills should accept pack path");
+
+        match cli.command {
+            Commands::InstallSkills { pack_path, frozen } => {
+                assert_eq!(
+                    pack_path,
+                    Some(std::path::PathBuf::from("/path/to/pack.tar.gz"))
+                );
+                assert!(!frozen);
+            }
+            _ => panic!("expected install-skills command"),
+        }
+    }
+
+    #[test]
+    fn test_install_skills_with_frozen_flag() {
+        let cli = Cli::try_parse_from(["stipe", "install-skills", "--frozen"])
+            .expect("install-skills should accept --frozen flag");
+
+        match cli.command {
+            Commands::InstallSkills { pack_path, frozen } => {
+                assert_eq!(pack_path, None);
+                assert!(frozen);
+            }
+            _ => panic!("expected install-skills command"),
         }
     }
 }
