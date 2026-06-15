@@ -1347,7 +1347,7 @@ mod tests {
         );
         assert_eq!(
             pinned.as_deref(),
-            Some("0.17.0"),
+            Some("0.18.0"),
             "latest version should be returned"
         );
         assert!(
@@ -1358,12 +1358,12 @@ mod tests {
 
     #[test]
     fn check_version_drift_accepts_current_binary() {
-        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.17.0");
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.18.0");
         assert!(
             !is_behind,
             "matching version should not be reported as behind"
         );
-        assert_eq!(pinned.as_deref(), Some("0.17.0"));
+        assert_eq!(pinned.as_deref(), Some("0.18.0"));
         assert!(
             msg_override.is_none(),
             "should not have message override for matching"
@@ -1398,9 +1398,9 @@ mod tests {
 
     #[test]
     fn check_version_drift_detects_newer_binary() {
-        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.18.0");
+        let (is_behind, pinned, msg_override) = check_version_drift("hyphae", "0.19.0");
         assert!(!is_behind, "newer version should not be reported as behind");
-        assert_eq!(pinned.as_deref(), Some("0.17.0"));
+        assert_eq!(pinned.as_deref(), Some("0.18.0"));
         assert!(
             msg_override.is_some(),
             "newer version should have override message"
