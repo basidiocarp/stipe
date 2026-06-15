@@ -37,9 +37,8 @@ ulid = "1"
 which = "7"
 
 [tools]
-# Tool versions: ecosystem-versions.toml is the single authority.
-# Stipe reads this file at build time to generate its doctor version pins.
-# Update this file when a tool is released; stipe picks it up on next build.
+# GENERATED from root ecosystem-versions.toml by scripts/sync-stipe-tools.sh — do not edit by hand.
+# Run `bash scripts/sync-stipe-tools.sh` after bumping root [tools]; stipe build.rs panics on drift.
 mycelium = "0.13.0"
 hyphae = "0.17.0"       # 5-crate workspace; unified workspace.package version (cli tracks tag) since Lane #114
 rhizome = "0.13.0"      # 5-crate workspace, version per crate
