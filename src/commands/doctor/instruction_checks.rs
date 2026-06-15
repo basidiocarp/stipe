@@ -51,6 +51,7 @@ pub(super) fn check_instruction_files() -> Vec<HealthCheck> {
                 "Could not find workspace root (basidiocarp); skipping instruction file checks"
                     .to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     };
 
@@ -80,6 +81,7 @@ fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
                 "Global user rules directory not found at ~/.claude/rules/".to_string()
             },
             repair_actions: Vec::new(),
+            suppressed: false,
         });
     }
 
@@ -94,6 +96,7 @@ fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
             "Workspace root CLAUDE.md not found".to_string()
         },
         repair_actions: Vec::new(),
+        suppressed: false,
     });
 
     // L1: Check workspace root AGENTS.md
@@ -107,6 +110,7 @@ fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
             "Workspace root AGENTS.md not found".to_string()
         },
         repair_actions: Vec::new(),
+        suppressed: false,
     });
 
     // L2: Check project CLAUDE.md files for active subprojects
@@ -123,6 +127,7 @@ fn check_instruction_files_at_path(workspace_root: &Path) -> Vec<HealthCheck> {
                     format!("{project}/CLAUDE.md not found")
                 },
                 repair_actions: Vec::new(),
+                suppressed: false,
             });
         }
     }

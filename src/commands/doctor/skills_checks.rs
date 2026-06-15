@@ -16,6 +16,7 @@ pub(super) fn check_skills() -> HealthCheck {
             passed: true,
             message: "All skill checks passed".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     } else {
         let failed_messages: Vec<&str> = checks
@@ -31,6 +32,7 @@ pub(super) fn check_skills() -> HealthCheck {
                 .iter()
                 .flat_map(|c| c.repair_actions.clone())
                 .collect(),
+            suppressed: false,
         }
     }
 }
@@ -43,6 +45,7 @@ fn check_skills_at(installed_manifest_path: &std::path::Path) -> HealthCheck {
             passed: true,
             message: "No skill pack installed".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -53,12 +56,14 @@ fn check_skills_at(installed_manifest_path: &std::path::Path) -> HealthCheck {
             passed,
             message,
             repair_actions: Vec::new(),
+            suppressed: false,
         },
         Err(e) => HealthCheck {
             name: "installed skills".to_string(),
             passed: false,
             message: format!("Error reading installed skill manifest: {e}"),
             repair_actions: Vec::new(),
+            suppressed: false,
         },
     }
 }
@@ -174,6 +179,7 @@ fn check_codex_skills_at(skills_dir: &std::path::Path) -> HealthCheck {
             passed: false,
             message: "No codex skills installed — run 'stipe host setup codex' or 'lamella install-codex'".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -186,6 +192,7 @@ fn check_codex_skills_at(skills_dir: &std::path::Path) -> HealthCheck {
             message: "~/.codex/skills/ exists but is empty — run 'lamella install-codex'"
                 .to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -194,6 +201,7 @@ fn check_codex_skills_at(skills_dir: &std::path::Path) -> HealthCheck {
         passed: true,
         message: "Codex skills are installed".to_string(),
         repair_actions: Vec::new(),
+        suppressed: false,
     }
 }
 

@@ -56,6 +56,7 @@ pub(super) fn collect_package_drift(
                 message: "No saved install profile found; skipping package drift checks."
                     .to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
         );
     };
@@ -106,6 +107,7 @@ pub(super) fn collect_package_drift(
                 format!("{missing_count} expected packages are missing for saved profile")
             },
             repair_actions,
+            suppressed: false,
         },
     )
 }

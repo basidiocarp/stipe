@@ -60,6 +60,7 @@ pub(super) fn check_task_linked_council(
                 canopy_ready,
             )
         },
+        suppressed: false,
     }
 }
 

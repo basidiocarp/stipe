@@ -62,7 +62,9 @@ const STIPE_DOCTOR_SCHEMA_VERSION: &str = "1.0";
 mod tests;
 
 fn render_check_line(check: &HealthCheck, colorize: bool, deep: bool) -> String {
-    let (symbol, raw_message) = if check.passed {
+    let (symbol, raw_message) = if check.suppressed {
+        ("⊘", format!("{} (suppressed)", check.message))
+    } else if check.passed {
         ("✓", check.message.clone())
     } else {
         ("✗", check.message.clone())
@@ -79,7 +81,9 @@ fn render_check_line(check: &HealthCheck, colorize: bool, deep: bool) -> String 
     };
 
     let message = if colorize {
-        if check.passed {
+        if check.suppressed {
+            message.dimmed().to_string()
+        } else if check.passed {
             message.green().to_string()
         } else {
             message.red().to_string()
@@ -541,9 +545,16 @@ fn render_overview(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Str
             lines.push(render_check_line(check, colorize, deep));
         }
     } else {
-        // Compact: show only failing regular checks
-        let failing: Vec<_> = regular_checks.iter().filter(|c| !c.passed).collect();
-        let passed_count = regular_checks.iter().filter(|c| c.passed).count();
+        // Compact: show only failing, unsuppressed regular checks
+        let failing: Vec<_> = regular_checks
+            .iter()
+            .filter(|c| !c.passed && !c.suppressed)
+            .collect();
+        let passed_count = regular_checks
+            .iter()
+            .filter(|c| c.passed && !c.suppressed)
+            .count();
+        let suppressed_count = regular_checks.iter().filter(|c| c.suppressed).count();
 
         for check in &failing {
             lines.push(render_check_line(check, colorize, deep));
@@ -551,6 +562,16 @@ fn render_overview(report: &DoctorReport, colorize: bool, deep: bool) -> Vec<Str
 
         if passed_count > 0 {
             let summary = format!("  ({passed_count} checks passed)");
+            let summary = if colorize {
+                summary.dimmed().to_string()
+            } else {
+                summary
+            };
+            lines.push(summary);
+        }
+
+        if suppressed_count > 0 {
+            let summary = format!("  ({suppressed_count} suppressed)");
             let summary = if colorize {
                 summary.dimmed().to_string()
             } else {
@@ -647,6 +668,7 @@ fn host_summary_check(host_checks: &[&HealthCheck]) -> HealthCheck {
         passed: attention == 0,
         message,
         repair_actions: Vec::new(),
+        suppressed: false,
     }
 }
 
@@ -1432,8 +1454,24 @@ fn host_health_checks() -> Vec<HealthCheck> {
             passed: check.passed,
             message: check.message,
             repair_actions: check.repair_actions,
+            suppressed: false,
         })
         .collect()
+}
+
+/// Marks any check whose name is in `suppressed` as suppressed, then computes
+/// the doctor verdict ignoring suppressed checks. Returns (healthy, `failing_count`).
+/// Shared by `build_report_with_saved_profile` and the verdict unit test so both
+/// exercise the same code path.
+fn doctor_verdict(checks: &mut [HealthCheck], suppressed: &[String]) -> (bool, usize) {
+    for check in checks.iter_mut() {
+        if suppressed.iter().any(|s| s == &check.name) {
+            check.suppressed = true;
+        }
+    }
+    let healthy = checks.iter().filter(|c| !c.suppressed).all(|c| c.passed);
+    let failing = checks.iter().filter(|c| !c.suppressed && !c.passed).count();
+    (healthy, failing)
 }
 
 fn build_report_with_saved_profile(
@@ -1481,8 +1519,11 @@ fn build_report_with_saved_profile(
     checks.push(check_lamella_hooks());
     checks.push(check_lamella_presence());
 
-    let healthy = checks.iter().all(|check| check.passed);
-    let failing = checks.iter().filter(|check| !check.passed).count();
+    let suppressed_names: &[String] = saved_profile
+        .as_ref()
+        .map_or(&[], |saved| saved.suppressed_checks.as_slice());
+    let (healthy, failing) = doctor_verdict(&mut checks, suppressed_names);
+    let suppressed_count = checks.iter().filter(|c| c.suppressed).count();
     let repair_actions = dedupe_repair_actions(
         checks
             .iter()
@@ -1493,10 +1534,16 @@ fn build_report_with_saved_profile(
     DoctorReport {
         schema_version: STIPE_DOCTOR_SCHEMA_VERSION.to_string(),
         healthy,
-        summary: if healthy {
-            "All checks passed.".to_string()
-        } else {
-            format!("{failing} checks need attention.")
+        summary: {
+            if healthy {
+                if suppressed_count > 0 {
+                    format!("All checks passing ({suppressed_count} suppressed).")
+                } else {
+                    "All checks passed.".to_string()
+                }
+            } else {
+                format!("{failing} checks need attention.")
+            }
         },
         install_profile: saved_profile.map(|saved| InstallProfileSummary {
             profile: saved.profile.mode_label().to_string(),
@@ -1587,6 +1634,7 @@ fn add_provider_checks(checks: &mut Vec<HealthCheck>, provider_health: &[Provide
                 RepairTier::Primary,
             )]
         },
+        suppressed: false,
     });
 }
 
@@ -1611,6 +1659,7 @@ fn add_mcp_checks(checks: &mut Vec<HealthCheck>, mcp_health: &[model::McpHealth]
                 RepairTier::Primary,
             )]
         },
+        suppressed: false,
     });
 }
 
@@ -1630,6 +1679,7 @@ fn add_core_checks(
         passed: !runtime_policy::policy_conflicts_with_active_profile(runtime_policy),
         message: runtime_policy::describe_runtime_policy(runtime_policy),
         repair_actions: Vec::new(),
+        suppressed: false,
     });
     checks.push(check_task_linked_council(
         saved_profile,
@@ -1691,6 +1741,7 @@ fn add_hook_checks(checks: &mut Vec<HealthCheck>, hook_paths: &[claude_hooks::Ho
                     RepairTier::Primary,
                 )]
             },
+            suppressed: false,
         });
     }
 
@@ -1780,6 +1831,7 @@ fn check_install_ownership() -> Option<HealthCheck> {
         passed: true,
         message,
         repair_actions: Vec::new(),
+        suppressed: false,
     })
 }
 

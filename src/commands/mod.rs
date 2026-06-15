@@ -2,6 +2,7 @@ pub mod backup;
 pub mod bin_paths;
 pub mod claude_hooks;
 pub mod codex_notify;
+pub mod config;
 pub mod developer_tools;
 pub mod doctor;
 pub mod github;

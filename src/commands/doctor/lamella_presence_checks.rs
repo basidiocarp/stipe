@@ -80,5 +80,6 @@ pub(super) fn check_lamella_presence() -> HealthCheck {
                 RepairTier::Secondary,
             )]
         },
+        suppressed: false,
     }
 }

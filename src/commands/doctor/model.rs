@@ -102,6 +102,8 @@ pub(super) struct HealthCheck {
     pub(super) message: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub(super) repair_actions: Vec<RepairAction>,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub(super) suppressed: bool,
 }
 
 /// Versioned doctor report emitted by `stipe doctor --json` and consumed by Cap.

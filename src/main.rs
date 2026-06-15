@@ -144,6 +144,12 @@ enum Commands {
         deep: bool,
     },
 
+    /// Configure stipe settings and behavior
+    Config {
+        #[command(subcommand)]
+        command: commands::config::ConfigCommand,
+    },
+
     /// Check install state of recorded items
     #[command(name = "install-state-doctor")]
     InstallStateDoctor,
@@ -343,6 +349,7 @@ fn main() -> Result<()> {
             developer,
             deep,
         } => commands::doctor::run(json, developer, deep),
+        Commands::Config { command } => commands::config::run(command),
         Commands::InstallStateDoctor => commands::install_state_doctor::run(),
         Commands::InstallStateRepair {
             dry_run,
@@ -399,6 +406,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Init { .. } => "init",
         Commands::Host { .. } => "host",
         Commands::Doctor { .. } => "doctor",
+        Commands::Config { .. } => "config",
         Commands::InstallStateDoctor => "install-state-doctor",
         Commands::InstallStateRepair { .. } => "install-state-repair",
         Commands::Package { .. } => "package",

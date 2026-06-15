@@ -26,6 +26,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
             passed: true,
             message: "No settings.json path configured for this scope.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     };
 
@@ -39,6 +40,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
                 settings_path.display()
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     }
 
@@ -51,6 +53,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
                 passed: false,
                 message: format!("Could not read hooks from {}: {e}", settings_path.display()),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         }
     };
@@ -61,6 +64,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
             passed: true,
             message: "No hooks registered.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     }
 
@@ -83,6 +87,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
                 entry_count
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }]
     } else {
         vec![HealthCheck {
@@ -94,6 +99,7 @@ pub(super) fn check_claude_hook_commands(scope: HostConfigScope) -> Vec<HealthCh
                 failures.join("\n")
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }]
     }
 }
@@ -113,6 +119,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
             passed: true,
             message: "No config.toml path configured for this scope.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     };
 
@@ -126,6 +133,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
                 config_path.display()
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     }
 
@@ -138,6 +146,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
                 passed: false,
                 message: format!("Could not read {}: {e}", config_path.display()),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         }
     };
@@ -148,6 +157,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
             passed: false,
             message: format!("Could not parse TOML at {}", config_path.display()),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     };
 
@@ -157,6 +167,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
             passed: true,
             message: "No notify entries configured.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     };
 
@@ -166,6 +177,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
             passed: true,
             message: "Notify array is empty.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }];
     }
 
@@ -190,6 +202,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
                 notify_array.len()
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }]
     } else {
         vec![HealthCheck {
@@ -201,6 +214,7 @@ pub(super) fn check_codex_notify_entries(scope: HostConfigScope) -> Vec<HealthCh
                 failures.join("\n")
             ),
             repair_actions: Vec::new(),
+            suppressed: false,
         }]
     }
 }
@@ -318,6 +332,7 @@ notify = []
                 passed: true,
                 message: "File not found".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         };
 
@@ -327,6 +342,7 @@ notify = []
                 passed: false,
                 message: "Parse error".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         };
 
@@ -336,6 +352,7 @@ notify = []
                 passed: true,
                 message: "No notify".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         };
 
@@ -345,6 +362,7 @@ notify = []
                 passed: true,
                 message: "Empty".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }];
         }
 
@@ -362,6 +380,7 @@ notify = []
                 passed: true,
                 message: "All good".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }]
         } else {
             vec![HealthCheck {
@@ -369,6 +388,7 @@ notify = []
                 passed: false,
                 message: format!("Failures: {}", failures.join(", ")),
                 repair_actions: Vec::new(),
+                suppressed: false,
             }]
         }
     }

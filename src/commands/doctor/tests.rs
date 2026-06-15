@@ -213,6 +213,7 @@ fn test_build_report_includes_repair_actions_for_failures() {
                 &["init"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         }],
         hook_paths: vec![],
         repair_actions: vec![RepairAction::stipe(
@@ -252,6 +253,7 @@ fn test_render_report_snapshot_for_failure() {
             passed: false,
             message: "not found in PATH".to_string(),
             repair_actions: vec![],
+            suppressed: false,
         }],
         hook_paths: vec![],
         repair_actions: vec![RepairAction::stipe(
@@ -303,6 +305,7 @@ fn test_render_report_includes_hook_paths_section() {
             passed: true,
             message: "installed".to_string(),
             repair_actions: vec![],
+            suppressed: false,
         }],
         hook_paths: vec![claude_hooks::HookPathSnapshot {
             event: "PostToolUse".to_string(),
@@ -350,6 +353,7 @@ fn test_render_report_includes_drift_section() {
                 &["init", "--repair"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         }],
         hook_paths: vec![],
         repair_actions: vec![RepairAction::stipe(
@@ -410,6 +414,7 @@ fn test_render_report_includes_runtime_policy_section() {
             passed: true,
             message: "No remembered approvals or deny decisions are currently stored.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }],
         hook_paths: Vec::new(),
         repair_actions: Vec::new(),
@@ -552,12 +557,14 @@ fn test_render_report_summarizes_host_checks_before_detail() {
                 passed: true,
                 message: "installed".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
             HealthCheck {
                 name: "host: codex".to_string(),
                 passed: true,
                 message: "Codex host mode detected on this machine".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
             HealthCheck {
                 name: "host: codex".to_string(),
@@ -566,6 +573,7 @@ fn test_render_report_summarizes_host_checks_before_detail() {
                     "Codex host mode already points at Hyphae via notify in ~/.codex/config.toml."
                         .to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
         ],
         hook_paths: Vec::new(),
@@ -671,6 +679,7 @@ fn test_render_report_deep_widens_human_sections() {
             passed: true,
             message: "No remembered approvals or deny decisions are currently stored.".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }],
         hook_paths: Vec::new(),
         repair_actions: Vec::new(),
@@ -892,4 +901,153 @@ fn test_doctor_report_serializes_required_schema_fields() {
         obj["schema_version"], "1.0",
         "schema_version must be \"1.0\""
     );
+}
+
+#[test]
+fn test_suppression_backward_compatible_no_doctor_section() {
+    let temp_dir = unique_test_dir("suppression-backward-compat");
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let profile_path = temp_dir.join("profile.toml");
+    // Create a profile.toml with no [doctor] section
+    fs::write(&profile_path, "profile = \"standard\"\n").unwrap();
+
+    // Load suppressed checks from the profile
+    let suppressed = super::install::profile_config::load_suppressed_checks(&profile_path)
+        .expect("Should not error when [doctor] section is missing");
+
+    assert!(
+        suppressed.is_empty(),
+        "Should have empty suppression list for profile without [doctor] section"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_suppression_verdict_with_suppressed_check() {
+    use super::doctor_verdict;
+
+    let mut checks = vec![
+        HealthCheck {
+            name: "test-pass".to_string(),
+            passed: true,
+            message: "passing check".to_string(),
+            repair_actions: Vec::new(),
+            suppressed: false,
+        },
+        HealthCheck {
+            name: "test-fail".to_string(),
+            passed: false,
+            message: "failing check".to_string(),
+            repair_actions: Vec::new(),
+            suppressed: false,
+        },
+    ];
+
+    // Without suppression: the failing check makes the run unhealthy.
+    let (healthy, failing) = doctor_verdict(&mut checks, &[]);
+    assert!(
+        !healthy,
+        "run with an unsuppressed failing check is not healthy"
+    );
+    assert_eq!(failing, 1);
+    assert!(!checks[1].suppressed, "nothing should be marked suppressed");
+
+    // Reset so the second sub-case does not depend on the first call's state.
+    for check in &mut checks {
+        check.suppressed = false;
+    }
+
+    // Suppressing the only failing check flips the verdict to healthy and
+    // marks that check's `suppressed` flag (so it serializes/renders distinctly).
+    let suppressed = vec!["test-fail".to_string()];
+    let (healthy, failing) = doctor_verdict(&mut checks, &suppressed);
+    assert!(
+        healthy,
+        "run is healthy when the only failing check is suppressed"
+    );
+    assert_eq!(
+        failing, 0,
+        "suppressed checks are excluded from the failing count"
+    );
+    assert!(
+        checks[1].suppressed,
+        "doctor_verdict marks the suppressed check"
+    );
+}
+
+#[test]
+fn test_suppression_round_trip_preservation() {
+    use super::install::InstallProfile;
+    use super::install::profile_config::{
+        load_profile_from_path, load_suppressed_checks, save_profile_to_path,
+        set_doctor_suppression,
+    };
+
+    let temp_dir = unique_test_dir("suppression-round-trip");
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let profile_path = temp_dir.join("profile.toml");
+
+    // Save initial profile
+    save_profile_to_path(&profile_path, InstallProfile::Standard).expect("Should save profile");
+
+    // Set a suppression
+    set_doctor_suppression(&profile_path, "test-check", true).expect("Should set suppression");
+
+    // Load and verify the profile still has the correct name
+    let loaded = load_profile_from_path(&profile_path)
+        .expect("Should load profile")
+        .expect("Profile should exist");
+    assert_eq!(
+        loaded.profile_name(),
+        "standard",
+        "Profile name should survive round-trip"
+    );
+
+    // Load and verify suppression survived
+    let suppressed = load_suppressed_checks(&profile_path).expect("Should load suppressed checks");
+    assert!(
+        suppressed.contains(&"test-check".to_string()),
+        "Suppression should survive round-trip"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_suppression_slug_fidelity() {
+    use super::install::InstallProfile;
+    use super::install::profile_config::{
+        load_suppressed_checks, save_profile_to_path, set_doctor_suppression,
+    };
+
+    let temp_dir = unique_test_dir("suppression-slug-fidelity");
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let profile_path = temp_dir.join("profile.toml");
+
+    // Save initial profile
+    save_profile_to_path(&profile_path, InstallProfile::Standard).expect("Should save profile");
+
+    // Create a check with a specific slug
+    let check_slug = "hyphae database";
+
+    // Set suppression with exact slug
+    set_doctor_suppression(&profile_path, check_slug, true).expect("Should set suppression");
+
+    // Load and verify the exact slug is preserved
+    let suppressed = load_suppressed_checks(&profile_path).expect("Should load suppressed checks");
+
+    assert_eq!(
+        suppressed,
+        vec![check_slug.to_string()],
+        "Slug should be preserved exactly without transformation"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }

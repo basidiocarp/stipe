@@ -252,6 +252,7 @@ fn check_mcp_startup(spec: &ToolSpec) -> Option<HealthCheck> {
             passed: true,
             message: "MCP server args not configured; probe skipped".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         });
     };
     let ToolProbe::Installed(_) =
@@ -276,12 +277,14 @@ fn check_mcp_startup(spec: &ToolSpec) -> Option<HealthCheck> {
                     crate::commands::install::release::MCP_HANDSHAKE_TIMEOUT.as_secs()
                 ),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
             Err(message) => HealthCheck {
                 name: format!("{} MCP startup", spec.name),
                 passed: false,
                 message,
                 repair_actions: mcp_startup_actions(spec.name),
+                suppressed: false,
             },
         },
     )
@@ -302,6 +305,7 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
                     passed: false,
                     message: format!("v{version} installed but functional check failed: {error}"),
                     repair_actions: missing_tool_actions(spec),
+                    suppressed: false,
                 };
             }
 
@@ -339,6 +343,7 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
                 passed: true,
                 message,
                 repair_actions,
+                suppressed: false,
             }
         }
         (DoctorCoverage::Optional, ToolProbe::Missing) => HealthCheck {
@@ -346,18 +351,21 @@ pub(super) fn check_tool(spec: &ToolSpec, deep: bool) -> HealthCheck {
             passed: true,
             message: format!("{} not installed (optional)", spec.description),
             repair_actions: missing_tool_actions(spec),
+            suppressed: false,
         },
         (_, ToolProbe::Broken) => HealthCheck {
             name: spec.name.to_string(),
             passed: false,
             message: "Binary found but failed to run".to_string(),
             repair_actions: missing_tool_actions(spec),
+            suppressed: false,
         },
         (DoctorCoverage::Required, ToolProbe::Missing) => HealthCheck {
             name: spec.name.to_string(),
             passed: false,
             message: "Not installed".to_string(),
             repair_actions: missing_tool_actions(spec),
+            suppressed: false,
         },
         (DoctorCoverage::Ignore, _) => unreachable!(),
     }
@@ -378,6 +386,7 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
                         profile.mode_label()
                     ),
                     repair_actions: missing_tool_actions(spec),
+                    suppressed: false,
                 };
             }
 
@@ -421,6 +430,7 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
                 passed: true,
                 message,
                 repair_actions,
+                suppressed: false,
             }
         }
         ToolProbe::Broken => HealthCheck {
@@ -431,12 +441,14 @@ fn check_expected_tool(spec: &ToolSpec, profile: InstallProfile, deep: bool) -> 
                 profile.mode_label()
             ),
             repair_actions: missing_tool_actions(spec),
+            suppressed: false,
         },
         ToolProbe::Missing => HealthCheck {
             name: spec.name.to_string(),
             passed: false,
             message: format!("Not installed (expected by {})", profile.mode_label()),
             repair_actions: missing_tool_actions(spec),
+            suppressed: false,
         },
     }
 }
@@ -508,6 +520,7 @@ fn check_manual_profile_tool(member: ManualProfileMember, profile: InstallProfil
             passed: true,
             message: format!("installed (expected by {})", profile.mode_label()),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     } else {
         HealthCheck {
@@ -515,6 +528,7 @@ fn check_manual_profile_tool(member: ManualProfileMember, profile: InstallProfil
             passed: false,
             message: format!("Not installed (expected by {})", profile.mode_label()),
             repair_actions: vec![manual_tool_action(member)],
+            suppressed: false,
         }
     }
 }
@@ -553,6 +567,7 @@ pub(super) fn check_codex_notify() -> Option<HealthCheck> {
                 &["install", "hyphae"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         });
     }
 
@@ -567,6 +582,7 @@ pub(super) fn check_codex_notify() -> Option<HealthCheck> {
         } else {
             vec![crate::commands::codex_notify::codex_notify_repair_action()]
         },
+        suppressed: false,
     })
 }
 
@@ -581,6 +597,7 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
             passed: true,
             message: "Hyphae not installed (database check skipped)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -596,6 +613,7 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
                 &["init"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         };
     };
 
@@ -614,6 +632,7 @@ pub(super) fn check_hyphae_db() -> HealthCheck {
             passed: true,
             message: "Database at legacy path (will migrate on next hyphae launch)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -628,6 +647,7 @@ pub(super) fn check_shared_storage_root() -> HealthCheck {
             passed: false,
             message: "Cannot determine data directory".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     };
 
@@ -679,6 +699,7 @@ pub(super) fn check_shared_storage_root() -> HealthCheck {
                 RepairTier::Primary,
             )]
         },
+        suppressed: false,
     }
 }
 
@@ -689,6 +710,7 @@ pub(super) fn check_hyphae_db_at_path(db_path: &Path) -> HealthCheck {
             passed: true,
             message: "Database initialized".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     } else {
         HealthCheck {
@@ -702,6 +724,7 @@ pub(super) fn check_hyphae_db_at_path(db_path: &Path) -> HealthCheck {
                 &["init"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         }
     }
 }
@@ -717,6 +740,7 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
             passed: true,
             message: "Cannot determine data directory (advisory)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     };
 
@@ -731,6 +755,7 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
             passed: true,
             message: "Canopy database not initialized (WAL mode set on first run)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -751,6 +776,7 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
                     passed: true,
                     message: "WAL mode active".to_string(),
                     repair_actions: Vec::new(),
+                    suppressed: false,
                 }
             } else {
                 HealthCheck {
@@ -758,6 +784,7 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
                     passed: false,
                     message: format!("journal_mode is '{mode}', expected 'wal' — restart Canopy to apply"),
                     repair_actions: Vec::new(),
+                    suppressed: false,
                 }
             }
         }
@@ -766,12 +793,14 @@ pub(super) fn check_canopy_wal_mode() -> HealthCheck {
             passed: true,
             message: "sqlite3 query failed (database may be locked); WAL mode set at Canopy startup (advisory)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         },
         Err(_) => HealthCheck {
             name: "canopy WAL mode".to_string(),
             passed: true,
             message: "sqlite3 not available; WAL mode set at Canopy startup (advisory)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         },
     }
 }
@@ -787,6 +816,7 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
             passed: true,
             message: "Rhizome not installed (skipped)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     };
 
@@ -802,6 +832,7 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
             passed: true,
             message: "Rhizome not installed (skipped)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     }
 
@@ -814,6 +845,7 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
             passed: true,
             message: "Hyphae not installed (skipped)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         };
     };
 
@@ -829,6 +861,7 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
             passed: true,
             message: "Compiled environment artifact exists in Hyphae".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     } else {
         HealthCheck {
@@ -836,6 +869,7 @@ pub(super) fn check_rhizome_compiled_env() -> HealthCheck {
             passed: true,
             message: "No compiled environment artifact; run 'rhizome compile-env' to generate one (optional)".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     }
 }
@@ -864,6 +898,7 @@ pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCh
                 &["init"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         };
     }
 
@@ -887,6 +922,7 @@ pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCh
                 &["init"],
                 RepairTier::Primary,
             )],
+            suppressed: false,
         }
     } else {
         HealthCheck {
@@ -894,6 +930,7 @@ pub(super) fn check_capability_registry_health(registry_path: &Path) -> HealthCh
             passed: true,
             message: "Capability registry present and current".to_string(),
             repair_actions: Vec::new(),
+            suppressed: false,
         }
     }
 }
@@ -1016,6 +1053,7 @@ pub(super) fn check_hook_command_runnability() -> Option<HealthCheck> {
                 RepairTier::Primary,
             )]
         },
+        suppressed: false,
     })
 }
 
@@ -1038,6 +1076,7 @@ pub(super) fn check_stipe_toml_sync() -> Option<HealthCheck> {
             &["sync"],
             RepairTier::Primary,
         )],
+        suppressed: false,
     })
 }
 
@@ -1068,6 +1107,7 @@ pub(super) fn check_stipe_toml_unknown_keys() -> Option<HealthCheck> {
             &["sync", "--scaffold"],
             RepairTier::Primary,
         )],
+        suppressed: false,
     })
 }
 
@@ -1140,6 +1180,7 @@ pub(super) fn check_local_config_gitignore() -> Option<HealthCheck> {
             n, joined
         ),
         repair_actions: vec![],
+        suppressed: false,
     })
 }
 

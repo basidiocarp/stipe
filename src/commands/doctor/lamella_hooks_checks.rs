@@ -70,6 +70,7 @@ fn check_lamella_hooks_at(paths: &[std::path::PathBuf]) -> HealthCheck {
                 RepairTier::Primary,
             )]
         },
+        suppressed: false,
     }
 }
 

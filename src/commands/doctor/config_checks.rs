@@ -99,6 +99,7 @@ pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
                         format!("{} config drift issue(s) detected", report.findings.len())
                     },
                     repair_actions: baseline::repair_actions_for_report(&report),
+                    suppressed: false,
                 },
                 report: Some(report),
             }
@@ -109,6 +110,7 @@ pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
                 passed: true,
                 message: "No init baseline found; skipping drift detection.".to_string(),
                 repair_actions: Vec::new(),
+                suppressed: false,
             },
             report: None,
         },
@@ -124,6 +126,7 @@ pub(super) fn check_mcp_config_drift() -> ConfigDriftState {
                     &["init", "--repair"],
                     RepairTier::Primary,
                 )],
+                suppressed: false,
             },
             report: None,
         },
